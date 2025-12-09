@@ -76,6 +76,45 @@ let layout = try JSONDecoder().decode(DockLayout.self, from: data)
 container.applyLayout(layout)
 ```
 
+## Cargo System
+
+Tabs can include a `cargo` object for panel-specific configuration:
+
+```swift
+let tab = TabLayoutState(
+    id: UUID(),
+    title: "Terminal",
+    iconName: "terminal",
+    cargo: [
+        "type": AnyCodable("terminal"),
+        "cwd": AnyCodable("/Users/jack/project")
+    ]
+)
+```
+
+Use `ReconciliationCommands` to process layout changes:
+
+```swift
+let commands = layoutManager.computeCommands(to: newLayout)
+
+// Create new panels via factory
+for cmd in commands.panelsToCreate {
+    let panel = myFactory.create(id: cmd.tabId, cargo: cmd.cargo)
+    panelRegistry[cmd.tabId] = panel
+}
+
+// Remove old panels
+for tabId in commands.panelsToRemove {
+    panelRegistry[tabId]?.cleanup()
+    panelRegistry.removeValue(forKey: tabId)
+}
+
+// Apply layout
+layoutManager.updateLayout(newLayout)
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation.
+
 ## Architecture
 
 DockKit uses a declarative layout model with automatic reconciliation:

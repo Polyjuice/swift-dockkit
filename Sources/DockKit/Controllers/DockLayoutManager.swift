@@ -48,6 +48,33 @@ public class DockLayoutManager {
         return DockLayout(windows: windowStates)
     }
 
+    /// Compute reconciliation commands between current and target layout
+    /// Use this to determine what panels need to be created/removed before calling updateLayout
+    ///
+    /// Typical usage:
+    /// ```swift
+    /// let commands = layoutManager.computeCommands(to: newLayout)
+    ///
+    /// // 1. Create new panels
+    /// for cmd in commands.panelsToCreate {
+    ///     let panel = factory.create(id: cmd.tabId, cargo: cmd.cargo)
+    ///     panelRegistry[cmd.tabId] = panel
+    /// }
+    ///
+    /// // 2. Remove old panels
+    /// for tabId in commands.panelsToRemove {
+    ///     panelRegistry[tabId]?.cleanup()
+    ///     panelRegistry.removeValue(forKey: tabId)
+    /// }
+    ///
+    /// // 3. Apply layout
+    /// layoutManager.updateLayout(newLayout)
+    /// ```
+    public func computeCommands(to targetLayout: DockLayout) -> ReconciliationCommands {
+        let currentLayout = getLayout()
+        return DockLayoutDiff.extractCommands(from: currentLayout, to: targetLayout)
+    }
+
     /// Apply layout changes (computes delta, reconciles view hierarchy)
     /// Host app must ensure all referenced panel IDs exist in its panelProvider
     public func updateLayout(_ layout: DockLayout) {
@@ -310,13 +337,14 @@ public class DockLayoutManager {
             for tabState in tabGroupLayout.tabs {
                 // Try to get panel from provider
                 if let panel = panelProvider?(tabState.id) {
-                    tabs.append(DockTab(from: panel))
+                    tabs.append(DockTab(from: panel, cargo: tabState.cargo))
                 } else {
                     // Create placeholder tab (panel not yet registered)
                     tabs.append(DockTab(
                         id: tabState.id,
                         title: tabState.title,
-                        iconName: tabState.iconName
+                        iconName: tabState.iconName,
+                        cargo: tabState.cargo
                     ))
                 }
             }

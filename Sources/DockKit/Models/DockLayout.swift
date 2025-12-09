@@ -121,16 +121,27 @@ public struct TabGroupLayoutNode: Codable {
 }
 
 /// Codable state for a single tab
-/// NOTE: No panelType - DockKit is panel-agnostic, host app handles type metadata
+/// NOTE: DockKit is panel-agnostic - the host app interprets the cargo field
 public struct TabLayoutState: Codable {
     public let id: UUID
     public var title: String
     public var iconName: String?
 
-    public init(id: UUID = UUID(), title: String, iconName: String? = nil) {
+    /// Arbitrary JSON cargo for panel-specific configuration
+    /// The host app's panel factory interprets this (e.g., "type", "url", "cwd")
+    /// DockKit stores and diffs cargo but doesn't interpret its contents
+    public var cargo: [String: AnyCodable]?
+
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        iconName: String? = nil,
+        cargo: [String: AnyCodable]? = nil
+    ) {
         self.id = id
         self.title = title
         self.iconName = iconName
+        self.cargo = cargo
     }
 }
 
@@ -177,7 +188,8 @@ public extension TabLayoutState {
         TabLayoutState(
             id: tab.id,
             title: tab.title,
-            iconName: tab.iconName
+            iconName: tab.iconName,
+            cargo: tab.cargo
         )
     }
 }

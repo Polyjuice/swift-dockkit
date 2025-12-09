@@ -521,7 +521,7 @@ public class DockLayoutReconciler {
                     if verboseLogging {
                         print("[RECONCILER] convertLayoutNodeToDockNode: FOUND panel '\(panel.panelTitle)' for tab \(tabState.id.uuidString.prefix(8))")
                     }
-                    return DockTab(from: panel)
+                    return DockTab(from: panel, cargo: tabState.cargo)
                 }
                 // Create placeholder tab
                 if verboseLogging {
@@ -531,7 +531,8 @@ public class DockLayoutReconciler {
                     id: tabState.id,
                     title: tabState.title,
                     iconName: tabState.iconName,
-                    panel: nil
+                    panel: nil,
+                    cargo: tabState.cargo
                 )
             }
 

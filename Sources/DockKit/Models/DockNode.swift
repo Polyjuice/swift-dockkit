@@ -128,19 +128,31 @@ public class DockTab: Identifiable {
     /// NOTE: Using class instead of struct to safely hold reference to existential type
     public var panel: (any DockablePanel)?
 
-    public init(id: UUID = UUID(), title: String, iconName: String? = nil, panel: (any DockablePanel)? = nil) {
+    /// Cargo from the layout state - preserved for round-tripping
+    /// The host app's panel factory uses this for panel configuration
+    public var cargo: [String: AnyCodable]?
+
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        iconName: String? = nil,
+        panel: (any DockablePanel)? = nil,
+        cargo: [String: AnyCodable]? = nil
+    ) {
         self.id = id
         self.title = title
         self.iconName = iconName
         self.panel = panel
+        self.cargo = cargo
     }
 
     /// Create a tab from a dockable panel
-    public init(from panel: any DockablePanel) {
+    public init(from panel: any DockablePanel, cargo: [String: AnyCodable]? = nil) {
         self.id = panel.panelId
         self.title = panel.panelTitle
         self.iconName = nil  // Will use panel.panelIcon directly
         self.panel = panel
+        self.cargo = cargo
     }
 
     /// Get the icon (from panel if available, otherwise system symbol)
