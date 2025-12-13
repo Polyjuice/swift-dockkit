@@ -77,9 +77,16 @@ public class DockDesktopContainerView: NSView {
     private var timeScale: CGFloat { slowMotionEnabled ? 0.1 : 1.0 }
 
     /// Thumbnail mode - when enabled, all tab groups show thumbnails instead of tabs
-    public var thumbnailModeEnabled: Bool = false {
+    @available(*, deprecated, message: "Use displayMode instead")
+    public var thumbnailModeEnabled: Bool {
+        get { displayMode == .thumbnails }
+        set { displayMode = newValue ? .thumbnails : .tabs }
+    }
+
+    /// Display mode for tabs in this container
+    public var displayMode: DesktopDisplayMode = .tabs {
         didSet {
-            if thumbnailModeEnabled != oldValue {
+            if displayMode != oldValue {
                 updateAllTabGroupDisplayModes()
             }
         }
@@ -99,16 +106,14 @@ public class DockDesktopContainerView: NSView {
 
     /// Update display mode on all tab group view controllers
     private func updateAllTabGroupDisplayModes() {
-        let newMode: TabGroupDisplayMode = thumbnailModeEnabled ? .thumbnails : .tabs
-
         // Update all desktop view controllers
         for (_, viewController) in desktopViewControllers {
-            updateTabGroupDisplayMode(in: viewController, to: newMode)
+            updateTabGroupDisplayMode(in: viewController, to: displayMode)
         }
     }
 
     /// Recursively update display mode in a view controller hierarchy
-    private func updateTabGroupDisplayMode(in viewController: NSViewController, to mode: TabGroupDisplayMode) {
+    private func updateTabGroupDisplayMode(in viewController: NSViewController, to mode: DesktopDisplayMode) {
         if let tabGroupVC = viewController as? DockTabGroupViewController {
             tabGroupVC.setDisplayMode(mode)
         } else if let splitVC = viewController as? DockSplitViewController {

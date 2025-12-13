@@ -63,6 +63,17 @@ public class DockDesktopHostWindow: NSWindow {
     /// Flag to suppress auto-close during reconciliation
     internal var suppressAutoClose: Bool = false
 
+    /// Display mode for tabs and desktop indicators
+    public var displayMode: DesktopDisplayMode {
+        get { desktopHostState.displayMode }
+        set {
+            desktopHostState.displayMode = newValue
+            headerView?.displayMode = newValue
+            // Update tab bars in container if needed
+            containerView?.displayMode = newValue
+        }
+    }
+
     // MARK: - Child Window Tracking
 
     /// Child windows spawned from panel tearing

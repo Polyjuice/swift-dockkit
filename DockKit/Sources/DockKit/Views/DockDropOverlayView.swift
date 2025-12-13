@@ -22,14 +22,35 @@ public class DockDropOverlayView: NSView {
     /// Currently highlighted zone
     private var highlightedZone: DockDropZone?
 
-    /// Preview overlay that shows where content will go
+    /// Preview overlay that shows where content will go (built-in)
     private var previewView: NSView!
+
+    /// Custom preview view (when using custom renderer)
+    private var customPreviewView: NSView?
 
     /// Configuration
     private let edgeThreshold: CGFloat = 0.25  // 25% of width/height for edge zones
-    private let previewColor = NSColor.black.withAlphaComponent(0.3)
-    private let previewBorderColor = NSColor.controlAccentColor
-    private let previewBorderWidth: CGFloat = 2
+
+    /// Default styling (used when no custom renderer)
+    private var overlayBackgroundColor: NSColor {
+        DockKit.customDropZoneRenderer?.overlayBackgroundColor ?? NSColor.black.withAlphaComponent(0.05)
+    }
+
+    private var previewBackgroundColor: NSColor {
+        DockKit.customDropZoneRenderer?.previewBackgroundColor ?? NSColor.black.withAlphaComponent(0.3)
+    }
+
+    private var previewBorderColor: NSColor {
+        DockKit.customDropZoneRenderer?.previewBorderColor ?? NSColor.controlAccentColor
+    }
+
+    private var previewBorderWidth: CGFloat {
+        DockKit.customDropZoneRenderer?.previewBorderWidth ?? 2
+    }
+
+    private var previewCornerRadius: CGFloat {
+        DockKit.customDropZoneRenderer?.previewCornerRadius ?? 4
+    }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -47,18 +68,36 @@ public class DockDropOverlayView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        // Light tint to show overlay is active
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.05).cgColor
+        layer?.backgroundColor = overlayBackgroundColor.cgColor
 
-        // Preview view (shows where content will be placed)
-        previewView = NSView()
-        previewView.wantsLayer = true
-        previewView.layer?.backgroundColor = previewColor.cgColor
-        previewView.layer?.borderColor = previewBorderColor.cgColor
-        previewView.layer?.borderWidth = previewBorderWidth
-        previewView.layer?.cornerRadius = 4
-        previewView.isHidden = true
-        addSubview(previewView)
+        // Check for custom preview view
+        if let customView = DockKit.customDropZoneRenderer?.createPreviewView() {
+            customPreviewView = customView
+            customView.isHidden = true
+            addSubview(customView)
+        } else {
+            // Built-in preview view
+            previewView = NSView()
+            previewView.wantsLayer = true
+            previewView.layer?.backgroundColor = previewBackgroundColor.cgColor
+            previewView.layer?.borderColor = previewBorderColor.cgColor
+            previewView.layer?.borderWidth = previewBorderWidth
+            previewView.layer?.cornerRadius = previewCornerRadius
+            previewView.isHidden = true
+            addSubview(previewView)
+        }
+    }
+
+    /// Refresh styling from renderer (call when renderer changes)
+    public func refreshStyling() {
+        layer?.backgroundColor = overlayBackgroundColor.cgColor
+
+        if let preview = previewView {
+            preview.layer?.backgroundColor = previewBackgroundColor.cgColor
+            preview.layer?.borderColor = previewBorderColor.cgColor
+            preview.layer?.borderWidth = previewBorderWidth
+            preview.layer?.cornerRadius = previewCornerRadius
+        }
     }
 
     private func setupDragAndDrop() {
@@ -99,22 +138,37 @@ public class DockDropOverlayView: NSView {
     private func updatePreview(for zone: DockDropZone?) {
         highlightedZone = zone
 
+        // Handle custom preview view
+        if let customView = customPreviewView {
+            if let renderer = DockKit.customDropZoneRenderer {
+                customView.isHidden = (zone == nil)
+                renderer.updatePreviewView(customView, for: zone, in: bounds)
+            }
+            return
+        }
+
+        // Built-in preview
         guard let zone = zone else {
             previewView.isHidden = true
             return
         }
 
         previewView.isHidden = false
+        previewView.frame = frameForZone(zone)
+    }
+
+    /// Calculate frame for a given zone
+    private func frameForZone(_ zone: DockDropZone) -> NSRect {
         let margin: CGFloat = 4
 
         switch zone {
         case .center:
             // Full pane - adding as tab
-            previewView.frame = bounds.insetBy(dx: margin, dy: margin)
+            return bounds.insetBy(dx: margin, dy: margin)
 
         case .left:
             // Left half
-            previewView.frame = NSRect(
+            return NSRect(
                 x: margin,
                 y: margin,
                 width: bounds.width / 2 - margin * 1.5,
@@ -123,7 +177,7 @@ public class DockDropOverlayView: NSView {
 
         case .right:
             // Right half
-            previewView.frame = NSRect(
+            return NSRect(
                 x: bounds.width / 2 + margin / 2,
                 y: margin,
                 width: bounds.width / 2 - margin * 1.5,
@@ -132,7 +186,7 @@ public class DockDropOverlayView: NSView {
 
         case .top:
             // Top half (higher Y in macOS coordinates)
-            previewView.frame = NSRect(
+            return NSRect(
                 x: margin,
                 y: bounds.height / 2 + margin / 2,
                 width: bounds.width - margin * 2,
@@ -141,7 +195,7 @@ public class DockDropOverlayView: NSView {
 
         case .bottom:
             // Bottom half (lower Y in macOS coordinates)
-            previewView.frame = NSRect(
+            return NSRect(
                 x: margin,
                 y: margin,
                 width: bounds.width - margin * 2,

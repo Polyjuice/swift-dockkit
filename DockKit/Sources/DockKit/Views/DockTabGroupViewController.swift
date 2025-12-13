@@ -391,6 +391,13 @@ public class DockTabGroupViewController: NSViewController {
         updateTabBar()
     }
 
+    /// Update the display mode using DesktopDisplayMode
+    public func setDisplayMode(_ mode: DesktopDisplayMode) {
+        // Convert to tab bar display mode
+        tabBar.displayMode = mode
+        updateTabBarForDesktopMode(mode)
+    }
+
     // MARK: - Private
 
     private func updateTabBar() {
@@ -404,12 +411,34 @@ public class DockTabGroupViewController: NSViewController {
         }
     }
 
+    private func updateTabBarForDesktopMode(_ mode: DesktopDisplayMode) {
+        tabBar.setTabs(tabGroupNode.tabs, selectedIndex: tabGroupNode.activeTabIndex, displayMode: mode)
+
+        // Update height for display mode
+        let newHeight = heightForDesktopDisplayMode(mode)
+        if tabBarHeightConstraint.constant != newHeight {
+            tabBarHeightConstraint.constant = newHeight
+            view.layoutSubtreeIfNeeded()
+        }
+    }
+
     private func heightForDisplayMode(_ mode: TabGroupDisplayMode) -> CGFloat {
         switch mode {
         case .tabs:
             return 28
         case .thumbnails:
             return 80
+        }
+    }
+
+    private func heightForDesktopDisplayMode(_ mode: DesktopDisplayMode) -> CGFloat {
+        switch mode {
+        case .tabs:
+            return 28
+        case .thumbnails:
+            return 80
+        case .custom:
+            return DockKit.customTabRenderer?.tabBarHeight ?? 28
         }
     }
 

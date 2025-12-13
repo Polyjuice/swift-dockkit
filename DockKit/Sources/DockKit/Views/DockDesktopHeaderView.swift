@@ -38,11 +38,23 @@ public class DockDesktopHeaderView: NSView {
     /// Stack view containing desktop buttons
     private var stackView: NSStackView!
 
-    /// Desktop indicator buttons
+    /// Desktop indicator buttons (built-in)
     private var desktopButtons: [DockDesktopButton] = []
+
+    /// Custom desktop views (when using custom renderer)
+    private var customDesktopViews: [DockDesktopView] = []
 
     /// Stack view height constraint (changes in thumbnail mode)
     private var stackHeightConstraint: NSLayoutConstraint!
+
+    /// Current display mode
+    public var displayMode: DesktopDisplayMode = .tabs {
+        didSet {
+            if displayMode != oldValue {
+                rebuildButtons()
+            }
+        }
+    }
 
     /// Slow motion toggle switch
     private var slowMotionSwitch: NSSwitch!
@@ -171,15 +183,31 @@ public class DockDesktopHeaderView: NSView {
     /// Highlight a desktop during swipe (preview state)
     /// This moves the indicator to the target desktop
     public func highlightDesktop(at index: Int) {
+        // Built-in buttons
         for (i, button) in desktopButtons.enumerated() {
             button.setSwipeTarget(i == index, swipeMode: true)
+        }
+
+        // Custom views
+        if let renderer = DockKit.customDesktopRenderer {
+            for (i, view) in customDesktopViews.enumerated() {
+                renderer.setSwipeTarget(i == index, swipeMode: true, on: view)
+            }
         }
     }
 
     /// Clear swipe highlighting (called when swipe ends)
     public func clearSwipeHighlight() {
+        // Built-in buttons
         for button in desktopButtons {
             button.setSwipeTarget(false, swipeMode: false)
+        }
+
+        // Custom views
+        if let renderer = DockKit.customDesktopRenderer {
+            for view in customDesktopViews {
+                renderer.setSwipeTarget(false, swipeMode: false, on: view)
+            }
         }
     }
 
@@ -200,26 +228,70 @@ public class DockDesktopHeaderView: NSView {
 
     /// Set thumbnails for each desktop
     public func setThumbnails(_ thumbnails: [NSImage?]) {
+        // Built-in buttons
         for (index, button) in desktopButtons.enumerated() {
             if index < thumbnails.count {
                 button.setThumbnail(thumbnails[index])
+            }
+        }
+
+        // Custom views
+        if let renderer = DockKit.customDesktopRenderer {
+            for (index, view) in customDesktopViews.enumerated() {
+                if index < thumbnails.count {
+                    renderer.setThumbnail(thumbnails[index], on: view)
+                }
             }
         }
     }
 
     /// Set thumbnail for a specific desktop
     public func setThumbnail(_ thumbnail: NSImage?, at index: Int) {
-        guard index >= 0 && index < desktopButtons.count else { return }
-        desktopButtons[index].setThumbnail(thumbnail)
+        // Built-in buttons
+        if index >= 0 && index < desktopButtons.count {
+            desktopButtons[index].setThumbnail(thumbnail)
+        }
+
+        // Custom views
+        if let renderer = DockKit.customDesktopRenderer,
+           index >= 0 && index < customDesktopViews.count {
+            renderer.setThumbnail(thumbnail, on: customDesktopViews[index])
+        }
     }
 
     // MARK: - Private Methods
 
-    private func rebuildButtons() {
-        // Remove old buttons
+    private func clearAllViews() {
         desktopButtons.forEach { $0.removeFromSuperview() }
         desktopButtons.removeAll()
+        customDesktopViews.forEach { $0.removeFromSuperview() }
+        customDesktopViews.removeAll()
+    }
 
+    private func rebuildButtons() {
+        clearAllViews()
+
+        // Determine effective mode
+        let effectiveMode: DesktopDisplayMode
+        if displayMode == .custom && DockKit.customDesktopRenderer != nil {
+            effectiveMode = .custom
+        } else if displayMode == .custom {
+            effectiveMode = .tabs  // Fallback
+        } else {
+            effectiveMode = displayMode
+        }
+
+        switch effectiveMode {
+        case .tabs, .thumbnails:
+            rebuildBuiltInButtons()
+        case .custom:
+            rebuildCustomViews()
+        }
+
+        updateButtonStates()
+    }
+
+    private func rebuildBuiltInButtons() {
         // Create new buttons
         for (index, desktop) in desktops.enumerated() {
             let button = DockDesktopButton(desktop: desktop, index: index)
@@ -230,13 +302,41 @@ public class DockDesktopHeaderView: NSView {
             desktopButtons.append(button)
             stackView.addArrangedSubview(button)
         }
+    }
 
-        updateButtonStates()
+    private func rebuildCustomViews() {
+        guard let renderer = DockKit.customDesktopRenderer else {
+            rebuildBuiltInButtons()
+            return
+        }
+
+        // Update header height for custom renderer
+        stackHeightConstraint.constant = renderer.headerHeight - 8  // Account for padding
+
+        // Create custom views
+        for (index, desktop) in desktops.enumerated() {
+            let view = renderer.createDesktopView(for: desktop, index: index, isActive: index == activeIndex)
+            view.onSelect = { [weak self] idx in
+                self?.handleDesktopSelected(at: idx)
+            }
+            view.desktopIndex = index
+            customDesktopViews.append(view)
+            stackView.addArrangedSubview(view)
+        }
     }
 
     private func updateButtonStates() {
+        // Update built-in buttons
         for (index, button) in desktopButtons.enumerated() {
             button.setActive(index == activeIndex)
+        }
+
+        // Update custom views
+        if let renderer = DockKit.customDesktopRenderer {
+            for (index, view) in customDesktopViews.enumerated() {
+                guard index < desktops.count else { continue }
+                renderer.updateDesktopView(view, for: desktops[index], index: index, isActive: index == activeIndex)
+            }
         }
     }
 
@@ -249,12 +349,11 @@ public class DockDesktopHeaderView: NSView {
 // MARK: - DockDesktopButton
 
 /// Individual desktop button in the header - supports icon+title or thumbnail mode
-private class DockDesktopButton: NSView {
-
-    var onSelect: ((Int) -> Void)?
+public class DockDesktopButton: NSView, DockDesktopView {
+    public var onSelect: ((Int) -> Void)?
+    public var desktopIndex: Int
 
     private let desktop: Desktop
-    private let index: Int
 
     // Icon+Title mode views
     private var contentStack: NSStackView!
@@ -284,17 +383,17 @@ private class DockDesktopButton: NSView {
     private var thumbnailHeightConstraint: NSLayoutConstraint!
 
     /// Thumbnail size
-    static let thumbnailWidth: CGFloat = 120
-    static let thumbnailHeight: CGFloat = 80
+    public static let thumbnailWidth: CGFloat = 120
+    public static let thumbnailHeight: CGFloat = 80
 
-    init(desktop: Desktop, index: Int) {
+    public init(desktop: Desktop, index: Int) {
         self.desktop = desktop
-        self.index = index
+        self.desktopIndex = index
         super.init(frame: .zero)
         setupUI()
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
@@ -334,7 +433,7 @@ private class DockDesktopButton: NSView {
             iconView = icon
         }
 
-        let title = desktop.title ?? "Desktop \(index + 1)"
+        let title = desktop.title ?? "Desktop \(desktopIndex + 1)"
         let label = NSTextField(labelWithString: title)
         label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         label.textColor = .secondaryLabelColor
@@ -434,18 +533,18 @@ private class DockDesktopButton: NSView {
         addTrackingArea(trackingArea)
     }
 
-    func setActive(_ active: Bool) {
+    public func setActive(_ active: Bool) {
         isActive = active
         updateAppearance()
     }
 
-    func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool) {
+    public func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool) {
         isSwipeTarget = isTarget
         isInSwipeMode = swipeMode
         updateAppearance()
     }
 
-    func setThumbnailMode(_ enabled: Bool) {
+    public func setThumbnailMode(_ enabled: Bool) {
         guard isThumbnailMode != enabled else { return }
         isThumbnailMode = enabled
 
@@ -460,7 +559,7 @@ private class DockDesktopButton: NSView {
         updateAppearance()
     }
 
-    func setThumbnail(_ image: NSImage?) {
+    public func setThumbnail(_ image: NSImage?) {
         thumbnailView.image = image
     }
 
@@ -508,24 +607,24 @@ private class DockDesktopButton: NSView {
         }
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    public override func mouseEntered(with event: NSEvent) {
         isHovering = true
         updateAppearance()
     }
 
-    override func mouseExited(with event: NSEvent) {
+    public override func mouseExited(with event: NSEvent) {
         isHovering = false
         updateAppearance()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    public override func mouseDown(with event: NSEvent) {
         layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
     }
 
-    override func mouseUp(with event: NSEvent) {
+    public override func mouseUp(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         if bounds.contains(location) {
-            onSelect?(index)
+            onSelect?(desktopIndex)
         }
         updateAppearance()
     }

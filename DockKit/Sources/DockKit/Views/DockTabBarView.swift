@@ -42,8 +42,8 @@ public class DockTabBarView: NSView, NSDraggingSource {
     /// Identifier of the tab group this bar belongs to
     public var groupId: UUID = UUID()
 
-    /// Display mode - tabs or thumbnails
-    public var displayMode: TabGroupDisplayMode = .tabs {
+    /// Display mode - tabs, thumbnails, or custom
+    public var displayMode: DesktopDisplayMode = .tabs {
         didSet {
             if displayMode != oldValue {
                 rebuildForDisplayMode()
@@ -55,8 +55,10 @@ public class DockTabBarView: NSView, NSDraggingSource {
     private var selectedIndex: Int = 0
     private var tabButtons: [DockTabButton] = []
     private var thumbnailButtons: [DockThumbnailButton] = []
+    private var customTabViews: [DockTabView] = []
     private var stackView: NSStackView!
     private var addButton: NSButton!
+    private var customAddButton: NSView?
 
     // Drag state
     private var draggedTabIndex: Int?
@@ -135,20 +137,38 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // MARK: - Public API
 
-    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: TabGroupDisplayMode = .tabs) {
+    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: DesktopDisplayMode = .tabs) {
         self.tabs = newTabs
         self.selectedIndex = max(0, min(selectedIndex, newTabs.count - 1))
         self.displayMode = displayMode
         rebuildForDisplayMode()
     }
 
+    /// Convenience method for backward compatibility with TabGroupDisplayMode
+    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: TabGroupDisplayMode) {
+        let newMode: DesktopDisplayMode = displayMode == .thumbnails ? .thumbnails : .tabs
+        setTabs(newTabs, selectedIndex: selectedIndex, displayMode: newMode)
+    }
+
     /// Rebuild the view based on current display mode
     private func rebuildForDisplayMode() {
-        switch displayMode {
+        // Determine effective mode - fall back to tabs if custom renderer not registered
+        let effectiveMode: DesktopDisplayMode
+        if displayMode == .custom && DockKit.customTabRenderer != nil {
+            effectiveMode = .custom
+        } else if displayMode == .custom {
+            effectiveMode = .tabs  // Fallback
+        } else {
+            effectiveMode = displayMode
+        }
+
+        switch effectiveMode {
         case .tabs:
             rebuildTabButtons()
         case .thumbnails:
             rebuildThumbnailButtons()
+        case .custom:
+            rebuildCustomTabViews()
         }
     }
 
@@ -177,17 +197,29 @@ public class DockTabBarView: NSView, NSDraggingSource {
             for (index, button) in thumbnailButtons.enumerated() {
                 button.setFocused(focused && index == selectedIndex)
             }
+        case .custom:
+            guard let renderer = DockKit.customTabRenderer else { return }
+            for (index, view) in customTabViews.enumerated() {
+                renderer.setFocused(focused && index == selectedIndex, on: view)
+            }
         }
     }
 
     // MARK: - Private
 
-    private func rebuildTabButtons() {
-        // Remove old buttons (both types)
+    private func clearAllTabViews() {
         tabButtons.forEach { $0.removeFromSuperview() }
         tabButtons.removeAll()
         thumbnailButtons.forEach { $0.removeFromSuperview() }
         thumbnailButtons.removeAll()
+        customTabViews.forEach { $0.removeFromSuperview() }
+        customTabViews.removeAll()
+        customAddButton?.removeFromSuperview()
+        customAddButton = nil
+    }
+
+    private func rebuildTabButtons() {
+        clearAllTabViews()
 
         // Create new buttons
         for (index, tab) in tabs.enumerated() {
@@ -208,14 +240,13 @@ public class DockTabBarView: NSView, NSDraggingSource {
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
             button.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
         }
+
+        // Show standard add button
+        addButton.isHidden = !showAddButton
     }
 
     private func rebuildThumbnailButtons() {
-        // Remove old buttons (both types)
-        tabButtons.forEach { $0.removeFromSuperview() }
-        tabButtons.removeAll()
-        thumbnailButtons.forEach { $0.removeFromSuperview() }
-        thumbnailButtons.removeAll()
+        clearAllTabViews()
 
         // Create thumbnail buttons
         for (index, tab) in tabs.enumerated() {
@@ -236,17 +267,67 @@ public class DockTabBarView: NSView, NSDraggingSource {
             // Thumbnails have fixed width
             button.widthAnchor.constraint(equalToConstant: 120).isActive = true
         }
+
+        // Show standard add button
+        addButton.isHidden = !showAddButton
+    }
+
+    private func rebuildCustomTabViews() {
+        guard let renderer = DockKit.customTabRenderer else {
+            // Should not happen - rebuildForDisplayMode checks this
+            rebuildTabButtons()
+            return
+        }
+
+        clearAllTabViews()
+
+        // Create custom tab views
+        for (index, tab) in tabs.enumerated() {
+            let view = renderer.createTabView(for: tab, isSelected: index == selectedIndex)
+            view.onSelect = { [weak self] in
+                self?.handleTabSelected(at: index)
+            }
+            view.onClose = { [weak self] in
+                self?.handleTabClosed(at: index)
+            }
+            view.onDragBegan = { [weak self] event in
+                self?.handleDragBegan(at: index, event: event)
+            }
+
+            customTabViews.append(view)
+            stackView.addArrangedSubview(view)
+        }
+
+        // Handle custom add button
+        addButton.isHidden = true  // Hide standard button
+        if showAddButton, let customAdd = renderer.createAddButton() {
+            customAddButton = customAdd
+            addSubview(customAdd)
+            customAdd.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                customAdd.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+                customAdd.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
+        }
     }
 
     private func updateSelectionState() {
         switch displayMode {
         case .tabs:
             for (index, button) in tabButtons.enumerated() {
+                guard index < tabs.count else { continue }
                 button.update(with: tabs[index], isSelected: index == selectedIndex)
             }
         case .thumbnails:
             for (index, button) in thumbnailButtons.enumerated() {
+                guard index < tabs.count else { continue }
                 button.update(with: tabs[index], isSelected: index == selectedIndex)
+            }
+        case .custom:
+            guard let renderer = DockKit.customTabRenderer else { return }
+            for (index, view) in customTabViews.enumerated() {
+                guard index < tabs.count else { continue }
+                renderer.updateTabView(view, for: tabs[index], isSelected: index == selectedIndex)
             }
         }
     }
@@ -297,7 +378,9 @@ public class DockTabBarView: NSView, NSDraggingSource {
         }
 
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
-        draggingItem.setDraggingFrame(tabButtons[index].frame, contents: dragImage)
+        let views = activeTabViews
+        let frame = index < views.count ? views[index].frame : CGRect(x: 0, y: 0, width: 100, height: 28)
+        draggingItem.setDraggingFrame(frame, contents: dragImage)
 
         // Post notification that drag has begun so drop overlays can show
         // Include the drag info so overlays can decide whether to show
@@ -307,16 +390,18 @@ public class DockTabBarView: NSView, NSDraggingSource {
     }
 
     private func createDragImage(for tab: DockTab) -> NSImage {
-        // Get the actual tab button to use for drag image
+        // Get the actual tab view to use for drag image
+        let views = activeTabViews
         if let index = tabs.firstIndex(where: { $0.id == tab.id }),
-           let button = tabButtons[safe: index] {
+           index < views.count {
+            let view = views[index]
             // Create image from the actual view at screen resolution
-            guard let bitmapRep = button.bitmapImageRepForCachingDisplay(in: button.bounds) else {
+            guard let bitmapRep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
                 return createFallbackDragImage(for: tab)
             }
-            button.cacheDisplay(in: button.bounds, to: bitmapRep)
+            view.cacheDisplay(in: view.bounds, to: bitmapRep)
 
-            let image = NSImage(size: button.bounds.size)
+            let image = NSImage(size: view.bounds.size)
             image.addRepresentation(bitmapRep)
             return image
         }
@@ -448,26 +533,40 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // MARK: - Drop Indicator
 
+    /// Get the currently active tab views based on display mode
+    private var activeTabViews: [NSView] {
+        switch displayMode {
+        case .tabs:
+            return tabButtons
+        case .thumbnails:
+            return thumbnailButtons
+        case .custom:
+            return customTabViews
+        }
+    }
+
     private func calculateInsertionIndex(at point: NSPoint) -> Int {
+        let views = activeTabViews
         var accumulatedWidth: CGFloat = 0
-        for (index, button) in tabButtons.enumerated() {
-            let midPoint = accumulatedWidth + button.frame.width / 2
+        for (index, view) in views.enumerated() {
+            let midPoint = accumulatedWidth + view.frame.width / 2
             if point.x < midPoint {
                 return index
             }
-            accumulatedWidth += button.frame.width + stackView.spacing
+            accumulatedWidth += view.frame.width + stackView.spacing
         }
-        return tabButtons.count
+        return views.count
     }
 
     private func showDropIndicator(at index: Int) {
         guard let indicator = dropIndicatorView else { return }
 
+        let views = activeTabViews
         var xPosition: CGFloat = 0
-        if index < tabButtons.count {
-            xPosition = tabButtons[index].frame.minX - 1
-        } else if let lastButton = tabButtons.last {
-            xPosition = lastButton.frame.maxX
+        if index < views.count {
+            xPosition = views[index].frame.minX - 1
+        } else if let lastView = views.last {
+            xPosition = lastView.frame.maxX
         }
 
         indicator.frame = NSRect(x: xPosition, y: 4, width: 2, height: bounds.height - 8)
@@ -482,7 +581,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 // MARK: - DockTabButton
 
 /// Individual tab button with drag support
-public class DockTabButton: NSView {
+public class DockTabButton: NSView, DockTabView {
     public var onSelect: (() -> Void)?
     public var onClose: (() -> Void)?
     public var onDragBegan: ((NSEvent) -> Void)?
@@ -634,7 +733,7 @@ public class DockTabButton: NSView {
 // MARK: - DockThumbnailButton
 
 /// Thumbnail button showing a visual preview of the panel content
-public class DockThumbnailButton: NSView {
+public class DockThumbnailButton: NSView, DockTabView {
     public var onSelect: (() -> Void)?
     public var onClose: (() -> Void)?
     public var onDragBegan: ((NSEvent) -> Void)?
