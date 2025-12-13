@@ -73,6 +73,9 @@ public class DockDesktopContainerView: NSView {
     /// Spring mass
     private let springMass: CGFloat = 1.0
 
+    /// Rubber band coefficient (Apple uses 0.55)
+    private let rubberBandCoefficient: CGFloat = 0.55
+
     // MARK: - Initialization
 
     public override init(frame frameRect: NSRect) {
@@ -379,13 +382,26 @@ public class DockDesktopContainerView: NSView {
             // NO time scaling on input - gesture feels normal
             gestureAmount += deltaX / desktopWidth
 
-            // Clamp gesture amount based on available desktops
+            // Calculate visual offset with rubber band effect at edges
             let maxLeft = CGFloat(activeDesktopIndex)
             let maxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
-            gestureAmount = max(-maxRight, min(maxLeft, gestureAmount))
+
+            let visualAmount: CGFloat
+            if gestureAmount > maxLeft {
+                // Past left edge - apply rubber band
+                let overshoot = gestureAmount - maxLeft
+                visualAmount = maxLeft + rubberBand(overshoot, dimension: 1.0)
+            } else if gestureAmount < -maxRight {
+                // Past right edge - apply rubber band
+                let overshoot = -maxRight - gestureAmount
+                visualAmount = -maxRight - rubberBand(overshoot, dimension: 1.0)
+            } else {
+                // Within bounds - normal movement
+                visualAmount = gestureAmount
+            }
 
             // Update visual position
-            swipeOffset = gestureAmount * desktopWidth
+            swipeOffset = visualAmount * desktopWidth
             let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
             contentView.frame.origin.x = targetX
 
@@ -443,6 +459,14 @@ public class DockDesktopContainerView: NSView {
     private func finalizeGesture() {
         lastIndicatorTarget = -1
 
+        // Calculate bounds for gesture amount
+        let maxLeft = CGFloat(activeDesktopIndex)
+        let maxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
+
+        // Clamp gestureAmount to valid bounds for decision making
+        // (rubber band overshoot shouldn't trigger desktop switches)
+        let clampedAmount = max(-maxRight, min(maxLeft, gestureAmount))
+
         // Check velocity-based switching (flick) - takes priority
         let velocityBasedSwitch = abs(gestureVelocity) > flickVelocityThreshold
 
@@ -456,20 +480,44 @@ public class DockDesktopContainerView: NSView {
                 activeDesktopIndex += 1
                 gestureAmount += 1.0
             }
-        } else if gestureAmount >= dragPositionThreshold && activeDesktopIndex > 0 {
+        } else if clampedAmount >= dragPositionThreshold && activeDesktopIndex > 0 {
             // Drag: position determines switch
             activeDesktopIndex -= 1
             gestureAmount -= 1.0
-        } else if gestureAmount <= -dragPositionThreshold && activeDesktopIndex < desktops.count - 1 {
+        } else if clampedAmount <= -dragPositionThreshold && activeDesktopIndex < desktops.count - 1 {
             activeDesktopIndex += 1
             gestureAmount += 1.0
         }
 
-        // Animate to final position
-        swipeOffset = gestureAmount * bounds.width
+        // Calculate visual offset (with rubber band effect if past edges)
+        let visualAmount: CGFloat
+        let newMaxLeft = CGFloat(activeDesktopIndex)
+        let newMaxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
+
+        if gestureAmount > newMaxLeft {
+            let overshoot = gestureAmount - newMaxLeft
+            visualAmount = newMaxLeft + rubberBand(overshoot, dimension: 1.0)
+        } else if gestureAmount < -newMaxRight {
+            let overshoot = -newMaxRight - gestureAmount
+            visualAmount = -newMaxRight - rubberBand(overshoot, dimension: 1.0)
+        } else {
+            visualAmount = gestureAmount
+        }
+
+        // Animate to final position from current visual position
+        swipeOffset = visualAmount * bounds.width
         animateToDesktop(at: activeDesktopIndex)
         gestureAmount = 0
         gestureVelocity = 0
+    }
+
+    // MARK: - Rubber Band Effect
+
+    /// Apple's rubber band formula: f(x, d, c) = (x * d * c) / (d + c * x)
+    /// Creates diminishing returns - harder you push, less it moves
+    private func rubberBand(_ x: CGFloat, dimension d: CGFloat) -> CGFloat {
+        let c = rubberBandCoefficient
+        return (x * d * c) / (d + c * x)
     }
 
     // MARK: - Spring Animation
