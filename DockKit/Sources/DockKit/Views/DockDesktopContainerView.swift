@@ -10,11 +10,23 @@ public protocol DockDesktopContainerViewDelegate: AnyObject {
 
     /// Called when a panel needs to be looked up by ID
     func desktopContainer(_ container: DockDesktopContainerView, panelForId id: UUID) -> (any DockablePanel)?
+
+    /// Called when a tab is dropped in a tab group
+    func desktopContainer(_ container: DockDesktopContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
+
+    /// Called when a panel wants to detach (tear off)
+    func desktopContainer(_ container: DockDesktopContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint)
+
+    /// Called when a split is requested
+    func desktopContainer(_ container: DockDesktopContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
 }
 
 /// Default implementations
 public extension DockDesktopContainerViewDelegate {
     func desktopContainer(_ container: DockDesktopContainerView, didBeginSwipingTo index: Int) {}
+    func desktopContainer(_ container: DockDesktopContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
+    func desktopContainer(_ container: DockDesktopContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
+    func desktopContainer(_ container: DockDesktopContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
 }
 
 /// A container view that hosts multiple desktops with swipe gesture navigation
@@ -314,10 +326,12 @@ public class DockDesktopContainerView: NSView {
         switch layoutNode {
         case .split(let splitNode):
             let splitVC = DockSplitViewController(splitNode: createSplitNode(from: splitNode))
+            splitVC.tabGroupDelegate = self
             return splitVC
 
         case .tabGroup(let tabGroupNode):
             let tabGroupVC = DockTabGroupViewController(tabGroupNode: createTabGroupNode(from: tabGroupNode))
+            tabGroupVC.delegate = self
             return tabGroupVC
         }
     }
@@ -724,5 +738,29 @@ public class DockDesktopContainerView: NSView {
         if springState == nil {
             updateContentPosition(animated: false)
         }
+    }
+}
+
+// MARK: - DockTabGroupViewControllerDelegate
+
+extension DockDesktopContainerView: DockTabGroupViewControllerDelegate {
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didReceiveTab tabInfo: DockTabDragInfo, at index: Int) {
+        delegate?.desktopContainer(self, didReceiveTab: tabInfo, in: tabGroup, at: index)
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachTab tab: DockTab, at screenPoint: NSPoint) {
+        delegate?.desktopContainer(self, wantsToDetachTab: tab, from: tabGroup, at: screenPoint)
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab) {
+        delegate?.desktopContainer(self, wantsToSplit: direction, withTab: tab, in: tabGroup)
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastTab: Bool) {
+        // Handle last tab closure - could remove the tab group from layout
+    }
+
+    public func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {
+        // Handle new tab request - could create a new panel
     }
 }

@@ -573,6 +573,35 @@ extension DockLayoutNode {
             return nil
         }
     }
+
+    // MARK: - Convenience Methods (without modified parameter)
+
+    /// Move a tab to a different group (convenience method)
+    public func movingTab(_ tabId: UUID, toGroupId: UUID, at index: Int) -> DockLayoutNode {
+        // First find the tab info
+        guard let tabInfo = findTabInfo(tabId) else { return self }
+
+        // Remove from source, add to target
+        var modified = false
+        var result = removingTabWithoutCleanup(tabId, modified: &modified)
+        result = result.addingTab(tabInfo.tab, toGroupId: toGroupId, at: index, modified: &modified)
+        return result.cleanedUp()
+    }
+
+    /// Split a tab group (convenience method)
+    public func splitting(groupId: UUID, direction: DockSplitDirection, withTab tab: TabLayoutState) -> DockLayoutNode {
+        // GUARD: Check if this is a no-op (splitting a single-tab group with its only tab)
+        if let group = findTabGroupNode(groupId) {
+            if group.tabs.count == 1 && group.tabs.first?.id == tab.id {
+                return self
+            }
+        }
+
+        var modified = false
+        var result = removingTabWithoutCleanup(tab.id, modified: &modified)
+        result = result.splitting(groupId: groupId, direction: direction, withTab: tab, modified: &modified)
+        return result.cleanedUp()
+    }
 }
 
 // MARK: - Factory Methods

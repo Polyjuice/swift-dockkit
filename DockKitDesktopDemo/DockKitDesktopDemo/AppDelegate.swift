@@ -40,15 +40,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             desktops: [codingDesktop, designDesktop, notesDesktop]
         )
 
-        // Create the window
+        // Create the window with panel provider available during init
         desktopWindow = DockDesktopHostWindow(
             desktopHostState: desktopHostState,
-            frame: desktopHostState.frame
+            frame: desktopHostState.frame,
+            panelProvider: { [weak self] id in
+                self?.panelRegistry[id]
+            }
         )
-
-        desktopWindow?.panelProvider = { [weak self] id in
-            self?.panelRegistry[id]
-        }
 
         desktopWindow?.center()
         desktopWindow?.makeKeyAndOrderFront(nil)

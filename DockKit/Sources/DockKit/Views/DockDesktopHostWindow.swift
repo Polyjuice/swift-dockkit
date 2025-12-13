@@ -79,11 +79,13 @@ public class DockDesktopHostWindow: NSWindow {
         id: UUID = UUID(),
         desktopHostState: DesktopHostWindowState,
         frame: NSRect,
-        layoutManager: DockLayoutManager? = nil
+        layoutManager: DockLayoutManager? = nil,
+        panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
     ) {
         self.windowId = id
         self.desktopHostState = desktopHostState
         self.layoutManager = layoutManager
+        self.panelProvider = panelProvider
 
         super.init(
             contentRect: frame,
@@ -339,5 +341,56 @@ extension DockDesktopHostWindow: DockDesktopContainerViewDelegate {
 
     public func desktopContainer(_ container: DockDesktopContainerView, panelForId id: UUID) -> (any DockablePanel)? {
         return panelProvider?(id)
+    }
+
+    public func desktopContainer(_ container: DockDesktopContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
+        // Get the current desktop's layout
+        guard desktopHostState.activeDesktopIndex < desktopHostState.desktops.count else { return }
+
+        var desktop = desktopHostState.desktops[desktopHostState.activeDesktopIndex]
+        let targetGroupId = tabGroup.tabGroupNode.id
+
+        // Use layout mutation to move the tab
+        let newLayout = desktop.layout.movingTab(tabInfo.tabId, toGroupId: targetGroupId, at: index)
+        desktop.layout = newLayout
+        desktopHostState.desktops[desktopHostState.activeDesktopIndex] = desktop
+
+        // Rebuild the desktop view
+        containerView.updateDesktopLayout(newLayout, forDesktopAt: desktopHostState.activeDesktopIndex)
+    }
+
+    public func desktopContainer(_ container: DockDesktopContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {
+        // Forward to delegate - host app handles creating new windows
+        if let panel = tab.panel ?? panelProvider?(tab.id) {
+            desktopDelegate?.desktopHostWindow(self, wantsToDetachPanel: panel, at: screenPoint)
+        }
+    }
+
+    public func desktopContainer(_ container: DockDesktopContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
+        // Get the current desktop's layout
+        guard desktopHostState.activeDesktopIndex < desktopHostState.desktops.count else { return }
+
+        var desktop = desktopHostState.desktops[desktopHostState.activeDesktopIndex]
+        let targetGroupId = tabGroup.tabGroupNode.id
+
+        // Create tab state from DockTab
+        let tabState = TabLayoutState(
+            id: tab.id,
+            title: tab.title,
+            iconName: tab.iconName,
+            cargo: tab.cargo
+        )
+
+        // Use layout mutation to perform the split
+        let newLayout = desktop.layout.splitting(
+            groupId: targetGroupId,
+            direction: direction,
+            withTab: tabState
+        )
+        desktop.layout = newLayout
+        desktopHostState.desktops[desktopHostState.activeDesktopIndex] = desktop
+
+        // Rebuild the desktop view
+        containerView.updateDesktopLayout(newLayout, forDesktopAt: desktopHostState.activeDesktopIndex)
     }
 }
