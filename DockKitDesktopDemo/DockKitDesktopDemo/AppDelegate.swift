@@ -284,6 +284,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowMenu.addItem(NSMenuItem.separator())
         windowMenu.addItem(withTitle: "Close Window", action: #selector(closeWindow(_:)), keyEquivalent: "w")
 
+        // Debug menu
+        let debugMenuItem = NSMenuItem()
+        mainMenu.addItem(debugMenuItem)
+        let debugMenu = NSMenu(title: "Debug")
+        debugMenuItem.submenu = debugMenu
+        let slowMotionItem = NSMenuItem(title: "Slow Motion", action: #selector(toggleSlowMotion(_:)), keyEquivalent: "s")
+        slowMotionItem.keyEquivalentModifierMask = [.command, .shift]
+        debugMenu.addItem(slowMotionItem)
+
         // Help menu
         let helpMenuItem = NSMenuItem()
         mainMenu.addItem(helpMenuItem)
@@ -329,5 +338,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func closeWindow(_ sender: Any?) {
         NSApp.keyWindow?.close()
+    }
+
+    @objc private func toggleSlowMotion(_ sender: NSMenuItem?) {
+        guard let window = desktopWindow else { return }
+        window.slowMotionEnabled.toggle()
+        sender?.state = window.slowMotionEnabled ? .on : .off
     }
 }

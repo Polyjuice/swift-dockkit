@@ -7,11 +7,15 @@ public protocol DockDesktopHeaderViewDelegate: AnyObject {
 
     /// Called when user reorders desktops (optional)
     func desktopHeader(_ header: DockDesktopHeaderView, didMoveDesktopFrom fromIndex: Int, to toIndex: Int)
+
+    /// Called when slow motion toggle changes
+    func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool)
 }
 
 /// Default implementations
 public extension DockDesktopHeaderViewDelegate {
     func desktopHeader(_ header: DockDesktopHeaderView, didMoveDesktopFrom fromIndex: Int, to toIndex: Int) {}
+    func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool) {}
 }
 
 /// A header view showing desktop icons/titles for selection
@@ -32,6 +36,10 @@ public class DockDesktopHeaderView: NSView {
 
     /// Desktop indicator buttons
     private var desktopButtons: [DockDesktopButton] = []
+
+    /// Slow motion toggle switch
+    private var slowMotionSwitch: NSSwitch!
+    private var slowMotionLabel: NSTextField!
 
     /// Height of the header
     public static let headerHeight: CGFloat = 36
@@ -73,6 +81,31 @@ public class DockDesktopHeaderView: NSView {
             stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
             stackView.heightAnchor.constraint(equalToConstant: 28)
         ])
+
+        // Slow motion toggle on the right
+        slowMotionLabel = NSTextField(labelWithString: "Slow")
+        slowMotionLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        slowMotionLabel.textColor = .tertiaryLabelColor
+        slowMotionLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(slowMotionLabel)
+
+        slowMotionSwitch = NSSwitch()
+        slowMotionSwitch.controlSize = .mini
+        slowMotionSwitch.target = self
+        slowMotionSwitch.action = #selector(slowMotionToggled(_:))
+        slowMotionSwitch.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(slowMotionSwitch)
+
+        NSLayoutConstraint.activate([
+            slowMotionSwitch.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            slowMotionSwitch.centerYAnchor.constraint(equalTo: centerYAnchor),
+            slowMotionLabel.trailingAnchor.constraint(equalTo: slowMotionSwitch.leadingAnchor, constant: -4),
+            slowMotionLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    @objc private func slowMotionToggled(_ sender: NSSwitch) {
+        delegate?.desktopHeader(self, didToggleSlowMotion: sender.state == .on)
     }
 
     // MARK: - Public API

@@ -48,22 +48,21 @@ public class DockDesktopContainerView: NSView {
     /// Current offset during swipe (0 = centered on active desktop)
     private var swipeOffset: CGFloat = 0
 
-    /// Velocity from last scroll event
-    private var swipeVelocity: CGFloat = 0
-
-    /// Whether we're currently in a swipe gesture
-    private var isSwipeActive: Bool = false
-
     /// Display link for spring animation
     private var displayLink: CVDisplayLink?
 
     /// Spring animation state
     private var springState: SpringState?
 
-    // MARK: - Constants
+    /// Track the last indicator target to avoid redundant delegate calls
+    private var lastIndicatorTarget: Int = -1
 
-    /// Minimum velocity to trigger momentum switch
-    private let minimumSwitchVelocity: CGFloat = 300
+    // MARK: - Configuration
+
+    /// Slow motion for debugging (only affects spring animation, not gesture input)
+    /// When enabled, spring animations run 10x slower but gesture response remains instant
+    public var slowMotionEnabled: Bool = false
+    private var timeScale: CGFloat { slowMotionEnabled ? 0.1 : 1.0 }
 
     /// Spring stiffness for bounce back
     private let springStiffness: CGFloat = 300
@@ -300,119 +299,130 @@ public class DockDesktopContainerView: NSView {
         }
     }
 
+    // MARK: - Gesture State (for manual handling with slow motion)
+
+    /// Whether we're in a gesture
+    private var isGestureActive: Bool = false
+
+    /// Accumulated gesture amount (0 to ±1 representing full swipe)
+    private var gestureAmount: CGFloat = 0
+
     // MARK: - Scroll Event Handling (Two-Finger Swipe)
+    //
+    // Manual implementation with momentum support.
+    // Slow motion only affects spring animation - gesture input is always real-time.
 
     public override func scrollWheel(with event: NSEvent) {
-        // Only handle horizontal scroll (two-finger horizontal swipe)
+        // Only handle gesture scroll events (not legacy mouse wheel)
         guard event.phase != [] || event.momentumPhase != [] else {
             super.scrollWheel(with: event)
             return
         }
 
-        // Check if this is a horizontal scroll
+        // Only track horizontal-dominant gestures
         let isHorizontalDominant = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 0.5
-
-        if !isHorizontalDominant && !isSwipeActive {
+        if !isHorizontalDominant && !isGestureActive {
             super.scrollWheel(with: event)
             return
         }
 
-        switch event.phase {
-        case .began:
-            handleSwipeBegan(event)
-
-        case .changed:
-            handleSwipeChanged(event)
-
-        case .ended, .cancelled:
-            handleSwipeEnded(event)
-
-        default:
-            break
+        // Handle physical gesture phases
+        if event.phase == .began {
+            // New gesture starting - stop any animation and take over
+            isGestureActive = true
+            stopSpringAnimation()
+            // Don't reset gestureAmount - preserve current position if interrupting
         }
-    }
 
-    private func handleSwipeBegan(_ event: NSEvent) {
-        isSwipeActive = true
+        // CRITICAL: Only process scroll deltas if gesture is active AND no spring animation
+        // This prevents late momentum events from fighting with spring animation
+        guard isGestureActive && springState == nil else {
+            // If spring is running, ignore scroll events (let spring finish)
+            // If gesture not active, ignore stray events
+            return
+        }
 
-        // Stop any running spring animation but preserve current swipeOffset
-        // (swipeOffset is kept in sync by updateSpringAnimation, so it already has the current position)
-        stopSpringAnimation()
+        // Apply scroll delta (from physical gesture or momentum)
+        // NOTE: Gesture input is NOT scaled for slow motion - physical movement = visual movement
+        // Only spring animation time is scaled for slow motion debugging
+        if event.phase == .changed || event.momentumPhase == .changed {
+            let desktopWidth = bounds.width
+            guard desktopWidth > 0 else { return }
 
-        // Only reset velocity, not position - fingers pick up from current position
-        swipeVelocity = 0
-    }
+            // NO time scaling on input - gesture feels normal
+            gestureAmount += event.scrollingDeltaX / desktopWidth
 
-    private func handleSwipeChanged(_ event: NSEvent) {
-        guard isSwipeActive else { return }
+            // Clamp gesture amount based on available desktops
+            let maxLeft = CGFloat(activeDesktopIndex)
+            let maxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
+            gestureAmount = max(-maxRight, min(maxLeft, gestureAmount))
 
-        // Update offset based on scroll delta
-        let delta = event.scrollingDeltaX
-        swipeOffset += delta
-        swipeVelocity = delta * 60 // Approximate velocity from delta
+            // Update visual position
+            swipeOffset = gestureAmount * desktopWidth
+            let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+            contentView.frame.origin.x = targetX
 
-        // Apply offset to content view
-        let targetX = -CGFloat(activeDesktopIndex) * bounds.width + swipeOffset
-        contentView.frame.origin.x = targetX
+            // Update header indicator at 50% threshold
+            updateIndicatorForGestureAmount(gestureAmount)
+        }
 
-        // Update header indicator based on position threshold only (not velocity)
-        // This provides stable feedback during swipe
-        let desktopWidth = bounds.width
-        if desktopWidth > 0 {
-            let offsetInDesktops = swipeOffset / desktopWidth
-            if abs(offsetInDesktops) > 0.3 {
-                let potentialTarget: Int
-                if offsetInDesktops > 0 {
-                    potentialTarget = max(0, activeDesktopIndex - 1)
-                } else {
-                    potentialTarget = min(desktops.count - 1, activeDesktopIndex + 1)
-                }
-                delegate?.desktopContainer(self, didBeginSwipingTo: potentialTarget)
-            } else {
-                // Back below threshold - show current desktop's indicator
-                delegate?.desktopContainer(self, didBeginSwipingTo: activeDesktopIndex)
+        // Handle momentum end
+        if event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+            isGestureActive = false
+            finalizeGesture()
+        }
+
+        // Handle case where gesture ends without momentum
+        if event.phase == .ended && event.momentumPhase == [] {
+            // Give a tiny window for momentum to start
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in
+                guard let self = self, self.isGestureActive else { return }
+                // Still active means no momentum came
+                self.isGestureActive = false
+                self.finalizeGesture()
             }
         }
     }
 
-    private func handleSwipeEnded(_ event: NSEvent) {
-        guard isSwipeActive else { return }
-        isSwipeActive = false
+    private func updateIndicatorForGestureAmount(_ gestureAmount: CGFloat) {
+        let target: Int
+        // Threshold NOT scaled - same gesture triggers same behavior regardless of slow motion
+        let threshold: CGFloat = 0.5
 
-        // Calculate target desktop based on position and velocity
-        let targetIndex = calculateTargetDesktop()
-        animateToDesktop(at: targetIndex)
-    }
-
-    private func calculateTargetDesktop() -> Int {
-        let desktopWidth = bounds.width
-        guard desktopWidth > 0 else { return activeDesktopIndex }
-
-        // Position-based decision
-        let offsetInDesktops = swipeOffset / desktopWidth
-
-        // Velocity-based adjustment
-        let velocityThreshold = minimumSwitchVelocity
-
-        var target = activeDesktopIndex
-
-        if swipeVelocity > velocityThreshold {
-            // Swiping right (going to previous desktop)
+        if gestureAmount >= threshold && activeDesktopIndex > 0 {
             target = activeDesktopIndex - 1
-        } else if swipeVelocity < -velocityThreshold {
-            // Swiping left (going to next desktop)
+        } else if gestureAmount <= -threshold && activeDesktopIndex < desktops.count - 1 {
             target = activeDesktopIndex + 1
-        } else if abs(offsetInDesktops) > 0.15 {
-            // Position-based switch
-            if offsetInDesktops > 0 {
-                target = activeDesktopIndex - 1
-            } else {
-                target = activeDesktopIndex + 1
-            }
+        } else {
+            target = activeDesktopIndex
         }
 
-        // Clamp to valid range
-        return max(0, min(target, desktops.count - 1))
+        if target != lastIndicatorTarget {
+            lastIndicatorTarget = target
+            delegate?.desktopContainer(self, didBeginSwipingTo: target)
+        }
+    }
+
+    private func finalizeGesture() {
+        lastIndicatorTarget = -1
+        // Threshold NOT scaled - same gesture triggers same behavior regardless of slow motion
+        let threshold: CGFloat = 0.5
+
+        // Determine target based on gesture amount
+        if gestureAmount >= threshold && activeDesktopIndex > 0 {
+            // Switch to previous desktop
+            activeDesktopIndex -= 1
+            gestureAmount -= 1.0  // Adjust for new coordinate system
+        } else if gestureAmount <= -threshold && activeDesktopIndex < desktops.count - 1 {
+            // Switch to next desktop
+            activeDesktopIndex += 1
+            gestureAmount += 1.0  // Adjust for new coordinate system
+        }
+
+        // Animate to final position
+        swipeOffset = gestureAmount * bounds.width
+        animateToDesktop(at: activeDesktopIndex)
+        gestureAmount = 0
     }
 
     // MARK: - Spring Animation
@@ -440,7 +450,7 @@ public class DockDesktopContainerView: NSView {
         activeDesktopIndex = index
 
         // If we're already at target, just snap
-        if abs(currentPosition - targetPosition) < 1 && abs(swipeVelocity) < 10 {
+        if abs(currentPosition - targetPosition) < 1 {
             swipeOffset = 0
             updateContentPosition(animated: false)
             if oldIndex != index {
@@ -449,10 +459,10 @@ public class DockDesktopContainerView: NSView {
             return
         }
 
-        // Start spring animation
+        // Start spring animation (velocity is 0 since momentum already stopped)
         springState = SpringState(
             position: currentPosition,
-            velocity: swipeVelocity,
+            velocity: 0,
             target: targetPosition
         )
 
@@ -495,7 +505,8 @@ public class DockDesktopContainerView: NSView {
             return
         }
 
-        let dt: CGFloat = 1.0 / 60.0
+        // Apply time scale for slow motion (THIS is the only place time scaling applies)
+        let dt: CGFloat = (1.0 / 60.0) * timeScale
 
         // Spring physics
         let displacement = state.position - state.target
@@ -545,8 +556,8 @@ public class DockDesktopContainerView: NSView {
             }
         }
 
-        // Update content position
-        if !isSwipeActive && springState == nil {
+        // Update content position if not animating
+        if springState == nil {
             updateContentPosition(animated: false)
         }
     }

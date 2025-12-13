@@ -221,6 +221,12 @@ public class DockDesktopHostWindow: NSWindow {
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { true }
 
+    /// Toggle slow motion for debugging swipe gestures
+    public var slowMotionEnabled: Bool {
+        get { containerView.slowMotionEnabled }
+        set { containerView.slowMotionEnabled = newValue }
+    }
+
     public override func close() {
         desktopDelegate?.desktopHostWindow(self, didClose: ())
         layoutManager?.windowDidClose(self)
@@ -278,6 +284,10 @@ extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
     public func desktopHeader(_ header: DockDesktopHeaderView, didSelectDesktopAt index: Int) {
         switchToDesktop(at: index, animated: true)
         desktopDelegate?.desktopHostWindow(self, didSwitchToDesktopAt: index)
+    }
+
+    public func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool) {
+        containerView.slowMotionEnabled = enabled
     }
 }
 
