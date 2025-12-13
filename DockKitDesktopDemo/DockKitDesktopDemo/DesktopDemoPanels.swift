@@ -1,6 +1,142 @@
 import AppKit
 import DockKit
 
+// MARK: - Console Panel (Live Debug Output)
+
+class ConsolePanelViewController: NSViewController {
+    private var textView: NSTextView!
+    private var scrollView: NSScrollView!
+    private var observer: NSObjectProtocol?
+
+    override func loadView() {
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.black.cgColor
+
+        // Create scroll view with text view
+        scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.drawsBackground = false
+
+        textView = NSTextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.backgroundColor = .clear
+        textView.textColor = .white
+        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.autoresizingMask = [.width]
+
+        scrollView.documentView = textView
+        container.addSubview(scrollView)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+
+        self.view = container
+
+        // Load existing entries
+        loadExistingEntries()
+
+        // Observe new log entries
+        observer = NotificationCenter.default.addObserver(
+            forName: .consoleLogAdded,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            if let entry = notification.userInfo?["entry"] as? ConsoleLogEntry {
+                self?.appendEntry(entry)
+            }
+        }
+    }
+
+    deinit {
+        if let observer = observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    private func loadExistingEntries() {
+        Task { @MainActor in
+            for entry in Console.shared.entries {
+                appendEntry(entry)
+            }
+        }
+    }
+
+    private func appendEntry(_ entry: ConsoleLogEntry) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        let timeStr = formatter.string(from: entry.timestamp)
+
+        let levelIcon: String
+        let levelColor: NSColor
+        switch entry.level {
+        case .log:
+            levelIcon = "●"
+            levelColor = .systemGreen
+        case .warn:
+            levelIcon = "▲"
+            levelColor = .systemYellow
+        case .error:
+            levelIcon = "✖"
+            levelColor = .systemRed
+        }
+
+        let sourceStr = entry.source.map { "[\($0)] " } ?? ""
+
+        let attributedString = NSMutableAttributedString()
+
+        // Timestamp
+        attributedString.append(NSAttributedString(
+            string: "\(timeStr) ",
+            attributes: [.foregroundColor: NSColor.gray, .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)]
+        ))
+
+        // Level icon
+        attributedString.append(NSAttributedString(
+            string: "\(levelIcon) ",
+            attributes: [.foregroundColor: levelColor, .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)]
+        ))
+
+        // Source
+        if !sourceStr.isEmpty {
+            attributedString.append(NSAttributedString(
+                string: sourceStr,
+                attributes: [.foregroundColor: NSColor.systemCyan, .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)]
+            ))
+        }
+
+        // Message
+        attributedString.append(NSAttributedString(
+            string: "\(entry.message)\n",
+            attributes: [.foregroundColor: NSColor.white, .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)]
+        ))
+
+        textView.textStorage?.append(attributedString)
+
+        // Scroll to bottom
+        textView.scrollToEndOfDocument(nil)
+    }
+}
+
+class DebugConsolePanel: DockablePanel {
+    let panelId = UUID()
+    let panelTitle = "Console"
+    let panelIcon: NSImage? = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "Console")
+
+    private lazy var _viewController = ConsolePanelViewController()
+    var panelViewController: NSViewController { _viewController }
+}
+
 // MARK: - Colored Panel View Controller
 
 class ColoredPanelViewController: NSViewController {
@@ -29,6 +165,7 @@ class ColoredPanelViewController: NSViewController {
         label.backgroundColor = .clear
         label.isBordered = false
         label.isEditable = false
+        label.isSelectable = false  // Prevents caret cursor on hover
         label.drawsBackground = false
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)

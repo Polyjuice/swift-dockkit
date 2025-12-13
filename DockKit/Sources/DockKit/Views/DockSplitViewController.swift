@@ -7,9 +7,6 @@ public class DockSplitView: NSSplitView {
     /// The thickness of the divider gap
     public static let dividerGap: CGFloat = 6
 
-    /// Color for the divider handle
-    private let handleColor = NSColor.separatorColor
-
     public override var dividerThickness: CGFloat {
         return Self.dividerGap
     }
@@ -49,34 +46,6 @@ public class DockSplitView: NSSplitView {
         }
     }
 
-    public override func resetCursorRects() {
-        super.resetCursorRects()
-
-        // Add resize cursor for each divider
-        for i in 0..<(subviews.count - 1) {
-            let dividerRect = dividerRect(at: i)
-            let cursor: NSCursor = isVertical ? .resizeLeftRight : .resizeUpDown
-            addCursorRect(dividerRect, cursor: cursor)
-        }
-    }
-
-    /// Get the rect for the divider at the given index
-    private func dividerRect(at index: Int) -> NSRect {
-        guard index < subviews.count - 1 else { return .zero }
-
-        let leftView = subviews[index]
-        _ = subviews[index + 1]  // rightView - used only to verify index bounds
-
-        if isVertical {
-            // Vertical dividers between horizontally arranged views
-            let x = leftView.frame.maxX
-            return NSRect(x: x, y: bounds.minY, width: dividerThickness, height: bounds.height)
-        } else {
-            // Horizontal dividers between vertically arranged views
-            let y = leftView.frame.maxY
-            return NSRect(x: bounds.minX, y: y, width: bounds.width, height: dividerThickness)
-        }
-    }
 }
 
 /// Delegate for split view events

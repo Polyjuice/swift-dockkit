@@ -5,10 +5,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var desktopWindow: DockDesktopHostWindow?
     private var panelRegistry: [UUID: any DockablePanel] = [:]
+    private var cursorTimer: Timer?
+    private var cursorIndex = 0
+
+    // All available system cursors with names
+    private let cursors: [(name: String, cursor: NSCursor)] = [
+        ("arrow", .arrow),
+        ("iBeam", .iBeam),
+        ("crosshair", .crosshair),
+        ("closedHand", .closedHand),
+        ("openHand", .openHand),
+        ("pointingHand", .pointingHand),
+        ("resizeLeft", .resizeLeft),
+        ("resizeRight", .resizeRight),
+        ("resizeLeftRight", .resizeLeftRight),
+        ("resizeUp", .resizeUp),
+        ("resizeDown", .resizeDown),
+        ("resizeUpDown", .resizeUpDown),
+        ("disappearingItem", .disappearingItem),
+        ("operationNotAllowed", .operationNotAllowed),
+        ("dragLink", .dragLink),
+        ("dragCopy", .dragCopy),
+        ("contextualMenu", .contextualMenu)
+    ]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
         createDesktopHostWindow()
+
+        // Start cursor cycling timer for debugging
+        startCursorCycling()
+    }
+
+    @MainActor private func startCursorCycling() {
+        Console.log("Starting cursor cycling test - using disableCursorRects() workaround", source: "CursorTest")
+
+        cursorTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self else { return }
+                let (name, cursor) = self.cursors[self.cursorIndex % self.cursors.count]
+
+                // KEY WORKAROUND: Disable cursor rects on all windows first
+                // This prevents the window from resetting cursor to arrow
+                NSApp.windows.forEach { $0.disableCursorRects() }
+
+                // Now set the cursor
+                cursor.set()
+
+                Console.log("Set cursor to: \(name) (after disableCursorRects)", source: "CursorTest")
+                self.cursorIndex += 1
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -61,7 +108,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             CodeEditorPanel(filename: "main.swift"),
             CodeEditorPanel(filename: "App.swift"),
             TerminalPanel(name: "Build"),
-            GitPanel()
+            GitPanel(),
+            DebugConsolePanel()  // Console panel for debug output
         ]
     }
 
@@ -87,12 +135,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Desktop Layout Creation
 
     private func createCodingDesktop(with panels: [any DockablePanel]) -> Desktop {
-        // Layout: [Explorer | [Editor1, Editor2] / Terminal] | Git
+        // Layout: [Explorer | [Editor1, Editor2] / [Terminal, Console]] | Git
         let explorer = panels[0]
         let editor1 = panels[1]
         let editor2 = panels[2]
         let terminal = panels[3]
         let git = panels[4]
+        let console = panels[5]
 
         let explorerGroup = TabGroupLayoutNode(
             tabs: [TabLayoutState(id: explorer.panelId, title: explorer.panelTitle)],
@@ -107,9 +156,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             activeTabIndex: 0
         )
 
-        let terminalGroup = TabGroupLayoutNode(
-            tabs: [TabLayoutState(id: terminal.panelId, title: terminal.panelTitle)],
-            activeTabIndex: 0
+        // Terminal and Console share bottom area as tabs
+        let bottomGroup = TabGroupLayoutNode(
+            tabs: [
+                TabLayoutState(id: terminal.panelId, title: terminal.panelTitle),
+                TabLayoutState(id: console.panelId, title: console.panelTitle)
+            ],
+            activeTabIndex: 1  // Start with Console active to see cursor logs
         )
 
         let gitGroup = TabGroupLayoutNode(
@@ -117,14 +170,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             activeTabIndex: 0
         )
 
-        // Editor area: editors on top, terminal on bottom
+        // Editor area: editors on top, terminal/console on bottom
         let editorArea = SplitLayoutNode(
             axis: .vertical,
             children: [
                 .tabGroup(editorGroup),
-                .tabGroup(terminalGroup)
+                .tabGroup(bottomGroup)
             ],
-            proportions: [0.7, 0.3]
+            proportions: [0.6, 0.4]
         )
 
         // Main split: Explorer | Editor Area | Git

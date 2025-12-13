@@ -193,6 +193,101 @@ func desktopHostWindow(_ window: DockDesktopHostWindow, didSwitchToDesktopAt ind
 
 ---
 
+## Panel Tearing
+
+When you drag a panel outside a desktop host window, a **new desktop host window** is created—not a regular DockWindow. This is a deliberate architectural decision.
+
+### Why Desktop Hosts Spawn Desktop Hosts
+
+```
+┌─────────────────────────────────────┐
+│  DockDesktopHostWindow (original)   │
+│  ┌─────┬─────┬─────┐                │
+│  │ D1  │ D2  │ D3  │  ← 3 desktops  │
+│  └─────┴─────┴─────┘                │
+│  [Panel A] [Panel B] [Panel C]      │
+│         ↓ tear Panel B              │
+└─────────────────────────────────────┘
+                 ↓
+┌─────────────────────────────────────┐
+│  DockDesktopHostWindow (spawned)    │
+│  ┌─────┐                            │
+│  │ D1  │  ← starts with 1 desktop   │
+│  └─────┘                            │
+│  [Panel B]                          │
+└─────────────────────────────────────┘
+```
+
+**Key benefits:**
+
+1. **Uniform window type** — Your app only has one window type to reason about
+2. **Swipe works everywhere** — Once a spawned window has 2+ desktops, swipe navigation works
+3. **Symmetric behavior** — Desktop hosts spawn desktop hosts, tearing from the spawned window creates another
+4. **Expandable** — Users can add more desktops to any window later
+
+### Comparison with Mission Control
+
+Unlike macOS Mission Control where the three-finger swipe is a global system gesture, desktop host swipe gestures are **captured within each window**. This means:
+
+- Multiple desktop host windows can exist simultaneously
+- Each window has independent desktop navigation
+- Swiping in one window doesn't affect others
+- No conflict with system gestures
+
+### How Tearing Works
+
+1. User drags a tab outside the window bounds
+2. The panel is removed from its current desktop
+3. A new `DockDesktopHostWindow` is created with:
+   - One desktop containing the torn panel
+   - Same `panelProvider` as the parent
+   - Independent lifecycle
+4. The new window appears at the drag location
+
+### Spawned Window Capabilities
+
+The spawned window is fully functional:
+
+- Add more panels via drag-and-drop
+- Create splits by dropping on edges
+- Add new desktops (if your app exposes this)
+- Tear panels to create more windows
+- Close to return panels (if drag-back is implemented)
+
+### Tracking Spawned Windows
+
+Desktop host windows automatically track their children:
+
+```swift
+// Parent window tracks spawned children
+window.childWindows  // [DockDesktopHostWindow]
+
+// Each child knows its parent
+childWindow.parentWindow  // DockDesktopHostWindow?
+```
+
+When a child window closes, it's automatically removed from the parent's tracking.
+
+### Customizing Tear Behavior
+
+If you need to intercept or customize tearing:
+
+```swift
+window.desktopDelegate = self
+
+func desktopHostWindow(_ window: DockDesktopHostWindow,
+                        willTearPanel panel: any DockablePanel,
+                        at screenPoint: NSPoint) -> Bool {
+    // Return false to prevent tearing
+    if panel is LockedPanel {
+        return false
+    }
+    return true
+}
+```
+
+---
+
 ## Desktop State Management
 
 ### Updating State
