@@ -307,6 +307,16 @@ public class DockDesktopContainerView: NSView {
     /// Accumulated gesture amount (0 to ±1 representing full swipe)
     private var gestureAmount: CGFloat = 0
 
+    /// Velocity tracking for flick detection (pixels per second)
+    private var gestureVelocity: CGFloat = 0
+    private var lastScrollTime: CFTimeInterval = 0
+
+    /// Velocity threshold for flick-based switching (pixels per second)
+    private let flickVelocityThreshold: CGFloat = 500
+
+    /// Position threshold for drag-based switching (fraction of desktop width)
+    private let dragPositionThreshold: CGFloat = 0.2
+
     // MARK: - Scroll Event Handling (Two-Finger Swipe)
     //
     // Manual implementation with momentum support.
@@ -332,6 +342,9 @@ public class DockDesktopContainerView: NSView {
             isGestureActive = true
             stopSpringAnimation()
             // Don't reset gestureAmount - preserve current position if interrupting
+            // Reset velocity tracking
+            gestureVelocity = 0
+            lastScrollTime = CACurrentMediaTime()
         }
 
         // CRITICAL: Only process scroll deltas if gesture is active AND no spring animation
@@ -349,8 +362,22 @@ public class DockDesktopContainerView: NSView {
             let desktopWidth = bounds.width
             guard desktopWidth > 0 else { return }
 
+            let deltaX = event.scrollingDeltaX
+
+            // Track velocity (only during physical gesture, not momentum)
+            if event.phase == .changed {
+                let currentTime = CACurrentMediaTime()
+                let dt = currentTime - lastScrollTime
+                if dt > 0 {
+                    // Smooth velocity with exponential moving average
+                    let instantVelocity = deltaX / CGFloat(dt)
+                    gestureVelocity = gestureVelocity * 0.7 + instantVelocity * 0.3
+                }
+                lastScrollTime = currentTime
+            }
+
             // NO time scaling on input - gesture feels normal
-            gestureAmount += event.scrollingDeltaX / desktopWidth
+            gestureAmount += deltaX / desktopWidth
 
             // Clamp gesture amount based on available desktops
             let maxLeft = CGFloat(activeDesktopIndex)
@@ -362,7 +389,7 @@ public class DockDesktopContainerView: NSView {
             let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
             contentView.frame.origin.x = targetX
 
-            // Update header indicator at 50% threshold
+            // Update header indicator
             updateIndicatorForGestureAmount(gestureAmount)
         }
 
@@ -386,12 +413,22 @@ public class DockDesktopContainerView: NSView {
 
     private func updateIndicatorForGestureAmount(_ gestureAmount: CGFloat) {
         let target: Int
-        // Threshold NOT scaled - same gesture triggers same behavior regardless of slow motion
-        let threshold: CGFloat = 0.5
 
-        if gestureAmount >= threshold && activeDesktopIndex > 0 {
+        // Check velocity-based switching (flick)
+        let velocityBasedSwitch = abs(gestureVelocity) > flickVelocityThreshold
+
+        if velocityBasedSwitch {
+            // Velocity determines direction
+            if gestureVelocity > 0 && activeDesktopIndex > 0 {
+                target = activeDesktopIndex - 1
+            } else if gestureVelocity < 0 && activeDesktopIndex < desktops.count - 1 {
+                target = activeDesktopIndex + 1
+            } else {
+                target = activeDesktopIndex
+            }
+        } else if gestureAmount >= dragPositionThreshold && activeDesktopIndex > 0 {
             target = activeDesktopIndex - 1
-        } else if gestureAmount <= -threshold && activeDesktopIndex < desktops.count - 1 {
+        } else if gestureAmount <= -dragPositionThreshold && activeDesktopIndex < desktops.count - 1 {
             target = activeDesktopIndex + 1
         } else {
             target = activeDesktopIndex
@@ -405,24 +442,34 @@ public class DockDesktopContainerView: NSView {
 
     private func finalizeGesture() {
         lastIndicatorTarget = -1
-        // Threshold NOT scaled - same gesture triggers same behavior regardless of slow motion
-        let threshold: CGFloat = 0.5
 
-        // Determine target based on gesture amount
-        if gestureAmount >= threshold && activeDesktopIndex > 0 {
-            // Switch to previous desktop
+        // Check velocity-based switching (flick) - takes priority
+        let velocityBasedSwitch = abs(gestureVelocity) > flickVelocityThreshold
+
+        // Determine target based on velocity OR position
+        if velocityBasedSwitch {
+            // Flick: velocity determines direction
+            if gestureVelocity > 0 && activeDesktopIndex > 0 {
+                activeDesktopIndex -= 1
+                gestureAmount -= 1.0
+            } else if gestureVelocity < 0 && activeDesktopIndex < desktops.count - 1 {
+                activeDesktopIndex += 1
+                gestureAmount += 1.0
+            }
+        } else if gestureAmount >= dragPositionThreshold && activeDesktopIndex > 0 {
+            // Drag: position determines switch
             activeDesktopIndex -= 1
-            gestureAmount -= 1.0  // Adjust for new coordinate system
-        } else if gestureAmount <= -threshold && activeDesktopIndex < desktops.count - 1 {
-            // Switch to next desktop
+            gestureAmount -= 1.0
+        } else if gestureAmount <= -dragPositionThreshold && activeDesktopIndex < desktops.count - 1 {
             activeDesktopIndex += 1
-            gestureAmount += 1.0  // Adjust for new coordinate system
+            gestureAmount += 1.0
         }
 
         // Animate to final position
         swipeOffset = gestureAmount * bounds.width
         animateToDesktop(at: activeDesktopIndex)
         gestureAmount = 0
+        gestureVelocity = 0
     }
 
     // MARK: - Spring Animation
