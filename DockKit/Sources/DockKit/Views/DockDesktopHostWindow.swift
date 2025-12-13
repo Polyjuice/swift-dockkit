@@ -290,6 +290,7 @@ extension DockDesktopHostWindow: DockDesktopContainerViewDelegate {
 
     public func desktopContainer(_ container: DockDesktopContainerView, didSwitchTo index: Int) {
         desktopHostState.activeDesktopIndex = index
+        headerView.clearSwipeHighlight()
         headerView.setActiveIndex(index)
         updateTitle()
         desktopDelegate?.desktopHostWindow(self, didSwitchToDesktopAt: index)

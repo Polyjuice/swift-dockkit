@@ -92,9 +92,17 @@ public class DockDesktopHeaderView: NSView {
     }
 
     /// Highlight a desktop during swipe (preview state)
+    /// This moves the indicator to the target desktop
     public func highlightDesktop(at index: Int) {
         for (i, button) in desktopButtons.enumerated() {
-            button.setHighlighted(i == index)
+            button.setSwipeTarget(i == index, swipeMode: true)
+        }
+    }
+
+    /// Clear swipe highlighting (called when swipe ends)
+    public func clearSwipeHighlight() {
+        for button in desktopButtons {
+            button.setSwipeTarget(false, swipeMode: false)
         }
     }
 
@@ -145,7 +153,8 @@ private class DockDesktopButton: NSView {
     private var indicatorView: NSView!
 
     private var isActive: Bool = false
-    private var isHighlighted: Bool = false
+    private var isSwipeTarget: Bool = false
+    private var isInSwipeMode: Bool = false  // True when any button is swipe target
     private var isHovering: Bool = false
 
     init(desktop: Desktop, index: Int) {
@@ -234,13 +243,15 @@ private class DockDesktopButton: NSView {
         updateAppearance()
     }
 
-    func setHighlighted(_ highlighted: Bool) {
-        isHighlighted = highlighted
+    func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool) {
+        isSwipeTarget = isTarget
+        isInSwipeMode = swipeMode
         updateAppearance()
     }
 
     private func updateAppearance() {
-        let shouldHighlight = isActive || isHighlighted
+        // During swipe, swipeTarget takes precedence for both highlight and indicator
+        let shouldHighlight = isSwipeTarget || isActive
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
@@ -256,7 +267,15 @@ private class DockDesktopButton: NSView {
                 titleLabel?.animator().textColor = .secondaryLabelColor
             }
 
-            indicatorView.animator().isHidden = !isActive
+            // During swipe mode, indicator follows swipe target only
+            // When not swiping, indicator follows active
+            let showIndicator: Bool
+            if isInSwipeMode {
+                showIndicator = isSwipeTarget
+            } else {
+                showIndicator = isActive
+            }
+            indicatorView.animator().isHidden = !showIndicator
         }
     }
 

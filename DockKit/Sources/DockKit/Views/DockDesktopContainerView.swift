@@ -65,14 +65,14 @@ public class DockDesktopContainerView: NSView {
     /// Minimum velocity to trigger momentum switch
     private let minimumSwitchVelocity: CGFloat = 300
 
-    /// Spring stiffness for bounce back (SLOW MOTION: was 300)
-    private let springStiffness: CGFloat = 5
+    /// Spring stiffness for bounce back
+    private let springStiffness: CGFloat = 300
 
-    /// Spring damping (SLOW MOTION: was 25)
-    private let springDamping: CGFloat = 2
+    /// Spring damping
+    private let springDamping: CGFloat = 25
 
-    /// Spring mass (SLOW MOTION: was 1.0)
-    private let springMass: CGFloat = 10.0
+    /// Spring mass
+    private let springMass: CGFloat = 1.0
 
     // MARK: - Initialization
 
@@ -291,7 +291,7 @@ public class DockDesktopContainerView: NSView {
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 3.0  // SLOW MOTION: was 0.3
+                context.duration = 0.3
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 contentView.animator().frame.origin.x = targetX
             }
@@ -355,10 +355,23 @@ public class DockDesktopContainerView: NSView {
         let targetX = -CGFloat(activeDesktopIndex) * bounds.width + swipeOffset
         contentView.frame.origin.x = targetX
 
-        // Provide feedback on potential target
-        let potentialTarget = calculateTargetDesktop()
-        if potentialTarget != activeDesktopIndex {
-            delegate?.desktopContainer(self, didBeginSwipingTo: potentialTarget)
+        // Update header indicator based on position threshold only (not velocity)
+        // This provides stable feedback during swipe
+        let desktopWidth = bounds.width
+        if desktopWidth > 0 {
+            let offsetInDesktops = swipeOffset / desktopWidth
+            if abs(offsetInDesktops) > 0.3 {
+                let potentialTarget: Int
+                if offsetInDesktops > 0 {
+                    potentialTarget = max(0, activeDesktopIndex - 1)
+                } else {
+                    potentialTarget = min(desktops.count - 1, activeDesktopIndex + 1)
+                }
+                delegate?.desktopContainer(self, didBeginSwipingTo: potentialTarget)
+            } else {
+                // Back below threshold - show current desktop's indicator
+                delegate?.desktopContainer(self, didBeginSwipingTo: activeDesktopIndex)
+            }
         }
     }
 
@@ -389,7 +402,7 @@ public class DockDesktopContainerView: NSView {
         } else if swipeVelocity < -velocityThreshold {
             // Swiping left (going to next desktop)
             target = activeDesktopIndex + 1
-        } else if abs(offsetInDesktops) > 0.3 {
+        } else if abs(offsetInDesktops) > 0.15 {
             // Position-based switch
             if offsetInDesktops > 0 {
                 target = activeDesktopIndex - 1
