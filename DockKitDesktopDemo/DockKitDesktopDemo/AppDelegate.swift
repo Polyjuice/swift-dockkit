@@ -5,57 +5,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var desktopWindow: DockDesktopHostWindow?
     private var panelRegistry: [UUID: any DockablePanel] = [:]
-    private var cursorTimer: Timer?
-    private var cursorIndex = 0
-
-    // All available system cursors with names
-    private let cursors: [(name: String, cursor: NSCursor)] = [
-        ("arrow", .arrow),
-        ("iBeam", .iBeam),
-        ("crosshair", .crosshair),
-        ("closedHand", .closedHand),
-        ("openHand", .openHand),
-        ("pointingHand", .pointingHand),
-        ("resizeLeft", .resizeLeft),
-        ("resizeRight", .resizeRight),
-        ("resizeLeftRight", .resizeLeftRight),
-        ("resizeUp", .resizeUp),
-        ("resizeDown", .resizeDown),
-        ("resizeUpDown", .resizeUpDown),
-        ("disappearingItem", .disappearingItem),
-        ("operationNotAllowed", .operationNotAllowed),
-        ("dragLink", .dragLink),
-        ("dragCopy", .dragCopy),
-        ("contextualMenu", .contextualMenu)
-    ]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
         createDesktopHostWindow()
-
-        // Start cursor cycling timer for debugging
-        startCursorCycling()
-    }
-
-    @MainActor private func startCursorCycling() {
-        Console.log("Starting cursor cycling test - using disableCursorRects() workaround", source: "CursorTest")
-
-        cursorTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                let (name, cursor) = self.cursors[self.cursorIndex % self.cursors.count]
-
-                // KEY WORKAROUND: Disable cursor rects on all windows first
-                // This prevents the window from resetting cursor to arrow
-                NSApp.windows.forEach { $0.disableCursorRects() }
-
-                // Now set the cursor
-                cursor.set()
-
-                Console.log("Set cursor to: \(name) (after disableCursorRects)", source: "CursorTest")
-                self.cursorIndex += 1
-            }
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

@@ -260,13 +260,13 @@ Desktop host windows automatically track their children:
 
 ```swift
 // Parent window tracks spawned children
-window.childWindows  // [DockDesktopHostWindow]
+window.spawnedWindows  // [DockDesktopHostWindow]
 
-// Each child knows its parent
-childWindow.parentWindow  // DockDesktopHostWindow?
+// Each child knows its spawner
+childWindow.spawnerWindow  // DockDesktopHostWindow?
 ```
 
-When a child window closes, it's automatically removed from the parent's tracking.
+When a child window closes, it's automatically removed from the spawner's tracking.
 
 ### Customizing Tear Behavior
 

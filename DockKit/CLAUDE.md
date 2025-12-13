@@ -106,8 +106,8 @@ When a panel is torn from a DockDesktopHostWindow, a **new DockDesktopHostWindow
 
 The spawned window:
 - Starts with one desktop containing the torn panel
-- Inherits the parent's `panelProvider`
-- Is tracked in parent's `childWindows` array
+- Inherits the spawner's `panelProvider`
+- Is tracked in spawner's `spawnedWindows` array
 - Can spawn its own children via tearing
 
 **Self-Contained Tearing:**

@@ -11,8 +11,11 @@ public protocol DockDesktopHostWindowDelegate: AnyObject {
     /// Called when a tab is received via drag
     func desktopHostWindow(_ window: DockDesktopHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
 
-    /// Called when a panel wants to detach
-    func desktopHostWindow(_ window: DockDesktopHostWindow, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint)
+    /// Called before a panel is torn off. Return false to prevent tearing.
+    func desktopHostWindow(_ window: DockDesktopHostWindow, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool
+
+    /// Called after a panel was torn off into a new window
+    func desktopHostWindow(_ window: DockDesktopHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockDesktopHostWindow)
 
     /// Called when a split is requested
     func desktopHostWindow(_ window: DockDesktopHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
@@ -23,7 +26,8 @@ public extension DockDesktopHostWindowDelegate {
     func desktopHostWindow(_ window: DockDesktopHostWindow, didClose: Void) {}
     func desktopHostWindow(_ window: DockDesktopHostWindow, didSwitchToDesktopAt index: Int) {}
     func desktopHostWindow(_ window: DockDesktopHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
-    func desktopHostWindow(_ window: DockDesktopHostWindow, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {}
+    func desktopHostWindow(_ window: DockDesktopHostWindow, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool { true }
+    func desktopHostWindow(_ window: DockDesktopHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockDesktopHostWindow) {}
     func desktopHostWindow(_ window: DockDesktopHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
 }
 
@@ -58,6 +62,14 @@ public class DockDesktopHostWindow: NSWindow {
 
     /// Flag to suppress auto-close during reconciliation
     internal var suppressAutoClose: Bool = false
+
+    // MARK: - Child Window Tracking
+
+    /// Child windows spawned from panel tearing
+    public private(set) var spawnedWindows: [DockDesktopHostWindow] = []
+
+    /// Parent window (if this window was spawned from tearing)
+    public private(set) weak var spawnerWindow: DockDesktopHostWindow?
 
     // MARK: - Views
 
@@ -97,6 +109,51 @@ public class DockDesktopHostWindow: NSWindow {
         setupWindow()
         setupViews()
         loadDesktops()
+    }
+
+    /// Convenience initializer for creating a window with a single panel
+    /// Used when tearing a panel off to create a new desktop host
+    public convenience init(
+        singlePanel panel: any DockablePanel,
+        at screenPoint: NSPoint,
+        panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
+    ) {
+        // Create a single desktop with the panel
+        let tabState = TabLayoutState(
+            id: panel.panelId,
+            title: panel.panelTitle,
+            iconName: panel.panelIcon != nil ? "doc" : nil
+        )
+        let tabGroup = TabGroupLayoutNode(
+            tabs: [tabState],
+            activeTabIndex: 0
+        )
+        let desktop = Desktop(
+            title: panel.panelTitle,
+            iconName: nil,
+            layout: .tabGroup(tabGroup)
+        )
+
+        // Create frame centered at screen point
+        let size = NSSize(width: 600, height: 400)
+        let frame = NSRect(
+            x: screenPoint.x - size.width / 2,
+            y: screenPoint.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+
+        let state = DesktopHostWindowState(
+            frame: frame,
+            activeDesktopIndex: 0,
+            desktops: [desktop]
+        )
+
+        self.init(
+            desktopHostState: state,
+            frame: frame,
+            panelProvider: panelProvider
+        )
     }
 
     // MARK: - Setup
@@ -223,6 +280,53 @@ public class DockDesktopHostWindow: NSWindow {
         }
     }
 
+    // MARK: - Panel Removal
+
+    /// Remove a panel from any desktop in this window
+    @discardableResult
+    public func removePanel(_ panelId: UUID) -> Bool {
+        for i in 0..<desktopHostState.desktops.count {
+            var desktop = desktopHostState.desktops[i]
+            var modified = false
+            desktop.layout = desktop.layout.removingTab(panelId, modified: &modified)
+            if modified {
+                desktopHostState.desktops[i] = desktop
+                if i == desktopHostState.activeDesktopIndex {
+                    containerView.updateDesktopLayout(desktop.layout, forDesktopAt: i)
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Remove a tab from the currently active desktop
+    private func removeTabFromCurrentDesktop(_ tabId: UUID) {
+        guard desktopHostState.activeDesktopIndex < desktopHostState.desktops.count else { return }
+
+        var desktop = desktopHostState.desktops[desktopHostState.activeDesktopIndex]
+        var modified = false
+        desktop.layout = desktop.layout.removingTab(tabId, modified: &modified)
+
+        if modified {
+            desktopHostState.desktops[desktopHostState.activeDesktopIndex] = desktop
+            containerView.updateDesktopLayout(desktop.layout, forDesktopAt: desktopHostState.activeDesktopIndex)
+        }
+    }
+
+    // MARK: - Child Window Management
+
+    /// Add a spawned child window (called internally during tearing)
+    private func addSpawnedWindow(_ child: DockDesktopHostWindow) {
+        spawnedWindows.append(child)
+        child.spawnerWindow = self
+    }
+
+    /// Remove a spawned child window (called when child closes)
+    internal func removeSpawnedWindow(_ child: DockDesktopHostWindow) {
+        spawnedWindows.removeAll { $0.windowId == child.windowId }
+    }
+
     // MARK: - NSWindow Overrides
 
     public override var canBecomeKey: Bool { true }
@@ -241,6 +345,15 @@ public class DockDesktopHostWindow: NSWindow {
     }
 
     public override func close() {
+        // Remove from spawner's child tracking
+        spawnerWindow?.removeSpawnedWindow(self)
+
+        // Close all spawned child windows
+        for child in spawnedWindows {
+            child.close()
+        }
+        spawnedWindows.removeAll()
+
         desktopDelegate?.desktopHostWindow(self, didClose: ())
         layoutManager?.windowDidClose(self)
         super.close()
@@ -360,10 +473,37 @@ extension DockDesktopHostWindow: DockDesktopContainerViewDelegate {
     }
 
     public func desktopContainer(_ container: DockDesktopContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {
-        // Forward to delegate - host app handles creating new windows
-        if let panel = tab.panel ?? panelProvider?(tab.id) {
-            desktopDelegate?.desktopHostWindow(self, wantsToDetachPanel: panel, at: screenPoint)
-        }
+        // Get the panel
+        guard let panel = tab.panel ?? panelProvider?(tab.id) else { return }
+
+        // Check if delegate allows tearing (default: yes)
+        let allowTear = desktopDelegate?.desktopHostWindow(self, willTearPanel: panel, at: screenPoint) ?? true
+        guard allowTear else { return }
+
+        // Notify panel it's about to detach
+        panel.panelWillDetach()
+
+        // Remove from current desktop
+        removeTabFromCurrentDesktop(tab.id)
+
+        // Create new desktop host window with the panel
+        let childWindow = DockDesktopHostWindow(
+            singlePanel: panel,
+            at: screenPoint,
+            panelProvider: panelProvider
+        )
+
+        // Track as spawned child
+        addSpawnedWindow(childWindow)
+
+        // Show the new window
+        childWindow.makeKeyAndOrderFront(nil)
+
+        // Notify panel it's now in a floating window
+        panel.panelDidDock(at: .floating)
+
+        // Notify delegate
+        desktopDelegate?.desktopHostWindow(self, didTearPanel: panel, to: childWindow)
     }
 
     public func desktopContainer(_ container: DockDesktopContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
