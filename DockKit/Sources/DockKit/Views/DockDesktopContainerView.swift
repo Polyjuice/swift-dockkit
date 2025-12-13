@@ -536,13 +536,15 @@ public class DockDesktopContainerView: NSView {
         let currentPosition = swipeOffset
         activeDesktopIndex = index
 
+        // IMMEDIATELY notify delegate of committed switch
+        // This updates the header indicator without waiting for animation to complete
+        // Provides faster visual feedback to the user
+        delegate?.desktopContainer(self, didSwitchTo: index)
+
         // If we're already at target, just snap
         if abs(currentPosition - targetPosition) < 1 {
             swipeOffset = 0
             updateContentPosition(animated: false)
-            if oldIndex != index {
-                delegate?.desktopContainer(self, didSwitchTo: index)
-            }
             return
         }
 
@@ -616,8 +618,7 @@ public class DockDesktopContainerView: NSView {
             updateContentPosition(animated: false)
             springState = nil
             stopDisplayLink()
-
-            delegate?.desktopContainer(self, didSwitchTo: activeDesktopIndex)
+            // Note: didSwitchTo already called at animation start for faster feedback
         } else {
             springState = state
         }
