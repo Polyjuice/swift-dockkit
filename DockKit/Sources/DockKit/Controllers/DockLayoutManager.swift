@@ -217,6 +217,14 @@ public class DockLayoutManager {
         }
     }
 
+    /// Called by DockDesktopHostWindow when it closes
+    /// This is a stub for desktop host windows - they are managed separately
+    internal func windowDidClose(_ window: DockDesktopHostWindow) {
+        // Desktop host windows are not tracked in the windows array
+        // This method exists to satisfy the window's close callback
+        // Full desktop host support can be added later
+    }
+
     /// Find window containing a specific panel
     public func findWindow(containingPanel panelId: UUID) -> DockWindow? {
         for window in windows {
