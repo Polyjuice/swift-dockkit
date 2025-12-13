@@ -318,7 +318,8 @@ public class DockDesktopContainerView: NSView {
     private let flickVelocityThreshold: CGFloat = 500
 
     /// Position threshold for drag-based switching (fraction of desktop width)
-    private let dragPositionThreshold: CGFloat = 0.2
+    /// Apple uses 50% (halfway) for slow drags
+    private let dragPositionThreshold: CGFloat = 0.5
 
     // MARK: - Scroll Event Handling (Two-Finger Swipe)
     //
