@@ -8,6 +8,7 @@ A Swift framework for building VS Code-style dockable panel interfaces in macOS 
 - **Drag & Drop**: Drag tabs between groups and windows
 - **Split Views**: Create horizontal and vertical splits by dropping tabs on edges
 - **Floating Windows**: Tear off tabs into floating windows
+- **Desktop Hosts**: Multiple virtual workspaces in a single window with swipe navigation
 - **Layout Persistence**: JSON-serializable layout state for save/restore
 - **Automatic Reconciliation**: Efficient diffing and reconciliation of layout changes
 
@@ -113,7 +114,56 @@ for tabId in commands.panelsToRemove {
 layoutManager.updateLayout(newLayout)
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation.
+See [Layout Schema](DockKit/layout-schema.md) for detailed JSON structure.
+
+## Panel Operations
+
+DockKit supports three core panel operations:
+
+**Docking** - Add tabs to existing groups:
+```swift
+let newLayout = layout.addingTab(tab, toGroupId: targetGroupId)
+layoutManager.updateLayout(newLayout)
+```
+
+**Splitting** - Create new panes:
+```swift
+let newLayout = layout.splitting(groupId: groupId, direction: .right, withTab: tab)
+layoutManager.updateLayout(newLayout)
+```
+
+**Tearing** - Detach into floating windows:
+```swift
+let newLayout = layout.removingTab(tabId)
+// Tab is now in its own floating window
+```
+
+See [Panel Operations](docs/PANEL_OPERATIONS.md) for complete documentation.
+
+## Desktop Hosts
+
+Desktop hosts provide multiple virtual workspaces in a single window with swipe gesture navigation:
+
+```swift
+let codingDesktop = Desktop(title: "Coding", iconName: "chevron.left.forwardslash.chevron.right", layout: codingLayout)
+let designDesktop = Desktop(title: "Design", iconName: "paintbrush.fill", layout: designLayout)
+
+let state = DesktopHostWindowState(
+    frame: NSRect(x: 100, y: 100, width: 1200, height: 800),
+    desktops: [codingDesktop, designDesktop]
+)
+
+let window = DockDesktopHostWindow(desktopHostState: state, frame: state.frame)
+window.panelProvider = { id in panelRegistry[id] }
+```
+
+Features:
+- Swipe left/right to switch desktops
+- Header UI with desktop icons and titles
+- Apple-style spring physics and rubber band effect
+- Independent layout tree per desktop
+
+See [Desktop Hosts](docs/DESKTOP_HOSTS.md) for complete documentation.
 
 ## Architecture
 
@@ -123,6 +173,16 @@ DockKit uses a declarative layout model with automatic reconciliation:
 - **DockNode**: Recursive tree structure (splits contain children, tab groups contain tabs)
 - **DockLayoutManager**: Computes layout mutations (moving tabs, splitting, etc.)
 - **DockLayoutReconciler**: Diffs layouts and applies minimal view hierarchy changes
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for system overview.
+
+## Documentation
+
+- [Panel Operations](docs/PANEL_OPERATIONS.md) - Dock, split, and tear panels
+- [Desktop Hosts](docs/DESKTOP_HOSTS.md) - Multiple virtual workspaces
+- [Layout Schema](DockKit/layout-schema.md) - JSON structure reference
+- [Swipe Physics](docs/SWIPE_PHYSICS.md) - Gesture handling details
+- [Architecture](ARCHITECTURE.md) - System overview
 
 ## License
 

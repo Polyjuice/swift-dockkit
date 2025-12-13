@@ -368,3 +368,143 @@ type TabLayoutState = {
   cargo?: Record<string, unknown>
 }
 ```
+
+---
+
+## Desktop Host Layouts
+
+Desktop hosts provide multiple virtual workspaces within a single window. See [Desktop Hosts](../docs/DESKTOP_HOSTS.md) for usage details.
+
+### Desktop
+
+A single virtual workspace with its own layout tree:
+
+```typescript
+type Desktop = {
+  id: string
+  title?: string      // Display name in header
+  iconName?: string   // SF Symbol name for header
+  layout: DockLayoutNode
+}
+```
+
+### DesktopHostWindowState
+
+State for a window containing multiple desktops:
+
+```typescript
+type DesktopHostWindowState = {
+  id: string
+  frame: CGRect
+  isFullScreen: boolean
+  activeDesktopIndex: number
+  desktops: Desktop[]
+}
+```
+
+### Example: Multi-Desktop Layout
+
+```json
+{
+  "id": "desktop-host-window",
+  "frame": { "x": 100, "y": 100, "width": 1200, "height": 800 },
+  "isFullScreen": false,
+  "activeDesktopIndex": 0,
+  "desktops": [
+    {
+      "id": "coding-desktop",
+      "title": "Coding",
+      "iconName": "chevron.left.forwardslash.chevron.right",
+      "layout": {
+        "type": "split",
+        "id": "coding-root",
+        "axis": "horizontal",
+        "proportions": [0.2, 0.8],
+        "children": [
+          {
+            "type": "tabGroup",
+            "id": "explorer-group",
+            "activeTabIndex": 0,
+            "tabs": [
+              { "id": "explorer-tab", "title": "Explorer", "iconName": "folder" }
+            ]
+          },
+          {
+            "type": "split",
+            "id": "editor-area",
+            "axis": "vertical",
+            "proportions": [0.7, 0.3],
+            "children": [
+              {
+                "type": "tabGroup",
+                "id": "editor-group",
+                "activeTabIndex": 0,
+                "tabs": [
+                  { "id": "editor-tab", "title": "main.swift", "iconName": "doc.text" }
+                ]
+              },
+              {
+                "type": "tabGroup",
+                "id": "terminal-group",
+                "activeTabIndex": 0,
+                "tabs": [
+                  { "id": "terminal-tab", "title": "Terminal", "iconName": "terminal" }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "design-desktop",
+      "title": "Design",
+      "iconName": "paintbrush.fill",
+      "layout": {
+        "type": "split",
+        "id": "design-root",
+        "axis": "horizontal",
+        "proportions": [0.15, 0.85],
+        "children": [
+          {
+            "type": "tabGroup",
+            "id": "layers-group",
+            "activeTabIndex": 0,
+            "tabs": [
+              { "id": "layers-tab", "title": "Layers", "iconName": "square.3.layers.3d" }
+            ]
+          },
+          {
+            "type": "tabGroup",
+            "id": "canvas-group",
+            "activeTabIndex": 0,
+            "tabs": [
+              { "id": "canvas-tab", "title": "Canvas", "iconName": "paintbrush" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+### Complete TypeScript Schema (with Desktops)
+
+```typescript
+// Desktop Host types
+type Desktop = {
+  id: string
+  title?: string
+  iconName?: string
+  layout: DockLayoutNode
+}
+
+type DesktopHostWindowState = {
+  id: string
+  frame: CGRect
+  isFullScreen: boolean
+  activeDesktopIndex: number
+  desktops: Desktop[]
+}
+```
