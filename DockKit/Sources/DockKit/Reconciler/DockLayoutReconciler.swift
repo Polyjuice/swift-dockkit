@@ -539,7 +539,8 @@ public class DockLayoutReconciler {
             return .tabGroup(TabGroupNode(
                 id: tabGroupLayout.id,
                 tabs: tabs,
-                activeTabIndex: tabGroupLayout.activeTabIndex
+                activeTabIndex: tabGroupLayout.activeTabIndex,
+                displayMode: tabGroupLayout.displayMode
             ))
         }
     }

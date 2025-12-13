@@ -70,6 +70,9 @@ public class DockDesktopHostWindow: NSWindow {
     /// Content view that holds header + container
     private var rootView: NSView!
 
+    /// Header height constraint (changes in thumbnail mode)
+    private var headerHeightConstraint: NSLayoutConstraint!
+
     // MARK: - Initialization
 
     public init(
@@ -130,11 +133,13 @@ public class DockDesktopHostWindow: NSWindow {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(containerView)
 
+        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockDesktopHeaderView.headerHeight)
+
         NSLayoutConstraint.activate([
             headerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             headerView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: DockDesktopHeaderView.headerHeight),
+            headerHeightConstraint,
 
             containerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             containerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
@@ -227,6 +232,12 @@ public class DockDesktopHostWindow: NSWindow {
         set { containerView.slowMotionEnabled = newValue }
     }
 
+    /// Toggle thumbnail mode for all tab groups
+    public var thumbnailModeEnabled: Bool {
+        get { containerView.thumbnailModeEnabled }
+        set { containerView.thumbnailModeEnabled = newValue }
+    }
+
     public override func close() {
         desktopDelegate?.desktopHostWindow(self, didClose: ())
         layoutManager?.windowDidClose(self)
@@ -272,7 +283,8 @@ public class DockDesktopHostWindow: NSWindow {
             return .tabGroup(TabGroupNode(
                 id: tabGroupLayout.id,
                 tabs: tabs,
-                activeTabIndex: tabGroupLayout.activeTabIndex
+                activeTabIndex: tabGroupLayout.activeTabIndex,
+                displayMode: tabGroupLayout.displayMode
             ))
         }
     }
@@ -288,6 +300,25 @@ extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
 
     public func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool) {
         containerView.slowMotionEnabled = enabled
+    }
+
+    public func desktopHeader(_ header: DockDesktopHeaderView, didToggleThumbnailMode enabled: Bool) {
+        // Set thumbnail mode on header and get new height
+        let newHeight = headerView.setThumbnailMode(enabled)
+
+        // Capture and set thumbnails if enabling
+        if enabled {
+            let thumbnails = containerView.captureDesktopThumbnails()
+            headerView.setThumbnails(thumbnails)
+        }
+
+        // Animate header height change
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.allowsImplicitAnimation = true
+            headerHeightConstraint.constant = newHeight
+            rootView.layoutSubtreeIfNeeded()
+        }
     }
 }
 

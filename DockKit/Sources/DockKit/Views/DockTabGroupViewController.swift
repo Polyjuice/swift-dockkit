@@ -25,6 +25,9 @@ public class DockTabGroupViewController: NSViewController {
     /// The tab bar
     private var tabBar: DockTabBarView!
 
+    /// Tab bar height constraint (varies based on displayMode)
+    private var tabBarHeightConstraint: NSLayoutConstraint!
+
     /// Container for panel content
     private var contentContainer: NSView!
 
@@ -79,7 +82,15 @@ public class DockTabGroupViewController: NSViewController {
         )
     }
 
-    @objc private func handleDragBegan() {
+    @objc private func handleDragBegan(_ notification: Notification) {
+        // Check if we're the source of the drag and only have one tab
+        // In that case, don't show the overlay since dropping on yourself is a no-op
+        if let dragInfo = notification.userInfo?["dragInfo"] as? DockTabDragInfo {
+            if dragInfo.sourceGroupId == tabGroupNode.id && tabGroupNode.tabs.count == 1 {
+                // Don't show overlay - can't drop the only tab on itself
+                return
+            }
+        }
         showDropOverlay(true)
     }
 
@@ -108,11 +119,14 @@ public class DockTabGroupViewController: NSViewController {
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(contentContainer)
 
+        // Height depends on display mode (28 for tabs, 80 for thumbnails)
+        tabBarHeightConstraint = tabBar.heightAnchor.constraint(equalToConstant: heightForDisplayMode(tabGroupNode.displayMode))
+
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: view.topAnchor),
             tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tabBar.heightAnchor.constraint(equalToConstant: 28),
+            tabBarHeightConstraint,
 
             contentContainer.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -371,10 +385,32 @@ public class DockTabGroupViewController: NSViewController {
         selectTab(at: index)
     }
 
+    /// Update the display mode (tabs vs thumbnails)
+    public func setDisplayMode(_ mode: TabGroupDisplayMode) {
+        tabGroupNode.displayMode = mode
+        updateTabBar()
+    }
+
     // MARK: - Private
 
     private func updateTabBar() {
-        tabBar.setTabs(tabGroupNode.tabs, selectedIndex: tabGroupNode.activeTabIndex)
+        tabBar.setTabs(tabGroupNode.tabs, selectedIndex: tabGroupNode.activeTabIndex, displayMode: tabGroupNode.displayMode)
+
+        // Update height for display mode
+        let newHeight = heightForDisplayMode(tabGroupNode.displayMode)
+        if tabBarHeightConstraint.constant != newHeight {
+            tabBarHeightConstraint.constant = newHeight
+            view.layoutSubtreeIfNeeded()
+        }
+    }
+
+    private func heightForDisplayMode(_ mode: TabGroupDisplayMode) -> CGFloat {
+        switch mode {
+        case .tabs:
+            return 28
+        case .thumbnails:
+            return 80
+        }
     }
 
     private func updateContent() {

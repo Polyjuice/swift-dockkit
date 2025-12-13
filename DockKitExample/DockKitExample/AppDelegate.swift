@@ -8,8 +8,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
 
+        // MainWindowController manages DockLayoutManager - it doesn't need its own window shown
+        // The dock windows are created by DockLayoutManager
         mainWindowController = MainWindowController()
-        mainWindowController?.showWindow(nil)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

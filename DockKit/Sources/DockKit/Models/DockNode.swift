@@ -69,11 +69,13 @@ public struct TabGroupNode: Identifiable {
     public let id: UUID
     public var tabs: [DockTab]
     public var activeTabIndex: Int
+    public var displayMode: TabGroupDisplayMode
 
-    public init(id: UUID = UUID(), tabs: [DockTab] = [], activeTabIndex: Int = 0) {
+    public init(id: UUID = UUID(), tabs: [DockTab] = [], activeTabIndex: Int = 0, displayMode: TabGroupDisplayMode = .tabs) {
         self.id = id
         self.tabs = tabs
         self.activeTabIndex = min(activeTabIndex, max(0, tabs.count - 1))
+        self.displayMode = displayMode
     }
 
     /// The currently active tab, if any

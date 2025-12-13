@@ -42,9 +42,19 @@ public class DockTabBarView: NSView, NSDraggingSource {
     /// Identifier of the tab group this bar belongs to
     public var groupId: UUID = UUID()
 
+    /// Display mode - tabs or thumbnails
+    public var displayMode: TabGroupDisplayMode = .tabs {
+        didSet {
+            if displayMode != oldValue {
+                rebuildForDisplayMode()
+            }
+        }
+    }
+
     private var tabs: [DockTab] = []
     private var selectedIndex: Int = 0
     private var tabButtons: [DockTabButton] = []
+    private var thumbnailButtons: [DockThumbnailButton] = []
     private var stackView: NSStackView!
     private var addButton: NSButton!
 
@@ -125,10 +135,21 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // MARK: - Public API
 
-    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int) {
+    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: TabGroupDisplayMode = .tabs) {
         self.tabs = newTabs
         self.selectedIndex = max(0, min(selectedIndex, newTabs.count - 1))
-        rebuildTabButtons()
+        self.displayMode = displayMode
+        rebuildForDisplayMode()
+    }
+
+    /// Rebuild the view based on current display mode
+    private func rebuildForDisplayMode() {
+        switch displayMode {
+        case .tabs:
+            rebuildTabButtons()
+        case .thumbnails:
+            rebuildThumbnailButtons()
+        }
     }
 
     public func selectTab(at index: Int) {
@@ -147,17 +168,26 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     /// Update focus state - shows focus indicator on the selected tab
     public func setFocused(_ focused: Bool) {
-        for (index, button) in tabButtons.enumerated() {
-            button.setFocused(focused && index == selectedIndex)
+        switch displayMode {
+        case .tabs:
+            for (index, button) in tabButtons.enumerated() {
+                button.setFocused(focused && index == selectedIndex)
+            }
+        case .thumbnails:
+            for (index, button) in thumbnailButtons.enumerated() {
+                button.setFocused(focused && index == selectedIndex)
+            }
         }
     }
 
     // MARK: - Private
 
     private func rebuildTabButtons() {
-        // Remove old buttons
+        // Remove old buttons (both types)
         tabButtons.forEach { $0.removeFromSuperview() }
         tabButtons.removeAll()
+        thumbnailButtons.forEach { $0.removeFromSuperview() }
+        thumbnailButtons.removeAll()
 
         // Create new buttons
         for (index, tab) in tabs.enumerated() {
@@ -180,9 +210,44 @@ public class DockTabBarView: NSView, NSDraggingSource {
         }
     }
 
+    private func rebuildThumbnailButtons() {
+        // Remove old buttons (both types)
+        tabButtons.forEach { $0.removeFromSuperview() }
+        tabButtons.removeAll()
+        thumbnailButtons.forEach { $0.removeFromSuperview() }
+        thumbnailButtons.removeAll()
+
+        // Create thumbnail buttons
+        for (index, tab) in tabs.enumerated() {
+            let button = DockThumbnailButton(tab: tab, isSelected: index == selectedIndex)
+            button.onSelect = { [weak self] in
+                self?.handleTabSelected(at: index)
+            }
+            button.onClose = { [weak self] in
+                self?.handleTabClosed(at: index)
+            }
+            button.onDragBegan = { [weak self] event in
+                self?.handleDragBegan(at: index, event: event)
+            }
+
+            thumbnailButtons.append(button)
+            stackView.addArrangedSubview(button)
+
+            // Thumbnails have fixed width
+            button.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        }
+    }
+
     private func updateSelectionState() {
-        for (index, button) in tabButtons.enumerated() {
-            button.update(with: tabs[index], isSelected: index == selectedIndex)
+        switch displayMode {
+        case .tabs:
+            for (index, button) in tabButtons.enumerated() {
+                button.update(with: tabs[index], isSelected: index == selectedIndex)
+            }
+        case .thumbnails:
+            for (index, button) in thumbnailButtons.enumerated() {
+                button.update(with: tabs[index], isSelected: index == selectedIndex)
+            }
         }
     }
 
@@ -235,7 +300,8 @@ public class DockTabBarView: NSView, NSDraggingSource {
         draggingItem.setDraggingFrame(tabButtons[index].frame, contents: dragImage)
 
         // Post notification that drag has begun so drop overlays can show
-        NotificationCenter.default.post(name: .dockDragBegan, object: nil)
+        // Include the drag info so overlays can decide whether to show
+        NotificationCenter.default.post(name: .dockDragBegan, object: nil, userInfo: ["dragInfo": dragInfo])
 
         beginDraggingSession(with: [draggingItem], event: event, source: self)
     }
@@ -562,6 +628,248 @@ public class DockTabButton: NSView {
 
     @objc private func closeClicked() {
         onClose?()
+    }
+}
+
+// MARK: - DockThumbnailButton
+
+/// Thumbnail button showing a visual preview of the panel content
+public class DockThumbnailButton: NSView {
+    public var onSelect: (() -> Void)?
+    public var onClose: (() -> Void)?
+    public var onDragBegan: ((NSEvent) -> Void)?
+
+    private var thumbnailView: NSImageView!
+    private var titleLabel: NSTextField!
+    private var closeButton: NSButton!
+    private var selectionBorder: NSView!
+    private var focusIndicator: NSView!
+    private var isSelected: Bool = false
+    private var isFocused: Bool = false
+    private var isHovering: Bool = false
+    private var tab: DockTab
+
+    /// Height of thumbnail (width is fixed at 120pt in stack)
+    private static let thumbnailHeight: CGFloat = 80
+
+    public init(tab: DockTab, isSelected: Bool) {
+        self.tab = tab
+        self.isSelected = isSelected
+        super.init(frame: .zero)
+        setupUI()
+        update(with: tab, isSelected: isSelected)
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupUI() {
+        wantsLayer = true
+        layer?.cornerRadius = 6
+
+        translatesAutoresizingMaskIntoConstraints = false
+
+        // Selection border (behind thumbnail)
+        selectionBorder = NSView()
+        selectionBorder.wantsLayer = true
+        selectionBorder.layer?.cornerRadius = 8
+        selectionBorder.layer?.borderWidth = 2
+        selectionBorder.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        selectionBorder.isHidden = true
+        selectionBorder.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(selectionBorder)
+
+        // Thumbnail image view
+        thumbnailView = NSImageView()
+        thumbnailView.imageScaling = .scaleProportionallyUpOrDown
+        thumbnailView.wantsLayer = true
+        thumbnailView.layer?.cornerRadius = 4
+        thumbnailView.layer?.masksToBounds = true
+        thumbnailView.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(thumbnailView)
+
+        // Focus indicator (small dot at top-left)
+        focusIndicator = NSView()
+        focusIndicator.wantsLayer = true
+        focusIndicator.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        focusIndicator.layer?.cornerRadius = 3
+        focusIndicator.translatesAutoresizingMaskIntoConstraints = false
+        focusIndicator.isHidden = true
+        addSubview(focusIndicator)
+
+        // Title label at bottom
+        titleLabel = NSTextField(labelWithString: "")
+        titleLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        titleLabel.alignment = .center
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(titleLabel)
+
+        // Close button (top-right corner)
+        closeButton = NSButton(image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close")!, target: self, action: #selector(closeClicked))
+        closeButton.bezelStyle = .accessoryBarAction
+        closeButton.isBordered = false
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.alphaValue = 0
+        addSubview(closeButton)
+
+        NSLayoutConstraint.activate([
+            // Selection border surrounds thumbnail
+            selectionBorder.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            selectionBorder.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            selectionBorder.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            selectionBorder.bottomAnchor.constraint(equalTo: titleLabel.topAnchor, constant: -2),
+
+            // Thumbnail fills most of the space
+            thumbnailView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            thumbnailView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            thumbnailView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            thumbnailView.heightAnchor.constraint(equalToConstant: Self.thumbnailHeight - 24),
+
+            // Focus indicator at top-left
+            focusIndicator.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            focusIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            focusIndicator.widthAnchor.constraint(equalToConstant: 6),
+            focusIndicator.heightAnchor.constraint(equalToConstant: 6),
+
+            // Title at bottom
+            titleLabel.topAnchor.constraint(equalTo: thumbnailView.bottomAnchor, constant: 4),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            titleLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+
+            // Close button at top-right
+            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            closeButton.widthAnchor.constraint(equalToConstant: 18),
+            closeButton.heightAnchor.constraint(equalToConstant: 18),
+
+            // Fixed height
+            heightAnchor.constraint(equalToConstant: Self.thumbnailHeight)
+        ])
+
+        // Tracking area for hover
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+    }
+
+    public func update(with tab: DockTab, isSelected: Bool) {
+        self.tab = tab
+        self.isSelected = isSelected
+
+        titleLabel.stringValue = tab.title
+
+        // Capture thumbnail from panel's view if available
+        if let panel = tab.panel {
+            captureThumbnail(from: panel.panelViewController.view)
+        } else if let icon = tab.icon {
+            // Fall back to icon if no panel view
+            thumbnailView.image = icon
+        } else {
+            thumbnailView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
+        }
+
+        updateAppearance()
+    }
+
+    public func setFocused(_ focused: Bool) {
+        self.isFocused = focused
+        updateAppearance()
+    }
+
+    /// Capture a thumbnail image from the panel's view
+    private func captureThumbnail(from view: NSView) {
+        guard view.bounds.width > 0, view.bounds.height > 0 else {
+            thumbnailView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
+            return
+        }
+
+        // Calculate aspect ratio to fit in thumbnail
+        let targetSize = NSSize(width: 108, height: Self.thumbnailHeight - 24)
+
+        guard let bitmapRep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            thumbnailView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
+            return
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmapRep)
+
+        let image = NSImage(size: targetSize)
+        image.lockFocus()
+
+        // Draw scaled
+        let sourceSize = view.bounds.size
+        let scaleFactor = min(targetSize.width / sourceSize.width, targetSize.height / sourceSize.height)
+        let scaledWidth = sourceSize.width * scaleFactor
+        let scaledHeight = sourceSize.height * scaleFactor
+        let x = (targetSize.width - scaledWidth) / 2
+        let y = (targetSize.height - scaledHeight) / 2
+
+        bitmapRep.draw(in: NSRect(x: x, y: y, width: scaledWidth, height: scaledHeight))
+
+        image.unlockFocus()
+        thumbnailView.image = image
+    }
+
+    private func updateAppearance() {
+        // Selection border
+        selectionBorder.isHidden = !isSelected
+
+        // Background
+        if isSelected {
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
+            titleLabel.textColor = .labelColor
+        } else if isHovering {
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+            titleLabel.textColor = .secondaryLabelColor
+        } else {
+            layer?.backgroundColor = NSColor.clear.cgColor
+            titleLabel.textColor = .secondaryLabelColor
+        }
+
+        // Focus indicator
+        focusIndicator.isHidden = !(isSelected && isFocused)
+
+        // Close button visibility
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            closeButton.animator().alphaValue = (isHovering || isSelected) ? 1.0 : 0.0
+        }
+    }
+
+    public override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+        updateAppearance()
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        isHovering = false
+        updateAppearance()
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        onSelect?()
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        onDragBegan?(event)
+    }
+
+    @objc private func closeClicked() {
+        onClose?()
+    }
+
+    /// Refresh the thumbnail capture
+    public func refreshThumbnail() {
+        if let panel = tab.panel {
+            captureThumbnail(from: panel.panelViewController.view)
+        }
     }
 }
 

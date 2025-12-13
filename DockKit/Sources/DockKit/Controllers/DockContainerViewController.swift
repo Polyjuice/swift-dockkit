@@ -363,7 +363,7 @@ open class DockContainerViewController: NSViewController {
                 ))
             }
         }
-        return TabGroupNode(id: layout.id, tabs: tabs, activeTabIndex: layout.activeTabIndex)
+        return TabGroupNode(id: layout.id, tabs: tabs, activeTabIndex: layout.activeTabIndex, displayMode: layout.displayMode)
     }
 }
 

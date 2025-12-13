@@ -2,7 +2,7 @@ import AppKit
 
 /// Central coordinator for all dock windows and panels
 /// This is NOT a view controller - it manages windows but is not tied to any specific window
-public class DockLayoutManager {
+public class DockLayoutManager: DockWindowDelegate {
 
     // MARK: - Public Properties
 
@@ -154,6 +154,7 @@ public class DockLayoutManager {
             frame: state.frame,
             layoutManager: self
         )
+        window.dockDelegate = self
 
         if state.isFullScreen && !window.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
@@ -187,6 +188,7 @@ public class DockLayoutManager {
             frame: frame,
             layoutManager: self
         )
+        window.dockDelegate = self
         windows.append(window)
         window.makeKeyAndOrderFront(nil)
         return window
@@ -289,6 +291,7 @@ public class DockLayoutManager {
             frame: frame,
             layoutManager: self
         )
+        window.dockDelegate = self
         windows.append(window)
         window.makeKeyAndOrderFront(nil)
 
@@ -316,6 +319,7 @@ public class DockLayoutManager {
                 frame: windowState.frame,
                 layoutManager: self
             )
+            window.dockDelegate = self
             windows.append(window)
 
             // Handle full-screen state
@@ -359,7 +363,8 @@ public class DockLayoutManager {
             return .tabGroup(TabGroupNode(
                 id: tabGroupLayout.id,
                 tabs: tabs,
-                activeTabIndex: tabGroupLayout.activeTabIndex
+                activeTabIndex: tabGroupLayout.activeTabIndex,
+                displayMode: tabGroupLayout.displayMode
             ))
         }
     }
@@ -399,6 +404,58 @@ public extension DockLayoutManagerDelegate {
     func layoutManagerDidCloseAllWindows(_ manager: DockLayoutManager) {}
     func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {}
     func layoutManagerDidChangeLayout(_ manager: DockLayoutManager) {}
+}
+
+// MARK: - DockWindowDelegate
+
+extension DockLayoutManager {
+    public func dockWindow(_ window: DockWindow, didClose: Void) {
+        // Already handled by windowDidClose(_:)
+    }
+
+    public func dockWindow(_ window: DockWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
+        // Get current layout and compute new layout with tab moved
+        let currentLayout = getLayout()
+        let targetGroupId = tabGroup.tabGroupNode.id
+
+        // Use layout mutation API to move the tab
+        let newLayout = currentLayout.movingTab(tabInfo.tabId, toGroupId: targetGroupId, at: index)
+
+        // Apply the new layout
+        updateLayout(newLayout)
+    }
+
+    public func dockWindow(_ window: DockWindow, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {
+        // Remove from current location
+        removePanel(panel.panelId)
+
+        // Create new floating window via delegate (host app creates new window)
+        delegate?.layoutManager(self, wantsToDetachPanel: panel, at: screenPoint)
+    }
+
+    public func dockWindow(_ window: DockWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
+        // Get current layout
+        let currentLayout = getLayout()
+        let targetGroupId = tabGroup.tabGroupNode.id
+
+        // Create TabLayoutState from DockTab
+        let tabState = TabLayoutState(
+            id: tab.id,
+            title: tab.title,
+            iconName: tab.iconName,
+            cargo: tab.cargo
+        )
+
+        // Use layout mutation API to perform the split
+        let newLayout = currentLayout.splitting(
+            groupId: targetGroupId,
+            direction: direction,
+            withTab: tabState
+        )
+
+        // Apply the new layout
+        updateLayout(newLayout)
+    }
 }
 
 // MARK: - LayoutMismatch (for verifyLayout)

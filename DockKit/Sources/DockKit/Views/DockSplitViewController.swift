@@ -1,5 +1,84 @@
 import AppKit
 
+// MARK: - Custom Split View with Visible Dividers
+
+/// Custom NSSplitView that draws visible dividers with a gap and handle
+public class DockSplitView: NSSplitView {
+    /// The thickness of the divider gap
+    public static let dividerGap: CGFloat = 6
+
+    /// Color for the divider handle
+    private let handleColor = NSColor.separatorColor
+
+    public override var dividerThickness: CGFloat {
+        return Self.dividerGap
+    }
+
+    public override func drawDivider(in rect: NSRect) {
+        // Fill divider background with dark/black color
+        NSColor.black.setFill()
+        rect.fill()
+
+        // Draw a centered white line/handle
+        NSColor.white.withAlphaComponent(0.6).setFill()
+
+        if isVertical {
+            // Vertical divider (horizontal split) - draw vertical line
+            let handleWidth: CGFloat = 1
+            let handleHeight: CGFloat = min(40, rect.height * 0.4)
+            let handleRect = NSRect(
+                x: rect.midX - handleWidth / 2,
+                y: rect.midY - handleHeight / 2,
+                width: handleWidth,
+                height: handleHeight
+            )
+            let path = NSBezierPath(roundedRect: handleRect, xRadius: handleWidth / 2, yRadius: handleWidth / 2)
+            path.fill()
+        } else {
+            // Horizontal divider (vertical split) - draw horizontal line
+            let handleWidth: CGFloat = min(40, rect.width * 0.4)
+            let handleHeight: CGFloat = 1
+            let handleRect = NSRect(
+                x: rect.midX - handleWidth / 2,
+                y: rect.midY - handleHeight / 2,
+                width: handleWidth,
+                height: handleHeight
+            )
+            let path = NSBezierPath(roundedRect: handleRect, xRadius: handleHeight / 2, yRadius: handleHeight / 2)
+            path.fill()
+        }
+    }
+
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+
+        // Add resize cursor for each divider
+        for i in 0..<(subviews.count - 1) {
+            let dividerRect = dividerRect(at: i)
+            let cursor: NSCursor = isVertical ? .resizeLeftRight : .resizeUpDown
+            addCursorRect(dividerRect, cursor: cursor)
+        }
+    }
+
+    /// Get the rect for the divider at the given index
+    private func dividerRect(at index: Int) -> NSRect {
+        guard index < subviews.count - 1 else { return .zero }
+
+        let leftView = subviews[index]
+        _ = subviews[index + 1]  // rightView - used only to verify index bounds
+
+        if isVertical {
+            // Vertical dividers between horizontally arranged views
+            let x = leftView.frame.maxX
+            return NSRect(x: x, y: bounds.minY, width: dividerThickness, height: bounds.height)
+        } else {
+            // Horizontal dividers between vertically arranged views
+            let y = leftView.frame.maxY
+            return NSRect(x: bounds.minX, y: y, width: bounds.width, height: dividerThickness)
+        }
+    }
+}
+
 /// Delegate for split view events
 public protocol DockSplitViewControllerDelegate: AnyObject {
     func splitViewController(_ controller: DockSplitViewController, didUpdateProportions proportions: [CGFloat])
@@ -46,6 +125,14 @@ public class DockSplitViewController: NSSplitViewController {
     public required init?(coder: NSCoder) {
         self.splitNode = SplitNode(axis: .horizontal, children: [])
         super.init(coder: coder)
+    }
+
+    public override func loadView() {
+        // Use custom DockSplitView instead of default NSSplitView
+        let customSplitView = DockSplitView()
+        customSplitView.isVertical = splitNode.axis == .horizontal
+        self.splitView = customSplitView
+        self.view = customSplitView
     }
 
     public override func viewDidLoad() {

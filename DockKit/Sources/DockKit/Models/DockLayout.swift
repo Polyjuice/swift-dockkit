@@ -1,5 +1,13 @@
 import Foundation
 
+// MARK: - Display Mode
+
+/// How a tab group displays its tabs
+public enum TabGroupDisplayMode: String, Codable {
+    case tabs        // Traditional tab bar with icon and title
+    case thumbnails  // Visual preview thumbnails of panel content
+}
+
 // MARK: - New Architecture (Equal Windows)
 
 /// Serializable representation of a dock layout
@@ -108,15 +116,26 @@ public struct TabGroupLayoutNode: Codable {
     public let id: UUID
     public var tabs: [TabLayoutState]
     public var activeTabIndex: Int
+    public var displayMode: TabGroupDisplayMode
 
     private enum CodingKeys: String, CodingKey {
-        case id, tabs, activeTabIndex
+        case id, tabs, activeTabIndex, displayMode
     }
 
-    public init(id: UUID = UUID(), tabs: [TabLayoutState] = [], activeTabIndex: Int = 0) {
+    public init(id: UUID = UUID(), tabs: [TabLayoutState] = [], activeTabIndex: Int = 0, displayMode: TabGroupDisplayMode = .tabs) {
         self.id = id
         self.tabs = tabs
         self.activeTabIndex = activeTabIndex
+        self.displayMode = displayMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        tabs = try container.decode([TabLayoutState].self, forKey: .tabs)
+        activeTabIndex = try container.decode(Int.self, forKey: .activeTabIndex)
+        // Default to .tabs for backward compatibility with existing JSON
+        displayMode = try container.decodeIfPresent(TabGroupDisplayMode.self, forKey: .displayMode) ?? .tabs
     }
 }
 
@@ -176,7 +195,8 @@ public extension DockLayoutNode {
             return .tabGroup(TabGroupLayoutNode(
                 id: tabGroupNode.id,
                 tabs: tabGroupNode.tabs.map { TabLayoutState.from($0) },
-                activeTabIndex: tabGroupNode.activeTabIndex
+                activeTabIndex: tabGroupNode.activeTabIndex,
+                displayMode: tabGroupNode.displayMode
             ))
         }
     }

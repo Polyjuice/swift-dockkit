@@ -64,6 +64,15 @@ public class DockDesktopContainerView: NSView {
     public var slowMotionEnabled: Bool = false
     private var timeScale: CGFloat { slowMotionEnabled ? 0.1 : 1.0 }
 
+    /// Thumbnail mode - when enabled, all tab groups show thumbnails instead of tabs
+    public var thumbnailModeEnabled: Bool = false {
+        didSet {
+            if thumbnailModeEnabled != oldValue {
+                updateAllTabGroupDisplayModes()
+            }
+        }
+    }
+
     /// Spring stiffness for bounce back
     private let springStiffness: CGFloat = 300
 
@@ -75,6 +84,31 @@ public class DockDesktopContainerView: NSView {
 
     /// Rubber band coefficient (Apple uses 0.55)
     private let rubberBandCoefficient: CGFloat = 0.55
+
+    /// Update display mode on all tab group view controllers
+    private func updateAllTabGroupDisplayModes() {
+        let newMode: TabGroupDisplayMode = thumbnailModeEnabled ? .thumbnails : .tabs
+
+        // Update all desktop view controllers
+        for (_, viewController) in desktopViewControllers {
+            updateTabGroupDisplayMode(in: viewController, to: newMode)
+        }
+    }
+
+    /// Recursively update display mode in a view controller hierarchy
+    private func updateTabGroupDisplayMode(in viewController: NSViewController, to mode: TabGroupDisplayMode) {
+        if let tabGroupVC = viewController as? DockTabGroupViewController {
+            tabGroupVC.setDisplayMode(mode)
+        } else if let splitVC = viewController as? DockSplitViewController {
+            for child in splitVC.children {
+                updateTabGroupDisplayMode(in: child, to: mode)
+            }
+        } else {
+            for child in viewController.children {
+                updateTabGroupDisplayMode(in: child, to: mode)
+            }
+        }
+    }
 
     // MARK: - Initialization
 
@@ -183,6 +217,47 @@ public class DockDesktopContainerView: NSView {
         }
     }
 
+    /// Capture thumbnails for all desktops
+    public func captureDesktopThumbnails() -> [NSImage?] {
+        var thumbnails: [NSImage?] = []
+
+        for (index, desktopView) in desktopViews.enumerated() {
+            guard index < desktops.count else {
+                thumbnails.append(nil)
+                continue
+            }
+
+            // Capture the desktop view
+            let targetSize = NSSize(width: 112, height: 68) // Fit in thumbnail area
+
+            guard desktopView.bounds.width > 0, desktopView.bounds.height > 0,
+                  let bitmapRep = desktopView.bitmapImageRepForCachingDisplay(in: desktopView.bounds) else {
+                thumbnails.append(nil)
+                continue
+            }
+
+            desktopView.cacheDisplay(in: desktopView.bounds, to: bitmapRep)
+
+            let image = NSImage(size: targetSize)
+            image.lockFocus()
+
+            // Draw scaled to fit
+            let sourceSize = desktopView.bounds.size
+            let scaleFactor = min(targetSize.width / sourceSize.width, targetSize.height / sourceSize.height)
+            let scaledWidth = sourceSize.width * scaleFactor
+            let scaledHeight = sourceSize.height * scaleFactor
+            let x = (targetSize.width - scaledWidth) / 2
+            let y = (targetSize.height - scaledHeight) / 2
+
+            bitmapRep.draw(in: NSRect(x: x, y: y, width: scaledWidth, height: scaledHeight))
+
+            image.unlockFocus()
+            thumbnails.append(image)
+        }
+
+        return thumbnails
+    }
+
     // MARK: - Desktop View Management
 
     private func rebuildDesktopViews() {
@@ -273,7 +348,8 @@ public class DockDesktopContainerView: NSView {
         return TabGroupNode(
             id: layout.id,
             tabs: tabs,
-            activeTabIndex: layout.activeTabIndex
+            activeTabIndex: layout.activeTabIndex,
+            displayMode: layout.displayMode
         )
     }
 
