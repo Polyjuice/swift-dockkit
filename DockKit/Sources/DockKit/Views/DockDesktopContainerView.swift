@@ -429,21 +429,12 @@ public class DockDesktopContainerView: NSView {
     }
 
     private func updateIndicatorForGestureAmount(_ gestureAmount: CGFloat) {
+        // Indicator uses POSITION-ONLY during gesture (no velocity)
+        // This prevents flickering when velocity fluctuates during slow swipes
+        // Velocity is only considered at finalization (when user releases)
         let target: Int
 
-        // Check velocity-based switching (flick)
-        let velocityBasedSwitch = abs(gestureVelocity) > flickVelocityThreshold
-
-        if velocityBasedSwitch {
-            // Velocity determines direction
-            if gestureVelocity > 0 && activeDesktopIndex > 0 {
-                target = activeDesktopIndex - 1
-            } else if gestureVelocity < 0 && activeDesktopIndex < desktops.count - 1 {
-                target = activeDesktopIndex + 1
-            } else {
-                target = activeDesktopIndex
-            }
-        } else if gestureAmount >= dragPositionThreshold && activeDesktopIndex > 0 {
+        if gestureAmount >= dragPositionThreshold && activeDesktopIndex > 0 {
             target = activeDesktopIndex - 1
         } else if gestureAmount <= -dragPositionThreshold && activeDesktopIndex < desktops.count - 1 {
             target = activeDesktopIndex + 1
