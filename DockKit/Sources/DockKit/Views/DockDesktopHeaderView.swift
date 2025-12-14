@@ -16,6 +16,9 @@ public protocol DockDesktopHeaderViewDelegate: AnyObject {
 
     /// Called when user clicks the (+) button to create a new desktop
     func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView)
+
+    /// Called when a tab is dropped on a desktop thumbnail
+    func desktopHeader(_ header: DockDesktopHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onDesktopAt index: Int)
 }
 
 /// Default implementations
@@ -24,6 +27,7 @@ public extension DockDesktopHeaderViewDelegate {
     func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool) {}
     func desktopHeader(_ header: DockDesktopHeaderView, didToggleThumbnailMode enabled: Bool) {}
     func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView) {}
+    func desktopHeader(_ header: DockDesktopHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onDesktopAt index: Int) {}
 }
 
 /// A header view showing desktop icons/titles for selection
@@ -331,6 +335,10 @@ public class DockDesktopHeaderView: NSView {
             button.onSelect = { [weak self] idx in
                 self?.handleDesktopSelected(at: idx)
             }
+            button.onTabDrop = { [weak self] idx, tabInfo in
+                guard let self = self else { return }
+                self.delegate?.desktopHeader(self, didReceiveTab: tabInfo, onDesktopAt: idx)
+            }
             button.setThumbnailMode(isThumbnailMode)
             desktopButtons.append(button)
             stackView.addArrangedSubview(button)
@@ -388,9 +396,11 @@ public class DockDesktopHeaderView: NSView {
 /// Individual desktop button in the header - supports icon+title or thumbnail mode
 public class DockDesktopButton: NSView, DockDesktopView {
     public var onSelect: ((Int) -> Void)?
+    public var onTabDrop: ((Int, DockTabDragInfo) -> Void)?
     public var desktopIndex: Int
 
     private let desktop: Desktop
+    private var isDragTarget: Bool = false
 
     // Icon+Title mode views
     private var contentStack: NSStackView!
@@ -568,6 +578,9 @@ public class DockDesktopButton: NSView, DockDesktopView {
             userInfo: nil
         )
         addTrackingArea(trackingArea)
+
+        // Register for tab drops
+        registerForDraggedTypes([.dockTab])
     }
 
     public func setActive(_ active: Bool) {
@@ -664,5 +677,51 @@ public class DockDesktopButton: NSView, DockDesktopView {
             onSelect?(desktopIndex)
         }
         updateAppearance()
+    }
+
+    // MARK: - NSDraggingDestination
+
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard sender.draggingPasteboard.types?.contains(.dockTab) == true else {
+            return []
+        }
+        isDragTarget = true
+        updateDragAppearance()
+        return .move
+    }
+
+    public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard sender.draggingPasteboard.types?.contains(.dockTab) == true else {
+            return []
+        }
+        return .move
+    }
+
+    public override func draggingExited(_ sender: NSDraggingInfo?) {
+        isDragTarget = false
+        updateDragAppearance()
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        isDragTarget = false
+        updateDragAppearance()
+
+        guard let data = sender.draggingPasteboard.data(forType: .dockTab),
+              let dragInfo = try? JSONDecoder().decode(DockTabDragInfo.self, from: data) else {
+            return false
+        }
+
+        onTabDrop?(desktopIndex, dragInfo)
+        return true
+    }
+
+    private func updateDragAppearance() {
+        if isDragTarget {
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
+            selectionBorder.isHidden = false
+            selectionBorder.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        } else {
+            updateAppearance()
+        }
     }
 }

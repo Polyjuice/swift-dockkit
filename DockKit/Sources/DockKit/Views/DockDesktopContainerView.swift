@@ -186,15 +186,11 @@ public class DockDesktopContainerView: NSView {
 
     /// Set the desktops to display
     public func setDesktops(_ newDesktops: [Desktop], activeIndex: Int) {
-        Console.log("[DockDesktopContainerView] setDesktops: \(newDesktops.count) desktops, activeIndex=\(activeIndex)")
         desktops = newDesktops
         activeDesktopIndex = max(0, min(activeIndex, desktops.count - 1))
 
-        Console.log("[DockDesktopContainerView] calling rebuildDesktopViews")
         rebuildDesktopViews()
-        Console.log("[DockDesktopContainerView] calling updateContentPosition")
         updateContentPosition(animated: false)
-        Console.log("[DockDesktopContainerView] setDesktops complete")
     }
 
     /// Switch to a specific desktop with animation
@@ -292,8 +288,6 @@ public class DockDesktopContainerView: NSView {
     // MARK: - Desktop View Management
 
     private func rebuildDesktopViews() {
-        Console.log("[DockDesktopContainerView] rebuildDesktopViews: \(desktops.count) desktops, removing \(desktopViews.count) old views, self.bounds=\(bounds), clipView.bounds=\(clipView.bounds)")
-
         // Remove old views
         for view in desktopViews {
             view.removeFromSuperview()
@@ -308,39 +302,23 @@ public class DockDesktopContainerView: NSView {
         }
 
         guard !desktops.isEmpty else {
-            Console.log("[DockDesktopContainerView] rebuildDesktopViews: no desktops, returning early")
             return
         }
 
-        // Create new desktop views
-        var previousDesktopView: NSView? = nil
-
+        // Create new desktop views - use frame-based layout for horizontal positioning
         for (_, desktop) in desktops.enumerated() {
             let desktopView = NSView()
             desktopView.wantsLayer = true
-            desktopView.translatesAutoresizingMaskIntoConstraints = false
+            // Use frame-based layout for desktop views (positioned in layout())
+            desktopView.translatesAutoresizingMaskIntoConstraints = true
             contentView.addSubview(desktopView)
             desktopViews.append(desktopView)
-
-            // Position within content view - chain desktops together
-            NSLayoutConstraint.activate([
-                desktopView.topAnchor.constraint(equalTo: contentView.topAnchor),
-                desktopView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-                desktopView.widthAnchor.constraint(equalTo: clipView.widthAnchor)
-            ])
-
-            // Chain leading anchor: first desktop to contentView, others to previous desktop
-            if let previous = previousDesktopView {
-                desktopView.leadingAnchor.constraint(equalTo: previous.trailingAnchor).isActive = true
-            } else {
-                desktopView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor).isActive = true
-            }
-            previousDesktopView = desktopView
 
             // Create view controller for desktop layout
             let vc = createViewController(for: desktop.layout)
             desktopViewControllers[desktop.id] = vc
 
+            // VC view uses auto layout to fill its container
             vc.view.translatesAutoresizingMaskIntoConstraints = false
             desktopView.addSubview(vc.view)
 
@@ -359,13 +337,30 @@ public class DockDesktopContainerView: NSView {
         // Reset leading constraint for new desktop count
         contentViewLeadingConstraint?.constant = -CGFloat(activeDesktopIndex) * clipView.bounds.width
 
-        // Force layout to resolve constraints immediately
+        // Force layout
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
 
-        Console.log("[DockDesktopContainerView] rebuildDesktopViews complete: created \(desktopViews.count) desktop views, bounds=\(bounds), clipView.bounds=\(clipView.bounds), contentView.frame=\(contentView.frame)")
-        for (i, view) in desktopViews.enumerated() {
-            Console.log("[DockDesktopContainerView]   desktop[\(i)]: frame=\(view.frame), subviews=\(view.subviews.count)")
+    public override func layout() {
+        super.layout()
+
+        // Position desktop views using frame-based layout
+        let desktopWidth = clipView.bounds.width
+        let desktopHeight = clipView.bounds.height
+
+        for (index, desktopView) in desktopViews.enumerated() {
+            desktopView.frame = NSRect(
+                x: CGFloat(index) * desktopWidth,
+                y: 0,
+                width: desktopWidth,
+                height: desktopHeight
+            )
+        }
+
+        // Update content position if not animating
+        if springState == nil {
+            updateContentPosition(animated: false)
         }
     }
 
@@ -768,26 +763,6 @@ public class DockDesktopContainerView: NSView {
         stopDisplayLink()
     }
 
-    // MARK: - Layout
-
-    public override func layout() {
-        super.layout()
-
-        // Update desktop view widths when bounds change
-        for (index, desktopView) in desktopViews.enumerated() {
-            // Update leading constraint
-            for constraint in contentView.constraints {
-                if constraint.firstItem as? NSView == desktopView && constraint.firstAttribute == .leading {
-                    constraint.constant = CGFloat(index) * bounds.width
-                }
-            }
-        }
-
-        // Update content position if not animating
-        if springState == nil {
-            updateContentPosition(animated: false)
-        }
-    }
 }
 
 // MARK: - DockTabGroupViewControllerDelegate

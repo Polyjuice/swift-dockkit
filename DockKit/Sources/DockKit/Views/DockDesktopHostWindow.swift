@@ -259,17 +259,12 @@ public class DockDesktopHostWindow: NSWindow {
 
     /// Update the desktop state (for reconciliation)
     public func updateDesktopHostState(_ state: DesktopHostWindowState) {
-        Console.log("[DockDesktopHostWindow:\(windowId.uuidString.prefix(8))] updateDesktopHostState: \(state.desktops.count) desktops, activeIndex=\(state.activeDesktopIndex)")
         let activeIndexChanged = desktopHostState.activeDesktopIndex != state.activeDesktopIndex
         let desktopCountChanged = desktopHostState.desktops.count != state.desktops.count
 
         desktopHostState = state
-        Console.log("[DockDesktopHostWindow] calling headerView.setDesktops")
         headerView.setDesktops(state.desktops, activeIndex: state.activeDesktopIndex)
-        Console.log("[DockDesktopHostWindow] calling containerView.setDesktops")
         containerView.setDesktops(state.desktops, activeIndex: state.activeDesktopIndex)
-        Console.log("[DockDesktopHostWindow] setDesktops complete")
-        Console.log("[DockDesktopHostWindow] window state: isVisible=\(isVisible), frame=\(frame), alpha=\(alphaValue), level=\(level.rawValue), contentView=\(contentView != nil), subviews=\(contentView?.subviews.count ?? -1)")
 
         if activeIndexChanged || desktopCountChanged {
             updateTitle()
@@ -391,26 +386,6 @@ public class DockDesktopHostWindow: NSWindow {
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { true }
 
-    deinit {
-        Console.log("[DockDesktopHostWindow] deinit called - window being deallocated!")
-        Thread.callStackSymbols.prefix(10).forEach { Console.log("  \($0)") }
-    }
-
-    public override func orderOut(_ sender: Any?) {
-        Console.log("[DockDesktopHostWindow] orderOut called!")
-        Thread.callStackSymbols.prefix(8).forEach { Console.log("  \($0)") }
-        super.orderOut(sender)
-    }
-
-    public override func orderFront(_ sender: Any?) {
-        Console.log("[DockDesktopHostWindow] orderFront called")
-        super.orderFront(sender)
-    }
-
-    public override func makeKeyAndOrderFront(_ sender: Any?) {
-        Console.log("[DockDesktopHostWindow] makeKeyAndOrderFront called")
-        super.makeKeyAndOrderFront(sender)
-    }
 
     /// Toggle slow motion for debugging swipe gestures
     public var slowMotionEnabled: Bool {
@@ -425,10 +400,6 @@ public class DockDesktopHostWindow: NSWindow {
     }
 
     public override func close() {
-        Console.log("[DockDesktopHostWindow] close() called")
-        // Log stack trace to see who called close
-        Thread.callStackSymbols.prefix(10).forEach { Console.log("  \($0)") }
-
         // Remove from spawner's child tracking
         spawnerWindow?.removeSpawnedWindow(self)
 
@@ -522,6 +493,93 @@ extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
 
     public func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView) {
         addNewDesktop()
+    }
+
+    public func desktopHeader(_ header: DockDesktopHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onDesktopAt targetIndex: Int) {
+        // Find which desktop contains the source tab
+        var sourceDesktopIndex: Int? = nil
+        for (index, desktop) in desktopHostState.desktops.enumerated() {
+            if containsTab(tabInfo.tabId, in: desktop.layout) {
+                sourceDesktopIndex = index
+                break
+            }
+        }
+
+        guard let srcIndex = sourceDesktopIndex else {
+            return
+        }
+
+        // Don't drop on the same desktop
+        guard srcIndex != targetIndex else {
+            return
+        }
+
+        // Create new state with tab moved
+        var newState = desktopHostState
+
+        // Remove tab from source desktop
+        guard let (tabState, newSourceLayout) = removeTab(tabInfo.tabId, from: newState.desktops[srcIndex].layout) else {
+            return
+        }
+        newState.desktops[srcIndex].layout = newSourceLayout
+
+        // Add tab to target desktop
+        newState.desktops[targetIndex].layout = addTab(tabState, to: newState.desktops[targetIndex].layout)
+
+        // Switch to target desktop
+        newState.activeDesktopIndex = targetIndex
+
+        // Update through reconciler
+        updateDesktopHostState(newState)
+    }
+
+    // MARK: - Layout Helpers
+
+    private func containsTab(_ tabId: UUID, in layout: DockLayoutNode) -> Bool {
+        switch layout {
+        case .tabGroup(let tabGroup):
+            return tabGroup.tabs.contains { $0.id == tabId }
+        case .split(let split):
+            return split.children.contains { containsTab(tabId, in: $0) }
+        }
+    }
+
+    private func removeTab(_ tabId: UUID, from layout: DockLayoutNode) -> (TabLayoutState, DockLayoutNode)? {
+        switch layout {
+        case .tabGroup(var tabGroup):
+            if let index = tabGroup.tabs.firstIndex(where: { $0.id == tabId }) {
+                let tab = tabGroup.tabs.remove(at: index)
+                // Adjust active tab index if needed
+                if tabGroup.activeTabIndex >= tabGroup.tabs.count {
+                    tabGroup.activeTabIndex = max(0, tabGroup.tabs.count - 1)
+                }
+                return (tab, .tabGroup(tabGroup))
+            }
+            return nil
+        case .split(var split):
+            for (i, child) in split.children.enumerated() {
+                if let (tab, newChild) = removeTab(tabId, from: child) {
+                    split.children[i] = newChild
+                    return (tab, .split(split))
+                }
+            }
+            return nil
+        }
+    }
+
+    private func addTab(_ tab: TabLayoutState, to layout: DockLayoutNode) -> DockLayoutNode {
+        switch layout {
+        case .tabGroup(var tabGroup):
+            tabGroup.tabs.append(tab)
+            tabGroup.activeTabIndex = tabGroup.tabs.count - 1
+            return .tabGroup(tabGroup)
+        case .split(var split):
+            // Add to first tab group found
+            if !split.children.isEmpty {
+                split.children[0] = addTab(tab, to: split.children[0])
+            }
+            return .split(split)
+        }
     }
 }
 
