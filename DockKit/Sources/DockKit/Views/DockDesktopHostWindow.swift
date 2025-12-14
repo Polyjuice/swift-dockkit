@@ -203,7 +203,8 @@ public class DockDesktopHostWindow: NSWindow {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(containerView)
 
-        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockDesktopHeaderView.headerHeight)
+        // Default to thumbnail mode height
+        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockDesktopHeaderView.thumbnailHeaderHeight)
 
         NSLayoutConstraint.activate([
             headerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
@@ -221,6 +222,13 @@ public class DockDesktopHostWindow: NSWindow {
     private func loadDesktops() {
         headerView.setDesktops(desktopHostState.desktops, activeIndex: desktopHostState.activeDesktopIndex)
         containerView.setDesktops(desktopHostState.desktops, activeIndex: desktopHostState.activeDesktopIndex)
+
+        // Capture thumbnails after a brief delay (for initial thumbnail mode)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self else { return }
+            let thumbnails = self.containerView.captureDesktopThumbnails()
+            self.headerView.setThumbnails(thumbnails)
+        }
     }
 
     // MARK: - Public API
@@ -237,8 +245,11 @@ public class DockDesktopHostWindow: NSWindow {
     }
 
     /// Switch to a specific desktop
+    /// Note: This is a local view state change, not a layout mutation.
+    /// We update the state directly since switching doesn't add/remove panels.
     public func switchToDesktop(at index: Int, animated: Bool = true) {
         guard index >= 0 && index < desktopHostState.desktops.count else { return }
+        guard index != desktopHostState.activeDesktopIndex else { return }
 
         desktopHostState.activeDesktopIndex = index
         containerView.switchToDesktop(at: index, animated: animated)
@@ -248,13 +259,19 @@ public class DockDesktopHostWindow: NSWindow {
 
     /// Update the desktop state (for reconciliation)
     public func updateDesktopHostState(_ state: DesktopHostWindowState) {
+        Console.log("[DockDesktopHostWindow:\(windowId.uuidString.prefix(8))] updateDesktopHostState: \(state.desktops.count) desktops, activeIndex=\(state.activeDesktopIndex)")
         let activeIndexChanged = desktopHostState.activeDesktopIndex != state.activeDesktopIndex
+        let desktopCountChanged = desktopHostState.desktops.count != state.desktops.count
 
         desktopHostState = state
+        Console.log("[DockDesktopHostWindow] calling headerView.setDesktops")
         headerView.setDesktops(state.desktops, activeIndex: state.activeDesktopIndex)
+        Console.log("[DockDesktopHostWindow] calling containerView.setDesktops")
         containerView.setDesktops(state.desktops, activeIndex: state.activeDesktopIndex)
+        Console.log("[DockDesktopHostWindow] setDesktops complete")
+        Console.log("[DockDesktopHostWindow] window state: isVisible=\(isVisible), frame=\(frame), alpha=\(alphaValue), level=\(level.rawValue), contentView=\(contentView != nil), subviews=\(contentView?.subviews.count ?? -1)")
 
-        if activeIndexChanged {
+        if activeIndexChanged || desktopCountChanged {
             updateTitle()
         }
     }
@@ -272,6 +289,28 @@ public class DockDesktopHostWindow: NSWindow {
     /// Check if window is empty (all desktops have no panels)
     public var isEmpty: Bool {
         return desktopHostState.desktops.allSatisfy { $0.layout.isEmpty }
+    }
+
+    /// Add a new empty desktop
+    /// This creates a new state and sends it through the reconciler
+    @discardableResult
+    public func addNewDesktop(title: String? = nil, iconName: String? = nil) -> Desktop {
+        let desktopNumber = desktopHostState.desktops.count + 1
+        let desktop = Desktop(
+            title: title ?? "Desktop \(desktopNumber)",
+            iconName: iconName,
+            layout: .tabGroup(TabGroupLayoutNode())  // Empty tab group
+        )
+
+        // Create new state (immutable update pattern)
+        var newState = desktopHostState
+        newState.desktops.append(desktop)
+        newState.activeDesktopIndex = newState.desktops.count - 1
+
+        // Send through reconciler
+        updateDesktopHostState(newState)
+
+        return desktop
     }
 
     // MARK: - Title
@@ -343,6 +382,27 @@ public class DockDesktopHostWindow: NSWindow {
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { true }
 
+    deinit {
+        Console.log("[DockDesktopHostWindow] deinit called - window being deallocated!")
+        Thread.callStackSymbols.prefix(10).forEach { Console.log("  \($0)") }
+    }
+
+    public override func orderOut(_ sender: Any?) {
+        Console.log("[DockDesktopHostWindow] orderOut called!")
+        Thread.callStackSymbols.prefix(8).forEach { Console.log("  \($0)") }
+        super.orderOut(sender)
+    }
+
+    public override func orderFront(_ sender: Any?) {
+        Console.log("[DockDesktopHostWindow] orderFront called")
+        super.orderFront(sender)
+    }
+
+    public override func makeKeyAndOrderFront(_ sender: Any?) {
+        Console.log("[DockDesktopHostWindow] makeKeyAndOrderFront called")
+        super.makeKeyAndOrderFront(sender)
+    }
+
     /// Toggle slow motion for debugging swipe gestures
     public var slowMotionEnabled: Bool {
         get { containerView.slowMotionEnabled }
@@ -356,6 +416,10 @@ public class DockDesktopHostWindow: NSWindow {
     }
 
     public override func close() {
+        Console.log("[DockDesktopHostWindow] close() called")
+        // Log stack trace to see who called close
+        Thread.callStackSymbols.prefix(10).forEach { Console.log("  \($0)") }
+
         // Remove from spawner's child tracking
         spawnerWindow?.removeSpawnedWindow(self)
 
@@ -446,6 +510,10 @@ extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
             rootView.layoutSubtreeIfNeeded()
         }
     }
+
+    public func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView) {
+        addNewDesktop()
+    }
 }
 
 // MARK: - DockDesktopContainerViewDelegate
@@ -456,6 +524,8 @@ extension DockDesktopHostWindow: DockDesktopContainerViewDelegate {
     }
 
     public func desktopContainer(_ container: DockDesktopContainerView, didSwitchTo index: Int) {
+        // This is a user gesture completing - update state to reflect the new active desktop.
+        // This is a view state sync, not a layout mutation requiring reconciliation.
         desktopHostState.activeDesktopIndex = index
         headerView.clearSwipeHighlight()
         headerView.setActiveIndex(index)

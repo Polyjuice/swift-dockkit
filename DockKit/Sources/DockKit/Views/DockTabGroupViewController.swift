@@ -460,6 +460,14 @@ public class DockTabGroupViewController: NSViewController {
 
         // Add new panel before removing old one to avoid empty state
         if let panelVC = newPanelVC {
+            // IMPORTANT: Remove from any existing parent first
+            // This can happen when desktops are rebuilt - the panel's view controller
+            // might still have a parent reference to a deallocated tab group controller
+            if panelVC.parent != nil {
+                panelVC.view.removeFromSuperview()
+                panelVC.removeFromParent()
+            }
+
             addChild(panelVC)
             panelVC.view.translatesAutoresizingMaskIntoConstraints = false
             contentContainer.addSubview(panelVC.view)

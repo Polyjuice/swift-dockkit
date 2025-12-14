@@ -55,6 +55,12 @@ public class DockDesktopContainerView: NSView {
     /// Individual desktop container views
     private var desktopViews: [NSView] = []
 
+    /// Constraint for contentView leading position (for sliding animation)
+    private var contentViewLeadingConstraint: NSLayoutConstraint?
+
+    /// Constraint for contentView width (multiplied by desktop count)
+    private var contentViewWidthConstraint: NSLayoutConstraint?
+
     // MARK: - Gesture State
 
     /// Current offset during swipe (0 = centered on active desktop)
@@ -160,6 +166,9 @@ public class DockDesktopContainerView: NSView {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         clipView.addSubview(contentView)
 
+        // ContentView leading constraint (will be updated for sliding animation)
+        contentViewLeadingConstraint = contentView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor)
+
         NSLayoutConstraint.activate([
             clipView.leadingAnchor.constraint(equalTo: leadingAnchor),
             clipView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -168,7 +177,8 @@ public class DockDesktopContainerView: NSView {
 
             contentView.topAnchor.constraint(equalTo: clipView.topAnchor),
             contentView.bottomAnchor.constraint(equalTo: clipView.bottomAnchor),
-            contentView.heightAnchor.constraint(equalTo: clipView.heightAnchor)
+            contentView.heightAnchor.constraint(equalTo: clipView.heightAnchor),
+            contentViewLeadingConstraint!
         ])
     }
 
@@ -176,11 +186,15 @@ public class DockDesktopContainerView: NSView {
 
     /// Set the desktops to display
     public func setDesktops(_ newDesktops: [Desktop], activeIndex: Int) {
+        Console.log("[DockDesktopContainerView] setDesktops: \(newDesktops.count) desktops, activeIndex=\(activeIndex)")
         desktops = newDesktops
         activeDesktopIndex = max(0, min(activeIndex, desktops.count - 1))
 
+        Console.log("[DockDesktopContainerView] calling rebuildDesktopViews")
         rebuildDesktopViews()
+        Console.log("[DockDesktopContainerView] calling updateContentPosition")
         updateContentPosition(animated: false)
+        Console.log("[DockDesktopContainerView] setDesktops complete")
     }
 
     /// Switch to a specific desktop with animation
@@ -278,6 +292,8 @@ public class DockDesktopContainerView: NSView {
     // MARK: - Desktop View Management
 
     private func rebuildDesktopViews() {
+        Console.log("[DockDesktopContainerView] rebuildDesktopViews: \(desktops.count) desktops, removing \(desktopViews.count) old views, self.bounds=\(bounds), clipView.bounds=\(clipView.bounds)")
+
         // Remove old views
         for view in desktopViews {
             view.removeFromSuperview()
@@ -285,28 +301,41 @@ public class DockDesktopContainerView: NSView {
         desktopViews.removeAll()
         desktopViewControllers.removeAll()
 
-        // Remove old width constraint if any
-        contentView.constraints.filter { $0.firstAttribute == .width }.forEach { $0.isActive = false }
+        // Remove old width constraint
+        if let oldWidthConstraint = contentViewWidthConstraint {
+            oldWidthConstraint.isActive = false
+            contentViewWidthConstraint = nil
+        }
 
-        guard !desktops.isEmpty else { return }
+        guard !desktops.isEmpty else {
+            Console.log("[DockDesktopContainerView] rebuildDesktopViews: no desktops, returning early")
+            return
+        }
 
         // Create new desktop views
-        let desktopWidth = bounds.width
+        var previousDesktopView: NSView? = nil
 
-        for (index, desktop) in desktops.enumerated() {
+        for (_, desktop) in desktops.enumerated() {
             let desktopView = NSView()
             desktopView.wantsLayer = true
             desktopView.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(desktopView)
             desktopViews.append(desktopView)
 
-            // Position within content view
+            // Position within content view - chain desktops together
             NSLayoutConstraint.activate([
                 desktopView.topAnchor.constraint(equalTo: contentView.topAnchor),
                 desktopView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-                desktopView.widthAnchor.constraint(equalTo: clipView.widthAnchor),
-                desktopView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: CGFloat(index) * desktopWidth)
+                desktopView.widthAnchor.constraint(equalTo: clipView.widthAnchor)
             ])
+
+            // Chain leading anchor: first desktop to contentView, others to previous desktop
+            if let previous = previousDesktopView {
+                desktopView.leadingAnchor.constraint(equalTo: previous.trailingAnchor).isActive = true
+            } else {
+                desktopView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor).isActive = true
+            }
+            previousDesktopView = desktopView
 
             // Create view controller for desktop layout
             let vc = createViewController(for: desktop.layout)
@@ -323,8 +352,21 @@ public class DockDesktopContainerView: NSView {
             ])
         }
 
-        // Set content view width
-        contentView.widthAnchor.constraint(equalTo: clipView.widthAnchor, multiplier: CGFloat(desktops.count)).isActive = true
+        // Set content view width (track the constraint so we can remove it later)
+        contentViewWidthConstraint = contentView.widthAnchor.constraint(equalTo: clipView.widthAnchor, multiplier: CGFloat(desktops.count))
+        contentViewWidthConstraint?.isActive = true
+
+        // Reset leading constraint for new desktop count
+        contentViewLeadingConstraint?.constant = -CGFloat(activeDesktopIndex) * clipView.bounds.width
+
+        // Force layout to resolve constraints immediately
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+
+        Console.log("[DockDesktopContainerView] rebuildDesktopViews complete: created \(desktopViews.count) desktop views, bounds=\(bounds), clipView.bounds=\(clipView.bounds), contentView.frame=\(contentView.frame)")
+        for (i, view) in desktopViews.enumerated() {
+            Console.log("[DockDesktopContainerView]   desktop[\(i)]: frame=\(view.frame), subviews=\(view.subviews.count)")
+        }
     }
 
     private func createViewController(for layoutNode: DockLayoutNode) -> NSViewController {
@@ -384,16 +426,17 @@ public class DockDesktopContainerView: NSView {
     // MARK: - Content Positioning
 
     private func updateContentPosition(animated: Bool) {
-        let targetX = -CGFloat(activeDesktopIndex) * bounds.width + swipeOffset
+        let desktopWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
+        let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.3
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                contentView.animator().frame.origin.x = targetX
+                contentViewLeadingConstraint?.animator().constant = targetX
             }
         } else {
-            contentView.frame.origin.x = targetX
+            contentViewLeadingConstraint?.constant = targetX
         }
     }
 
@@ -499,7 +542,7 @@ public class DockDesktopContainerView: NSView {
             // Update visual position
             swipeOffset = visualAmount * desktopWidth
             let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
-            contentView.frame.origin.x = targetX
+            contentViewLeadingConstraint?.constant = targetX
 
             // Update header indicator
             updateIndicatorForGestureAmount(gestureAmount)
@@ -703,8 +746,9 @@ public class DockDesktopContainerView: NSView {
 
         // Update position
         swipeOffset = state.position
-        let targetX = -CGFloat(activeDesktopIndex) * bounds.width + swipeOffset
-        contentView.frame.origin.x = targetX
+        let desktopWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
+        let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+        contentViewLeadingConstraint?.constant = targetX
 
         // Check if animation is done
         if abs(state.position - state.target) < 0.5 && abs(state.velocity) < 10 {

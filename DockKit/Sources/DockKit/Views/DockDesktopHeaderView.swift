@@ -13,6 +13,9 @@ public protocol DockDesktopHeaderViewDelegate: AnyObject {
 
     /// Called when thumbnail mode toggle changes
     func desktopHeader(_ header: DockDesktopHeaderView, didToggleThumbnailMode enabled: Bool)
+
+    /// Called when user clicks the (+) button to create a new desktop
+    func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView)
 }
 
 /// Default implementations
@@ -20,6 +23,7 @@ public extension DockDesktopHeaderViewDelegate {
     func desktopHeader(_ header: DockDesktopHeaderView, didMoveDesktopFrom fromIndex: Int, to toIndex: Int) {}
     func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool) {}
     func desktopHeader(_ header: DockDesktopHeaderView, didToggleThumbnailMode enabled: Bool) {}
+    func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView) {}
 }
 
 /// A header view showing desktop icons/titles for selection
@@ -70,8 +74,11 @@ public class DockDesktopHeaderView: NSView {
     /// Height of the header in thumbnail mode
     public static let thumbnailHeaderHeight: CGFloat = 96
 
-    /// Current thumbnail mode state
-    private var isThumbnailMode: Bool = false
+    /// Current thumbnail mode state (default: true for thumbnail mode)
+    private var isThumbnailMode: Bool = true
+
+    /// Add desktop button (+)
+    private var addDesktopButton: NSButton!
 
     // MARK: - Initialization
 
@@ -105,12 +112,31 @@ public class DockDesktopHeaderView: NSView {
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
-        stackHeightConstraint = stackView.heightAnchor.constraint(equalToConstant: 28)
+        // Default to thumbnail mode height
+        stackHeightConstraint = stackView.heightAnchor.constraint(equalToConstant: DockDesktopButton.thumbnailHeight)
+
+        // Add desktop button (+) - styled like Mission Control
+        addDesktopButton = NSButton(frame: .zero)
+        addDesktopButton.bezelStyle = .regularSquare
+        addDesktopButton.isBordered = false
+        addDesktopButton.title = ""
+        addDesktopButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Desktop")
+        addDesktopButton.imagePosition = .imageOnly
+        addDesktopButton.imageScaling = .scaleProportionallyDown
+        addDesktopButton.contentTintColor = .secondaryLabelColor
+        addDesktopButton.target = self
+        addDesktopButton.action = #selector(addDesktopClicked(_:))
+        addDesktopButton.translatesAutoresizingMaskIntoConstraints = false
+        addDesktopButton.wantsLayer = true
+        addDesktopButton.layer?.cornerRadius = 6
+        stackView.addArrangedSubview(addDesktopButton)
 
         NSLayoutConstraint.activate([
             stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stackHeightConstraint
+            stackHeightConstraint,
+            addDesktopButton.widthAnchor.constraint(equalToConstant: 44),
+            addDesktopButton.heightAnchor.constraint(equalToConstant: 44)
         ])
 
         // Slow motion toggle on the right
@@ -136,6 +162,7 @@ public class DockDesktopHeaderView: NSView {
 
         thumbnailSwitch = NSSwitch()
         thumbnailSwitch.controlSize = .mini
+        thumbnailSwitch.state = .on  // Default to thumbnail mode
         thumbnailSwitch.target = self
         thumbnailSwitch.action = #selector(thumbnailToggled(_:))
         thumbnailSwitch.translatesAutoresizingMaskIntoConstraints = false
@@ -162,6 +189,10 @@ public class DockDesktopHeaderView: NSView {
 
     @objc private func thumbnailToggled(_ sender: NSSwitch) {
         delegate?.desktopHeader(self, didToggleThumbnailMode: sender.state == .on)
+    }
+
+    @objc private func addDesktopClicked(_ sender: NSButton) {
+        delegate?.desktopHeaderDidRequestNewDesktop(self)
     }
 
     // MARK: - Public API
@@ -266,6 +297,8 @@ public class DockDesktopHeaderView: NSView {
         desktopButtons.removeAll()
         customDesktopViews.forEach { $0.removeFromSuperview() }
         customDesktopViews.removeAll()
+        // Keep the add button but remove it temporarily so it can be re-added at the end
+        addDesktopButton.removeFromSuperview()
     }
 
     private func rebuildButtons() {
@@ -302,6 +335,8 @@ public class DockDesktopHeaderView: NSView {
             desktopButtons.append(button)
             stackView.addArrangedSubview(button)
         }
+        // Re-add the (+) button at the end
+        stackView.addArrangedSubview(addDesktopButton)
     }
 
     private func rebuildCustomViews() {
@@ -323,6 +358,8 @@ public class DockDesktopHeaderView: NSView {
             customDesktopViews.append(view)
             stackView.addArrangedSubview(view)
         }
+        // Re-add the (+) button at the end
+        stackView.addArrangedSubview(addDesktopButton)
     }
 
     private func updateButtonStates() {
