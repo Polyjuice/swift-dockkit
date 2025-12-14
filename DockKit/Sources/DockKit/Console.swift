@@ -57,27 +57,50 @@ public final class Console {
     // MARK: - Static Convenience API
 
     /// Log a message (default level)
-    public static func log(_ message: String, source: String? = nil) {
+    /// Can be called from any context - writes to file synchronously for debugging
+    nonisolated public static func log(_ message: String, source: String? = nil) {
+        // Write to file synchronously first (for crash debugging)
+        if let fileURL = logFileURL {
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let fileLine = "[\(timestamp)] [LOG] \(message)\n"
+            if let data = fileLine.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    if let handle = try? FileHandle(forWritingTo: fileURL) {
+                        handle.seekToEndOfFile()
+                        handle.write(data)
+                        try? handle.close()
+                    }
+                } else {
+                    try? data.write(to: fileURL)
+                }
+            }
+        }
+        // Also dispatch to main actor for UI
         Task { @MainActor in
             shared.addEntry(.log, message: message, source: source)
         }
     }
 
     /// Log a warning message
-    public static func warn(_ message: String, source: String? = nil) {
+    /// Can be called from any context - dispatches to main actor internally
+    nonisolated public static func warn(_ message: String, source: String? = nil) {
         Task { @MainActor in
             shared.addEntry(.warn, message: message, source: source)
         }
     }
 
     /// Log an error message
-    public static func error(_ message: String, source: String? = nil) {
+    /// Can be called from any context - dispatches to main actor internally
+    nonisolated public static func error(_ message: String, source: String? = nil) {
         Task { @MainActor in
             shared.addEntry(.error, message: message, source: source)
         }
     }
 
     // MARK: - Entry Management
+
+    /// File URL for persistent logging (set to enable file logging)
+    nonisolated(unsafe) public static var logFileURL: URL?
 
     /// Add a new log entry
     private func addEntry(_ level: LogLevel, message: String, source: String?) {
@@ -96,7 +119,7 @@ public final class Console {
             userInfo: ["entry": entry]
         )
 
-        // Also print to stdout for Xcode console visibility
+        // Format the log line
         let levelPrefix: String
         switch level {
         case .log:
@@ -106,7 +129,27 @@ public final class Console {
         case .error:
             levelPrefix = "[ERROR]"
         }
-        print("\(levelPrefix) \(message)")
+        let logLine = "\(levelPrefix) \(message)"
+
+        // Print to stdout for Xcode console visibility
+        print(logLine)
+
+        // Write to file if enabled
+        if let fileURL = Console.logFileURL {
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let fileLine = "[\(timestamp)] \(logLine)\n"
+            if let data = fileLine.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    if let handle = try? FileHandle(forWritingTo: fileURL) {
+                        handle.seekToEndOfFile()
+                        handle.write(data)
+                        try? handle.close()
+                    }
+                } else {
+                    try? data.write(to: fileURL)
+                }
+            }
+        }
     }
 
     /// Clear all log entries
