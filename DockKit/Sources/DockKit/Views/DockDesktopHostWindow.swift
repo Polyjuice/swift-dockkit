@@ -274,6 +274,15 @@ public class DockDesktopHostWindow: NSWindow {
         if activeIndexChanged || desktopCountChanged {
             updateTitle()
         }
+
+        // Recapture thumbnails after views are rebuilt (if in thumbnail mode)
+        if desktopCountChanged && state.displayMode == .thumbnails {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self = self else { return }
+                let thumbnails = self.containerView.captureDesktopThumbnails()
+                self.headerView.setThumbnails(thumbnails)
+            }
+        }
     }
 
     /// Check if window contains a specific panel

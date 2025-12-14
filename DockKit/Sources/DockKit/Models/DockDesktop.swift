@@ -45,7 +45,7 @@ public struct DesktopHostWindowState: Codable, Identifiable {
         isFullScreen: Bool = false,
         activeDesktopIndex: Int = 0,
         desktops: [Desktop],
-        displayMode: DesktopDisplayMode = .tabs
+        displayMode: DesktopDisplayMode = .thumbnails
     ) {
         self.id = id
         self.frame = frame
