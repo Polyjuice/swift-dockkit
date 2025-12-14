@@ -25,14 +25,15 @@ DockKit.customDropZoneRenderer = MyDropZoneRenderer()
 
 ### Per-Window Display Mode
 
-Each desktop host window can toggle between three display modes via the `displayMode` property:
+Each desktop host window can toggle between display modes via the `displayMode` property:
 
 ```swift
 // Programmatically
-window.displayMode = .custom  // Use custom renderer
 window.displayMode = .tabs    // Use built-in tab style
-window.displayMode = .thumbnails  // Use built-in thumbnail style
+window.displayMode = .custom  // Use custom renderer
 ```
+
+**Note:** The `.thumbnails` mode is for desktop switching in the header only, not for the tab bar. Tab bars support `.tabs` (standard) or `.custom` modes.
 
 The display mode is also persisted in the layout JSON via `DesktopHostWindowState.displayMode`:
 
@@ -137,7 +138,7 @@ public protocol DockDropZoneRenderer: AnyObject {
 
 ## Example
 
-A complete example demonstrating custom renderers with a "Modern Minimal" design theme is available at:
+A complete example demonstrating custom renderers is available at:
 
 ```
 ./DockKit-custom-renderer-example
@@ -150,9 +151,23 @@ cd DockKit-custom-renderer-example
 swift run
 ```
 
-The example demonstrates:
-- **Pill-shaped tabs** with gradient backgrounds and hover effects
-- **Card-style desktop indicators** with scale animations and glow effects
-- **Frosted glass drop zones** with animated dashed borders
+The example includes two custom renderer styles selectable via the control bar:
 
-Use the View menu (Cmd+1/2/3) to toggle between tabs, thumbnails, and custom modes.
+### Wireframe Style
+A minimalist, barebone design for prototyping and debugging:
+- **Bold uppercase text** with black borders on white background
+- **Inverted colors** (white-on-black) for selected states
+- **Index badges** on desktop indicators
+
+### Polished Style
+A refined, production-ready design:
+- **Frosted glass backgrounds** with vibrancy effects
+- **Gradient highlights** and subtle shadows
+- **Smooth hover/press animations** with scale effects
+- **Focus rings** for accessibility
+
+Both styles include matching tab renderers and desktop renderers that switch together.
+
+The control bar at the top allows switching between:
+- **Tab Style:** Standard | Custom
+- **Custom Style:** Wireframe | Polished (when Custom is selected)
