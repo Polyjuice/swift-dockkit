@@ -2,6 +2,14 @@ import AppKit
 
 /// Delegate for desktop container events
 public protocol DockDesktopContainerViewDelegate: AnyObject {
+    /// Called immediately when a horizontal swipe gesture begins.
+    /// Use this to pause expensive rendering (games, animations) during swipe.
+    func desktopContainerDidBeginSwipeGesture(_ container: DockDesktopContainerView)
+
+    /// Called when swipe gesture and animation complete.
+    /// Use this to resume expensive rendering after swipe finishes.
+    func desktopContainerDidEndSwipeGesture(_ container: DockDesktopContainerView)
+
     /// Called when desktop index changes during swipe (for UI feedback)
     func desktopContainer(_ container: DockDesktopContainerView, didBeginSwipingTo index: Int)
 
@@ -23,6 +31,8 @@ public protocol DockDesktopContainerViewDelegate: AnyObject {
 
 /// Default implementations
 public extension DockDesktopContainerViewDelegate {
+    func desktopContainerDidBeginSwipeGesture(_ container: DockDesktopContainerView) {}
+    func desktopContainerDidEndSwipeGesture(_ container: DockDesktopContainerView) {}
     func desktopContainer(_ container: DockDesktopContainerView, didBeginSwipingTo index: Int) {}
     func desktopContainer(_ container: DockDesktopContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
     func desktopContainer(_ container: DockDesktopContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
@@ -540,6 +550,8 @@ public class DockDesktopContainerView: NSView {
             // New gesture starting - stop any animation and take over
             isGestureActive = true
             stopSpringAnimation()
+            // Notify delegate immediately so host can pause expensive rendering
+            delegate?.desktopContainerDidBeginSwipeGesture(self)
             // Don't reset gestureAmount - preserve current position if interrupting
             // Reset velocity tracking
             gestureVelocity = 0
@@ -740,6 +752,8 @@ public class DockDesktopContainerView: NSView {
         if abs(currentPosition - targetPosition) < 1 {
             swipeOffset = 0
             updateContentPosition(animated: false)
+            // Notify delegate that swipe gesture is complete - host can resume rendering
+            delegate?.desktopContainerDidEndSwipeGesture(self)
             return
         }
 
@@ -815,6 +829,8 @@ public class DockDesktopContainerView: NSView {
             springState = nil
             stopDisplayLink()
             // Note: didSwitchTo already called at animation start for faster feedback
+            // Notify delegate that swipe gesture is complete - host can resume rendering
+            delegate?.desktopContainerDidEndSwipeGesture(self)
         } else {
             springState = state
         }
