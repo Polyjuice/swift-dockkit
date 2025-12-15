@@ -145,8 +145,70 @@ public class DockDesktopContainerView: NSView {
         setupUI()
     }
 
+    /// Local event monitor for intercepting horizontal scroll gestures
+    private var scrollEventMonitor: Any?
+
+    /// Whether we're intercepting a horizontal gesture via event monitor
+    private var isInterceptingHorizontalGesture = false
+
     deinit {
         stopDisplayLink()
+        if let monitor = scrollEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            setupScrollEventMonitor()
+        } else {
+            if let monitor = scrollEventMonitor {
+                NSEvent.removeMonitor(monitor)
+                scrollEventMonitor = nil
+            }
+        }
+    }
+
+    /// Set up local event monitor to intercept horizontal scroll gestures before child views
+    private func setupScrollEventMonitor() {
+        guard scrollEventMonitor == nil else { return }
+
+        scrollEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self = self else { return event }
+
+            // Only intercept if event is within our bounds
+            guard let eventWindow = event.window, eventWindow == self.window else { return event }
+            let locationInSelf = self.convert(event.locationInWindow, from: nil)
+            guard self.bounds.contains(locationInSelf) else { return event }
+
+            // Check if this is a gesture event (trackpad, not mouse wheel)
+            let isGestureEvent = event.phase != [] || event.momentumPhase != []
+            guard isGestureEvent else { return event }
+
+            // On gesture begin, decide if this is horizontal-dominant
+            if event.phase == .began {
+                let isHorizontalDominant = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 0.5
+                self.isInterceptingHorizontalGesture = isHorizontalDominant
+            }
+
+            // If intercepting horizontal gesture, process it ourselves
+            if self.isInterceptingHorizontalGesture {
+                self.scrollWheel(with: event)
+
+                // End interception when gesture ends
+                if event.phase == .ended || event.phase == .cancelled ||
+                   event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+                    self.isInterceptingHorizontalGesture = false
+                }
+
+                // Return nil to consume the event
+                return nil
+            }
+
+            // Let vertical gestures pass through
+            return event
+        }
     }
 
     private func setupUI() {
