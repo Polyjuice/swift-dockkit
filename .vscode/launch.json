@@ -1,0 +1,44 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:swift-dockkit}/DockKitDesktopDemo",
+      "name": "Debug DockKitDesktopDemo (DockKitDesktopDemo)",
+      "target": "DockKitDesktopDemo",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug DockKitDesktopDemo (DockKitDesktopDemo)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:swift-dockkit}/DockKitDesktopDemo",
+      "name": "Release DockKitDesktopDemo (DockKitDesktopDemo)",
+      "target": "DockKitDesktopDemo",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release DockKitDesktopDemo (DockKitDesktopDemo)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:swift-dockkit}/SwiftUIAnimatedTest",
+      "name": "Debug SwiftUIAnimatedTest (SwiftUIAnimatedTest)",
+      "target": "SwiftUIAnimatedTest",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug SwiftUIAnimatedTest (SwiftUIAnimatedTest)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:swift-dockkit}/SwiftUIAnimatedTest",
+      "name": "Release SwiftUIAnimatedTest (SwiftUIAnimatedTest)",
+      "target": "SwiftUIAnimatedTest",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release SwiftUIAnimatedTest (SwiftUIAnimatedTest)"
+    }
+  ]
+}

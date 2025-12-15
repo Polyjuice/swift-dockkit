@@ -1,0 +1,87 @@
+Desktop Slide Test Results
+========================================
+
+Test: 01_traditional_panel0
+  Traditional: panels side-by-side, container scrolls
+  Active: 0
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=300, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=600, alpha=1.0, visibleRect.width=300
+
+Test: 02_traditional_panel1
+  Traditional: panels side-by-side, container scrolls
+  Active: 1
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=300, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=600, alpha=1.0, visibleRect.width=300
+
+Test: 03_opacity_panel0
+  Opacity: all panels at (0,0), opacity controls visibility
+  Active: 0
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=0, alpha=0.0, visibleRect.width=300
+  Panel 2: frame.x=0, alpha=0.0, visibleRect.width=300
+
+Test: 04_opacity_panel1
+  Opacity: all panels at (0,0), opacity controls visibility
+  Active: 1
+  Panel 0: frame.x=0, alpha=0.0, visibleRect.width=300
+  Panel 1: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=0, alpha=0.0, visibleRect.width=300
+
+Test: 05_trad_slide_0to1_start
+  Traditional slide: 0 -> 1, progress: 0.0
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=300, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=600, alpha=1.0, visibleRect.width=300
+
+Test: 06_trad_slide_0to1_mid
+  Traditional slide: 0 -> 1, progress: 0.5
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=300, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=600, alpha=1.0, visibleRect.width=300
+
+Test: 07_trad_slide_0to1_end
+  Traditional slide: 0 -> 1, progress: 1.0
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=300, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=600, alpha=1.0, visibleRect.width=300
+
+Test: 08_opacity_slide_0to1_start
+  Opacity slide: 0 -> 1, progress: 0.0
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=0, alpha=0.0, visibleRect.width=300
+  Panel 2: frame.x=0, alpha=0.0, visibleRect.width=300
+
+Test: 09_opacity_slide_0to1_mid
+  Opacity slide: 0 -> 1, progress: 0.5
+  Panel 0: frame.x=0, alpha=0.5, visibleRect.width=300
+  Panel 1: frame.x=0, alpha=0.5, visibleRect.width=300
+  Panel 2: frame.x=0, alpha=0.0, visibleRect.width=300
+
+Test: 10_opacity_slide_0to1_end
+  Opacity slide: 0 -> 1, progress: 1.0
+  Panel 0: frame.x=0, alpha=0.0, visibleRect.width=300
+  Panel 1: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=0, alpha=0.0, visibleRect.width=300
+
+Test: 11_hybrid_slide_start
+  Hybrid slide: frames at (0,0), layer transforms position, sublayerTransform slides
+  0 -> 1, progress: 0.0
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=0, alpha=0.0, visibleRect.width=300
+
+Test: 12_hybrid_slide_mid
+  Hybrid slide: frames at (0,0), layer transforms position, sublayerTransform slides
+  0 -> 1, progress: 0.5
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=0, alpha=0.0, visibleRect.width=300
+
+Test: 13_hybrid_slide_end
+  Hybrid slide: frames at (0,0), layer transforms position, sublayerTransform slides
+  0 -> 1, progress: 1.0
+  Panel 0: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 1: frame.x=0, alpha=1.0, visibleRect.width=300
+  Panel 2: frame.x=0, alpha=0.0, visibleRect.width=300

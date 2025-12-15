@@ -1,0 +1,51 @@
+SwiftUI Offscreen Text Rendering Test Results
+=============================================
+Date: 2025-12-15 02:36:16 +0000
+
+Config 1: baseline_visible
+  Description: Panel 0 at (0,0), visible in window
+  Panel 0: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 1: frame=(300.0, 0.0, 300.0, 200.0), visibleRect=(-300.0, 0.0, 300.0, 200.0)
+  Panel 2: frame=(600.0, 0.0, 300.0, 200.0), visibleRect=(-600.0, 0.0, 300.0, 200.0)
+
+Config 2: baseline_offscreen
+  Description: Panel 1 at (300,0), outside 300px window
+  Panel 0: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 1: frame=(300.0, 0.0, 300.0, 200.0), visibleRect=(-300.0, 0.0, 300.0, 200.0)
+  Panel 2: frame=(600.0, 0.0, 300.0, 200.0), visibleRect=(-600.0, 0.0, 300.0, 200.0)
+
+Config 3: overlapping_all
+  Description: All 3 panels at (0,0), overlapping, panel 2 on top
+  Panel 0: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 1: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 2: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+
+Config 4: overlapping_opacity
+  Description: All at (0,0), opacity=0 hides panels 0,2, shows panel 1
+  Panel 0: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 1: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 2: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+
+Config 5: overlapping_show_panel1
+  Description: All at (0,0), z-order changed to show panel 1 on top
+  Panel 0: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 1: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 2: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+
+Config 6: parent_transform_slide
+  Description: All at (0,0), parent transform slides to show panel 1 slot
+  Panel 0: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 1: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 2: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+
+Config 7: prepared_content_rect
+  Description: Side-by-side, preparedContentRect override
+  Panel 0: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 200.0)
+  Panel 1: frame=(300.0, 0.0, 300.0, 200.0), visibleRect=(-300.0, 0.0, 300.0, 200.0)
+  Panel 2: frame=(600.0, 0.0, 300.0, 200.0), visibleRect=(-600.0, 0.0, 300.0, 200.0)
+
+Config 8: no_clipping
+  Description: Side-by-side, clipsToBounds=false
+  Panel 0: frame=(0.0, 0.0, 300.0, 200.0), visibleRect=(0.0, 0.0, 300.0, 228.0)
+  Panel 1: frame=(300.0, 0.0, 300.0, 200.0), visibleRect=(-300.0, 0.0, 300.0, 228.0)
+  Panel 2: frame=(600.0, 0.0, 300.0, 200.0), visibleRect=(-600.0, 0.0, 300.0, 228.0)
