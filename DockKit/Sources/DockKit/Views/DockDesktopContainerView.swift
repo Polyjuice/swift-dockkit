@@ -534,10 +534,12 @@ public class DockDesktopContainerView: NSView {
                 visualAmount = gestureAmount
             }
 
-            // Update visual position
+            // Update visual position using layer transform (GPU-only, no Auto Layout recalc)
+            // Calculate transform relative to current constraint position
             swipeOffset = visualAmount * desktopWidth
-            let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
-            contentViewLeadingConstraint?.constant = targetX
+            let visualX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+            let currentConstraint = contentViewLeadingConstraint?.constant ?? 0
+            contentView.layer?.transform = CATransform3DMakeTranslation(visualX - currentConstraint, 0, 0)
 
             // Update header indicator
             updateIndicatorForGestureAmount(gestureAmount)
@@ -739,16 +741,19 @@ public class DockDesktopContainerView: NSView {
         state.velocity += acceleration * dt
         state.position += state.velocity * dt
 
-        // Update position
+        // Update position using layer transform (GPU-only, no Auto Layout recalc)
+        // Calculate transform relative to current constraint position
         swipeOffset = state.position
         let desktopWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
-        let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
-        contentViewLeadingConstraint?.constant = targetX
+        let visualX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+        let currentConstraint = contentViewLeadingConstraint?.constant ?? 0
+        contentView.layer?.transform = CATransform3DMakeTranslation(visualX - currentConstraint, 0, 0)
 
         // Check if animation is done
         if abs(state.position - state.target) < 0.5 && abs(state.velocity) < 10 {
-            // Snap to final position
+            // Snap to final position - reset transform and update constraint
             swipeOffset = 0
+            contentView.layer?.transform = CATransform3DIdentity
             updateContentPosition(animated: false)
             springState = nil
             stopDisplayLink()
