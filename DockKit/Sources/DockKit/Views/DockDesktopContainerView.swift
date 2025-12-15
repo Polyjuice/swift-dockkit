@@ -1,98 +1,5 @@
 import AppKit
 
-// MARK: - Gesture Overlay View
-
-/// Transparent overlay that intercepts horizontal scroll gestures before they reach child views.
-/// This ensures desktop swipe gestures work even when cursor is over scrollable content like terminals.
-private class GestureOverlayView: NSView {
-    /// Handler for scroll events that should be processed as desktop swipes
-    var scrollHandler: ((NSEvent) -> Void)?
-
-    /// Reference to the content view underneath (to forward non-horizontal gestures)
-    weak var contentViewUnderneath: NSView?
-
-    /// Whether we're currently tracking a horizontal gesture
-    private var isTrackingHorizontalGesture = false
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        // Always intercept hits so we receive scroll events first
-        return self
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        // Check if this is a gesture event (trackpad, not mouse wheel)
-        let isGestureEvent = event.phase != [] || event.momentumPhase != []
-
-        if !isGestureEvent {
-            // Pass through non-gesture scroll events (mouse wheel)
-            forwardToContentView(event)
-            return
-        }
-
-        // On gesture begin, decide if this is horizontal-dominant
-        if event.phase == .began {
-            let isHorizontalDominant = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 0.5
-            isTrackingHorizontalGesture = isHorizontalDominant
-        }
-
-        // If tracking horizontal gesture, handle it as desktop swipe
-        if isTrackingHorizontalGesture {
-            scrollHandler?(event)
-
-            // End tracking when gesture ends
-            if event.phase == .ended || event.phase == .cancelled ||
-               event.momentumPhase == .ended || event.momentumPhase == .cancelled {
-                isTrackingHorizontalGesture = false
-            }
-        } else {
-            // Pass through vertical gestures to content underneath
-            forwardToContentView(event)
-        }
-    }
-
-    /// Forward scroll event to the appropriate view underneath
-    private func forwardToContentView(_ event: NSEvent) {
-        guard let contentView = contentViewUnderneath else { return }
-
-        // Find the view at the event location
-        let locationInContent = contentView.convert(event.locationInWindow, from: nil)
-        if let targetView = contentView.hitTest(locationInContent) {
-            targetView.scrollWheel(with: event)
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        // Pass through mouse events
-        forwardMouseEvent(event) { $0.mouseDown(with: event) }
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        forwardMouseEvent(event) { $0.mouseUp(with: event) }
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        forwardMouseEvent(event) { $0.mouseDragged(with: event) }
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        forwardMouseEvent(event) { $0.rightMouseDown(with: event) }
-    }
-
-    override func rightMouseUp(with event: NSEvent) {
-        forwardMouseEvent(event) { $0.rightMouseUp(with: event) }
-    }
-
-    private func forwardMouseEvent(_ event: NSEvent, handler: (NSView) -> Void) {
-        guard let contentView = contentViewUnderneath else { return }
-        let locationInContent = contentView.convert(event.locationInWindow, from: nil)
-        if let targetView = contentView.hitTest(locationInContent) {
-            handler(targetView)
-        }
-    }
-
-    override var acceptsFirstResponder: Bool { false }
-}
-
 /// Delegate for desktop container events
 public protocol DockDesktopContainerViewDelegate: AnyObject {
     /// Called when desktop index changes during swipe (for UI feedback)
@@ -242,21 +149,6 @@ public class DockDesktopContainerView: NSView {
         stopDisplayLink()
     }
 
-    public override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // HYBRID SLIDE: Ensure layer transforms are applied after view is in window
-        // This is needed because layer transforms may not apply correctly before window attachment
-        if window != nil {
-            DispatchQueue.main.async { [weak self] in
-                self?.needsLayout = true
-                self?.layoutSubtreeIfNeeded()
-            }
-        }
-    }
-
-    /// Gesture overlay to capture horizontal swipes before child views
-    private var gestureOverlay: GestureOverlayView!
-
     private func setupUI() {
         wantsLayer = true
         layer?.masksToBounds = true
@@ -274,15 +166,6 @@ public class DockDesktopContainerView: NSView {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         clipView.addSubview(contentView)
 
-        // Create gesture overlay to intercept horizontal swipes
-        gestureOverlay = GestureOverlayView()
-        gestureOverlay.translatesAutoresizingMaskIntoConstraints = false
-        gestureOverlay.contentViewUnderneath = clipView
-        gestureOverlay.scrollHandler = { [weak self] event in
-            self?.handleOverlayScroll(with: event)
-        }
-        addSubview(gestureOverlay)
-
         // ContentView leading constraint (will be updated for sliding animation)
         contentViewLeadingConstraint = contentView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor)
 
@@ -295,13 +178,7 @@ public class DockDesktopContainerView: NSView {
             contentView.topAnchor.constraint(equalTo: clipView.topAnchor),
             contentView.bottomAnchor.constraint(equalTo: clipView.bottomAnchor),
             contentView.heightAnchor.constraint(equalTo: clipView.heightAnchor),
-            contentViewLeadingConstraint!,
-
-            // Gesture overlay covers entire view
-            gestureOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-            gestureOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-            gestureOverlay.topAnchor.constraint(equalTo: topAnchor),
-            gestureOverlay.bottomAnchor.constraint(equalTo: bottomAnchor)
+            contentViewLeadingConstraint!
         ])
     }
 
@@ -432,8 +309,6 @@ public class DockDesktopContainerView: NSView {
         for (_, desktop) in desktops.enumerated() {
             let desktopView = NSView()
             desktopView.wantsLayer = true
-            // Force layer creation immediately
-            _ = desktopView.layer
             // Use frame-based layout for desktop views (positioned in layout())
             desktopView.translatesAutoresizingMaskIntoConstraints = true
             contentView.addSubview(desktopView)
@@ -459,8 +334,8 @@ public class DockDesktopContainerView: NSView {
         contentViewWidthConstraint = contentView.widthAnchor.constraint(equalTo: clipView.widthAnchor, multiplier: CGFloat(desktops.count))
         contentViewWidthConstraint?.isActive = true
 
-        // HYBRID SLIDE: Leading constraint stays at 0, positioning done via sublayerTransform
-        contentViewLeadingConstraint?.constant = 0
+        // Reset leading constraint for new desktop count
+        contentViewLeadingConstraint?.constant = -CGFloat(activeDesktopIndex) * clipView.bounds.width
 
         // Force layout
         needsLayout = true
@@ -474,18 +349,13 @@ public class DockDesktopContainerView: NSView {
         let desktopWidth = clipView.bounds.width
         let desktopHeight = clipView.bounds.height
 
-        // HYBRID SLIDE SOLUTION:
-        // All desktop frames at (0,0) so SwiftUI thinks they're "on-screen" and renders text.
-        // Visual positioning done via layer transforms (GPU-only, independent of render decision).
         for (index, desktopView) in desktopViews.enumerated() {
             desktopView.frame = NSRect(
-                x: 0,
+                x: CGFloat(index) * desktopWidth,
                 y: 0,
                 width: desktopWidth,
                 height: desktopHeight
             )
-            // Position visually using layer transform
-            desktopView.layer?.transform = CATransform3DMakeTranslation(CGFloat(index) * desktopWidth, 0, 0)
         }
 
         // Update content position if not animating
@@ -554,20 +424,14 @@ public class DockDesktopContainerView: NSView {
         let desktopWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
         let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
 
-        // HYBRID SLIDE SOLUTION:
-        // Use sublayerTransform to slide all desktop layers together.
-        // This is GPU-only and independent of frame positions (which stay at 0,0 for text rendering).
         if animated {
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(0.3)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-            contentView.layer?.sublayerTransform = CATransform3DMakeTranslation(targetX, 0, 0)
-            CATransaction.commit()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.3
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                contentViewLeadingConstraint?.animator().constant = targetX
+            }
         } else {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            contentView.layer?.sublayerTransform = CATransform3DMakeTranslation(targetX, 0, 0)
-            CATransaction.commit()
+            contentViewLeadingConstraint?.constant = targetX
         }
     }
 
@@ -595,13 +459,6 @@ public class DockDesktopContainerView: NSView {
     // Manual implementation with momentum support.
     // Slow motion only affects spring animation - gesture input is always real-time.
 
-    /// Handle scroll events forwarded from the gesture overlay
-    private func handleOverlayScroll(with event: NSEvent) {
-        // The overlay has already determined this is a horizontal gesture
-        // Process it directly without the horizontal check
-        processScrollEvent(event, skipHorizontalCheck: true)
-    }
-
     public override func scrollWheel(with event: NSEvent) {
         // Only handle gesture scroll events (not legacy mouse wheel)
         guard event.phase != [] || event.momentumPhase != [] else {
@@ -616,14 +473,6 @@ public class DockDesktopContainerView: NSView {
             return
         }
 
-        processScrollEvent(event, skipHorizontalCheck: false)
-    }
-
-    /// Process a scroll event for desktop switching
-    /// - Parameters:
-    ///   - event: The scroll event
-    ///   - skipHorizontalCheck: If true, skip the horizontal-dominant check (already verified by overlay)
-    private func processScrollEvent(_ event: NSEvent, skipHorizontalCheck: Bool) {
         // Handle physical gesture phases
         if event.phase == .began {
             // New gesture starting - stop any animation and take over
@@ -685,11 +534,10 @@ public class DockDesktopContainerView: NSView {
                 visualAmount = gestureAmount
             }
 
-            // Update visual position using sublayerTransform (GPU-only, no Auto Layout recalc)
-            // HYBRID SLIDE: sublayerTransform slides all desktop layers together
+            // Update visual position
             swipeOffset = visualAmount * desktopWidth
-            let visualX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
-            contentView.layer?.sublayerTransform = CATransform3DMakeTranslation(visualX, 0, 0)
+            let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+            contentViewLeadingConstraint?.constant = targetX
 
             // Update header indicator
             updateIndicatorForGestureAmount(gestureAmount)
@@ -891,12 +739,11 @@ public class DockDesktopContainerView: NSView {
         state.velocity += acceleration * dt
         state.position += state.velocity * dt
 
-        // Update position using sublayerTransform (GPU-only, no Auto Layout recalc)
-        // HYBRID SLIDE: sublayerTransform slides all desktop layers together
+        // Update position
         swipeOffset = state.position
         let desktopWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
-        let visualX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
-        contentView.layer?.sublayerTransform = CATransform3DMakeTranslation(visualX, 0, 0)
+        let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+        contentViewLeadingConstraint?.constant = targetX
 
         // Check if animation is done
         if abs(state.position - state.target) < 0.5 && abs(state.velocity) < 10 {
