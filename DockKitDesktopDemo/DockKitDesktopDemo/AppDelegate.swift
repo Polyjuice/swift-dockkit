@@ -22,14 +22,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let codingPanels = createCodingDesktopPanels()
         let designPanels = createDesignDesktopPanels()
         let notesPanels = createNotesDesktopPanels()
+        let nestedProjectPanels = createNestedProjectPanels()
 
         // Register all panels
-        for panel in codingPanels + designPanels + notesPanels {
+        for panel in codingPanels + designPanels + notesPanels + nestedProjectPanels {
             panelRegistry[panel.panelId] = panel
         }
 
+        // Create nested desktop host for Projects (Version 3 feature)
+        let nestedProjectsHost = createNestedProjectsHost(with: nestedProjectPanels)
+
         // Create desktop layouts
-        let codingDesktop = createCodingDesktop(with: codingPanels)
+        let codingDesktop = createCodingDesktop(with: codingPanels, nestedProjectsHost: nestedProjectsHost)
         let designDesktop = createDesignDesktop(with: designPanels)
         let notesDesktop = createNotesDesktop(with: notesPanels)
 
@@ -66,6 +70,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
+    /// Create panels for the nested "Projects" desktop host inside Coding desktop
+    private func createNestedProjectPanels() -> [any DockablePanel] {
+        return [
+            // Project A panels
+            CodeEditorPanel(filename: "ProjectA/main.swift"),
+            TerminalPanel(name: "Project A Build"),
+            // Project B panels
+            CodeEditorPanel(filename: "ProjectB/app.swift"),
+            TerminalPanel(name: "Project B Build"),
+            // Project C panels
+            CodeEditorPanel(filename: "ProjectC/index.swift"),
+            TerminalPanel(name: "Project C Build")
+        ]
+    }
+
     private func createDesignDesktopPanels() -> [any DockablePanel] {
         return [
             CanvasPanel(name: "Homepage Design"),
@@ -85,27 +104,92 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
+    // MARK: - Nested Desktop Host Creation (Version 3 Feature)
+
+    /// Create a nested desktop host containing multiple project workspaces
+    private func createNestedProjectsHost(with panels: [any DockablePanel]) -> DesktopHostLayoutNode {
+        // Project A: editor + terminal
+        let projectAEditor = panels[0]
+        let projectATerminal = panels[1]
+        let projectALayout = SplitLayoutNode(
+            axis: .vertical,
+            children: [
+                .tabGroup(TabGroupLayoutNode(
+                    tabs: [TabLayoutState(id: projectAEditor.panelId, title: projectAEditor.panelTitle)],
+                    activeTabIndex: 0
+                )),
+                .tabGroup(TabGroupLayoutNode(
+                    tabs: [TabLayoutState(id: projectATerminal.panelId, title: projectATerminal.panelTitle)],
+                    activeTabIndex: 0
+                ))
+            ],
+            proportions: [0.7, 0.3]
+        )
+
+        // Project B: editor + terminal
+        let projectBEditor = panels[2]
+        let projectBTerminal = panels[3]
+        let projectBLayout = SplitLayoutNode(
+            axis: .vertical,
+            children: [
+                .tabGroup(TabGroupLayoutNode(
+                    tabs: [TabLayoutState(id: projectBEditor.panelId, title: projectBEditor.panelTitle)],
+                    activeTabIndex: 0
+                )),
+                .tabGroup(TabGroupLayoutNode(
+                    tabs: [TabLayoutState(id: projectBTerminal.panelId, title: projectBTerminal.panelTitle)],
+                    activeTabIndex: 0
+                ))
+            ],
+            proportions: [0.7, 0.3]
+        )
+
+        // Project C: editor + terminal
+        let projectCEditor = panels[4]
+        let projectCTerminal = panels[5]
+        let projectCLayout = SplitLayoutNode(
+            axis: .vertical,
+            children: [
+                .tabGroup(TabGroupLayoutNode(
+                    tabs: [TabLayoutState(id: projectCEditor.panelId, title: projectCEditor.panelTitle)],
+                    activeTabIndex: 0
+                )),
+                .tabGroup(TabGroupLayoutNode(
+                    tabs: [TabLayoutState(id: projectCTerminal.panelId, title: projectCTerminal.panelTitle)],
+                    activeTabIndex: 0
+                ))
+            ],
+            proportions: [0.7, 0.3]
+        )
+
+        // Create nested desktops for each project
+        let projectDesktops = [
+            Desktop(title: "Project A", iconName: "a.circle.fill", layout: .split(projectALayout)),
+            Desktop(title: "Project B", iconName: "b.circle.fill", layout: .split(projectBLayout)),
+            Desktop(title: "Project C", iconName: "c.circle.fill", layout: .split(projectCLayout))
+        ]
+
+        return DesktopHostLayoutNode(
+            title: "Projects",
+            iconName: "folder.fill.badge.gearshape",
+            activeDesktopIndex: 0,
+            desktops: projectDesktops,
+            displayMode: .thumbnails
+        )
+    }
+
     // MARK: - Desktop Layout Creation
 
-    private func createCodingDesktop(with panels: [any DockablePanel]) -> Desktop {
-        // Layout: [Explorer | [Editor1, Editor2] / [Terminal, Console]] | Git
+    private func createCodingDesktop(with panels: [any DockablePanel], nestedProjectsHost: DesktopHostLayoutNode) -> Desktop {
+        // Layout: [Explorer | [Nested Projects Host] / [Terminal, Console]] | Git
+        // The nested projects host replaces the editor tabs, showing a swipeable workspace
         let explorer = panels[0]
-        let editor1 = panels[1]
-        let editor2 = panels[2]
         let terminal = panels[3]
         let git = panels[4]
         let console = panels[5]
 
         let explorerGroup = TabGroupLayoutNode(
             tabs: [TabLayoutState(id: explorer.panelId, title: explorer.panelTitle)],
-            activeTabIndex: 0
-        )
-
-        let editorGroup = TabGroupLayoutNode(
-            tabs: [
-                TabLayoutState(id: editor1.panelId, title: editor1.panelTitle),
-                TabLayoutState(id: editor2.panelId, title: editor2.panelTitle)
-            ],
             activeTabIndex: 0
         )
 
@@ -123,22 +207,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             activeTabIndex: 0
         )
 
-        // Editor area: editors on top, terminal/console on bottom
-        let editorArea = SplitLayoutNode(
+        // Center area: Nested desktop host on top, terminal/console on bottom
+        // The nested host allows swiping between Project A, B, C workspaces
+        let centerArea = SplitLayoutNode(
             axis: .vertical,
             children: [
-                .tabGroup(editorGroup),
+                .desktopHost(nestedProjectsHost),  // Version 3: Nested desktop host!
                 .tabGroup(bottomGroup)
             ],
-            proportions: [0.6, 0.4]
+            proportions: [0.7, 0.3]
         )
 
-        // Main split: Explorer | Editor Area | Git
+        // Main split: Explorer | Center Area (with nested host) | Git
         let mainSplit = SplitLayoutNode(
             axis: .horizontal,
             children: [
                 .tabGroup(explorerGroup),
-                .split(editorArea),
+                .split(centerArea),
                 .tabGroup(gitGroup)
             ],
             proportions: [0.2, 0.6, 0.2]
@@ -305,6 +390,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         helpMenuItem.submenu = helpMenu
         helpMenu.addItem(withTitle: "Swipe left/right to switch desktops", action: nil, keyEquivalent: "")
         helpMenu.addItem(withTitle: "Click header buttons to switch desktops", action: nil, keyEquivalent: "")
+        helpMenu.addItem(NSMenuItem.separator())
+        helpMenu.addItem(withTitle: "Version 3: Nested Desktops", action: nil, keyEquivalent: "")
+        helpMenu.addItem(withTitle: "  • The Coding desktop contains a nested 'Projects' host", action: nil, keyEquivalent: "")
+        helpMenu.addItem(withTitle: "  • Swipe inside the nested area to switch projects", action: nil, keyEquivalent: "")
+        helpMenu.addItem(withTitle: "  • Gestures bubble up when at edge boundaries", action: nil, keyEquivalent: "")
 
         NSApp.mainMenu = mainMenu
         NSApp.windowsMenu = windowMenu

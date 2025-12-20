@@ -53,6 +53,8 @@ public struct WindowState: Codable, Identifiable {
 public indirect enum DockLayoutNode: Codable {
     case split(SplitLayoutNode)
     case tabGroup(TabGroupLayoutNode)
+    /// A nested desktop host (Version 3: nested desktops)
+    case desktopHost(DesktopHostLayoutNode)
 
     // Custom coding to add "type" discriminator
     private enum CodingKeys: String, CodingKey {
@@ -62,6 +64,7 @@ public indirect enum DockLayoutNode: Codable {
     private enum NodeType: String, Codable {
         case split
         case tabGroup
+        case desktopHost
     }
 
     public init(from decoder: Decoder) throws {
@@ -73,6 +76,8 @@ public indirect enum DockLayoutNode: Codable {
             self = .split(try SplitLayoutNode(from: decoder))
         case .tabGroup:
             self = .tabGroup(try TabGroupLayoutNode(from: decoder))
+        case .desktopHost:
+            self = .desktopHost(try DesktopHostLayoutNode(from: decoder))
         }
     }
 
@@ -85,6 +90,9 @@ public indirect enum DockLayoutNode: Codable {
             try node.encode(to: encoder)
         case .tabGroup(let node):
             try container.encode(NodeType.tabGroup, forKey: .type)
+            try node.encode(to: encoder)
+        case .desktopHost(let node):
+            try container.encode(NodeType.desktopHost, forKey: .type)
             try node.encode(to: encoder)
         }
     }
@@ -164,6 +172,69 @@ public struct TabLayoutState: Codable {
     }
 }
 
+/// Codable version of a nested desktop host (Version 3: nested desktops)
+/// This allows desktop hosts to be embedded within other layouts, enabling
+/// recursive nesting of virtual workspaces.
+public struct DesktopHostLayoutNode: Codable {
+    public let id: UUID
+    public var title: String?
+    public var iconName: String?
+    public var activeDesktopIndex: Int
+    public var desktops: [Desktop]
+    public var displayMode: DesktopDisplayMode
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, iconName, activeDesktopIndex, desktops, displayMode
+    }
+
+    public init(
+        id: UUID = UUID(),
+        title: String? = nil,
+        iconName: String? = nil,
+        activeDesktopIndex: Int = 0,
+        desktops: [Desktop] = [],
+        displayMode: DesktopDisplayMode = .thumbnails
+    ) {
+        self.id = id
+        self.title = title
+        self.iconName = iconName
+        self.activeDesktopIndex = activeDesktopIndex
+        self.desktops = desktops
+        self.displayMode = displayMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        iconName = try container.decodeIfPresent(String.self, forKey: .iconName)
+        activeDesktopIndex = try container.decode(Int.self, forKey: .activeDesktopIndex)
+        desktops = try container.decode([Desktop].self, forKey: .desktops)
+        displayMode = try container.decodeIfPresent(DesktopDisplayMode.self, forKey: .displayMode) ?? .thumbnails
+    }
+
+    /// Create from a DesktopHostWindowState
+    public init(from state: DesktopHostWindowState, title: String? = nil, iconName: String? = nil) {
+        self.id = state.id
+        self.title = title
+        self.iconName = iconName
+        self.activeDesktopIndex = state.activeDesktopIndex
+        self.desktops = state.desktops
+        self.displayMode = state.displayMode
+    }
+
+    /// Convert to a DesktopHostWindowState
+    public func toDesktopHostWindowState(frame: CGRect = .zero) -> DesktopHostWindowState {
+        DesktopHostWindowState(
+            id: id,
+            frame: frame,
+            activeDesktopIndex: activeDesktopIndex,
+            desktops: desktops,
+            displayMode: displayMode
+        )
+    }
+}
+
 // MARK: - DockLayoutNode Helpers
 
 public extension DockLayoutNode {
@@ -174,6 +245,8 @@ public extension DockLayoutNode {
             return tabGroup.tabs.isEmpty
         case .split(let split):
             return split.children.allSatisfy { $0.isEmpty }
+        case .desktopHost(let desktopHost):
+            return desktopHost.desktops.allSatisfy { $0.layout.isEmpty }
         }
     }
 }
@@ -197,6 +270,15 @@ public extension DockLayoutNode {
                 tabs: tabGroupNode.tabs.map { TabLayoutState.from($0) },
                 activeTabIndex: tabGroupNode.activeTabIndex,
                 displayMode: tabGroupNode.displayMode
+            ))
+        case .desktopHost(let desktopHostNode):
+            return .desktopHost(DesktopHostLayoutNode(
+                id: desktopHostNode.id,
+                title: desktopHostNode.title,
+                iconName: desktopHostNode.iconName,
+                activeDesktopIndex: desktopHostNode.activeDesktopIndex,
+                desktops: desktopHostNode.desktops,
+                displayMode: desktopHostNode.displayMode
             ))
         }
     }

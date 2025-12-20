@@ -293,6 +293,11 @@ public extension DockLayout {
             for child in split.children {
                 collectTabGroupIds(from: child, into: &ids)
             }
+        case .desktopHost(let desktopHost):
+            // Collect from all desktops in the nested host
+            for desktop in desktopHost.desktops {
+                collectTabGroupIds(from: desktop.layout, into: &ids)
+            }
         }
     }
 }
@@ -318,6 +323,15 @@ extension DockLayoutNode {
                 child.addingTab(tab, toGroupId: groupId, at: index, modified: &modified)
             }
             return .split(split)
+
+        case .desktopHost(var desktopHost):
+            // Recurse into all desktops
+            desktopHost.desktops = desktopHost.desktops.map { desktop in
+                var d = desktop
+                d.layout = d.layout.addingTab(tab, toGroupId: groupId, at: index, modified: &modified)
+                return d
+            }
+            return .desktopHost(desktopHost)
         }
     }
 
@@ -342,6 +356,14 @@ extension DockLayoutNode {
             }
             // Clean up empty children and collapse if needed
             return DockLayoutNode.split(split).cleanedUp()
+
+        case .desktopHost(var desktopHost):
+            desktopHost.desktops = desktopHost.desktops.map { desktop in
+                var d = desktop
+                d.layout = d.layout.removingTab(tabId, modified: &modified)
+                return d
+            }
+            return .desktopHost(desktopHost)
         }
     }
 
@@ -366,6 +388,14 @@ extension DockLayoutNode {
                 child.removingTabWithoutCleanup(tabId, modified: &modified)
             }
             return .split(split)
+
+        case .desktopHost(var desktopHost):
+            desktopHost.desktops = desktopHost.desktops.map { desktop in
+                var d = desktop
+                d.layout = d.layout.removingTabWithoutCleanup(tabId, modified: &modified)
+                return d
+            }
+            return .desktopHost(desktopHost)
         }
     }
 
@@ -402,6 +432,15 @@ extension DockLayoutNode {
             }
 
             return .split(split)
+
+        case .desktopHost(var desktopHost):
+            // Clean up all desktops
+            desktopHost.desktops = desktopHost.desktops.map { desktop in
+                var d = desktop
+                d.layout = d.layout.cleanedUp()
+                return d
+            }
+            return .desktopHost(desktopHost)
         }
     }
 
@@ -421,6 +460,14 @@ extension DockLayoutNode {
                 child.settingActiveTab(inGroupId: groupId, to: index, modified: &modified)
             }
             return .split(split)
+
+        case .desktopHost(var desktopHost):
+            desktopHost.desktops = desktopHost.desktops.map { desktop in
+                var d = desktop
+                d.layout = d.layout.settingActiveTab(inGroupId: groupId, to: index, modified: &modified)
+                return d
+            }
+            return .desktopHost(desktopHost)
         }
     }
 
@@ -461,6 +508,14 @@ extension DockLayoutNode {
                 child.reorderingTab(tabId, inGroupId: groupId, to: index, modified: &modified)
             }
             return .split(split)
+
+        case .desktopHost(var desktopHost):
+            desktopHost.desktops = desktopHost.desktops.map { desktop in
+                var d = desktop
+                d.layout = d.layout.reorderingTab(tabId, inGroupId: groupId, to: index, modified: &modified)
+                return d
+            }
+            return .desktopHost(desktopHost)
         }
     }
 
@@ -515,6 +570,14 @@ extension DockLayoutNode {
                 child.splitting(groupId: groupId, direction: direction, withTab: tab, modified: &modified)
             }
             return .split(split)
+
+        case .desktopHost(var desktopHost):
+            desktopHost.desktops = desktopHost.desktops.map { desktop in
+                var d = desktop
+                d.layout = d.layout.splitting(groupId: groupId, direction: direction, withTab: tab, modified: &modified)
+                return d
+            }
+            return .desktopHost(desktopHost)
         }
     }
 
@@ -534,6 +597,14 @@ extension DockLayoutNode {
                 child.updatingSplitProportions(splitId, proportions: proportions, modified: &modified)
             }
             return .split(split)
+
+        case .desktopHost(var desktopHost):
+            desktopHost.desktops = desktopHost.desktops.map { desktop in
+                var d = desktop
+                d.layout = d.layout.updatingSplitProportions(splitId, proportions: proportions, modified: &modified)
+                return d
+            }
+            return .desktopHost(desktopHost)
         }
     }
 
@@ -555,6 +626,14 @@ extension DockLayoutNode {
                 }
             }
             return nil
+
+        case .desktopHost(let desktopHost):
+            for desktop in desktopHost.desktops {
+                if let result = desktop.layout.findTabInfo(tabId) {
+                    return result
+                }
+            }
+            return nil
         }
     }
 
@@ -567,6 +646,14 @@ extension DockLayoutNode {
         case .split(let split):
             for child in split.children {
                 if let result = child.findTabGroupNode(groupId) {
+                    return result
+                }
+            }
+            return nil
+
+        case .desktopHost(let desktopHost):
+            for desktop in desktopHost.desktops {
+                if let result = desktop.layout.findTabGroupNode(groupId) {
                     return result
                 }
             }

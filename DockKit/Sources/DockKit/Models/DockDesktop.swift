@@ -83,6 +83,7 @@ public extension DockLayoutNode {
         switch self {
         case .split(let node): return node.id
         case .tabGroup(let node): return node.id
+        case .desktopHost(let node): return node.id
         }
     }
 }

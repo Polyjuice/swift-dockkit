@@ -1,5 +1,22 @@
 import AppKit
 
+/// Protocol for handling swipe gestures that bubble up from nested desktop hosts.
+/// When a nested desktop host is at the edge of its desktops, the gesture bubbles
+/// up to the parent desktop host.
+public protocol SwipeGestureDelegate: AnyObject {
+    /// Called when a nested container wants to pass a scroll event up the hierarchy.
+    /// The container is at the edge of its desktops and cannot handle the gesture.
+    /// - Parameters:
+    ///   - event: The scroll wheel event
+    ///   - container: The container that is passing the event up
+    /// - Returns: true if the parent handled the event, false otherwise
+    func handleBubbledScrollEvent(_ event: NSEvent, from container: DockDesktopContainerView) -> Bool
+
+    /// Called when a nested container's gesture ends and it was bubbling events.
+    /// The parent should finalize any gesture state.
+    func nestedContainerDidEndGesture(_ container: DockDesktopContainerView)
+}
+
 /// Delegate for desktop container events
 public protocol DockDesktopContainerViewDelegate: AnyObject {
     /// Called immediately when a horizontal swipe gesture begins.
@@ -46,6 +63,12 @@ public class DockDesktopContainerView: NSView {
     // MARK: - Properties
 
     public weak var delegate: DockDesktopContainerViewDelegate?
+
+    /// Delegate for bubbling swipe gestures to parent desktop host
+    public weak var swipeGestureDelegate: SwipeGestureDelegate?
+
+    /// Whether this container is currently bubbling gestures to parent
+    private var isBubblingToParent: Bool = false
 
     /// The desktop layouts this container displays
     private var desktops: [Desktop] = []
@@ -192,6 +215,14 @@ public class DockDesktopContainerView: NSView {
             let locationInSelf = self.convert(event.locationInWindow, from: nil)
             guard self.bounds.contains(locationInSelf) else { return event }
 
+            // VERSION 3 FIX: Check if there's a nested DockDesktopContainerView under the mouse
+            // If so, let the event pass through so the nested container handles it first.
+            // The nested container will bubble events up to us when it's at its edge.
+            if self.hasNestedContainerAt(point: locationInSelf) {
+                // Don't intercept - let the nested container handle it via its own event monitor
+                return event
+            }
+
             // Check if this is a gesture event (trackpad, not mouse wheel)
             let isGestureEvent = event.phase != [] || event.momentumPhase != []
             guard isGestureEvent else { return event }
@@ -219,6 +250,34 @@ public class DockDesktopContainerView: NSView {
             // Let vertical gestures pass through
             return event
         }
+    }
+
+    /// Check if there's a nested DockDesktopContainerView at the given point (in self's coordinates)
+    /// Returns true if a nested container exists and contains the point
+    private func hasNestedContainerAt(point: NSPoint) -> Bool {
+        return findNestedContainerAt(point: point, in: self) != nil
+    }
+
+    /// Recursively search for a nested DockDesktopContainerView at the given point
+    private func findNestedContainerAt(point: NSPoint, in view: NSView) -> DockDesktopContainerView? {
+        for subview in view.subviews {
+            // Convert point to subview's coordinate system
+            let pointInSubview = subview.convert(point, from: self)
+
+            // Check if point is within subview bounds
+            guard subview.bounds.contains(pointInSubview) else { continue }
+
+            // If this subview is a DockDesktopContainerView (and not self), we found a nested one
+            if let nestedContainer = subview as? DockDesktopContainerView, nestedContainer !== self {
+                return nestedContainer
+            }
+
+            // Recursively check subviews
+            if let found = findNestedContainerAt(point: point, in: subview) {
+                return found
+            }
+        }
+        return nil
     }
 
     private func setupUI() {
@@ -441,12 +500,26 @@ public class DockDesktopContainerView: NSView {
         case .split(let splitNode):
             let splitVC = DockSplitViewController(splitNode: createSplitNode(from: splitNode))
             splitVC.tabGroupDelegate = self
+            // Pass swipe gesture delegate for nested desktop hosts (Version 3)
+            splitVC.swipeGestureDelegate = self
             return splitVC
 
         case .tabGroup(let tabGroupNode):
             let tabGroupVC = DockTabGroupViewController(tabGroupNode: createTabGroupNode(from: tabGroupNode))
             tabGroupVC.delegate = self
             return tabGroupVC
+
+        case .desktopHost(let desktopHostNode):
+            // Create a nested desktop host view controller (Version 3 feature)
+            let hostVC = DockDesktopHostViewController(
+                layoutNode: desktopHostNode,
+                panelProvider: { [weak self] id in
+                    self?.delegate?.desktopContainer(self!, panelForId: id)
+                }
+            )
+            // Connect gesture bubbling - nested host bubbles to this container
+            hostVC.swipeGestureDelegate = self
+            return hostVC
         }
     }
 
@@ -487,6 +560,8 @@ public class DockDesktopContainerView: NSView {
             return .split(createSplitNode(from: splitNode))
         case .tabGroup(let tabGroupNode):
             return .tabGroup(createTabGroupNode(from: tabGroupNode))
+        case .desktopHost(let desktopHostNode):
+            return .desktopHost(DesktopHostNode(from: desktopHostNode))
         }
     }
 
@@ -530,6 +605,12 @@ public class DockDesktopContainerView: NSView {
     //
     // Manual implementation with momentum support.
     // Slow motion only affects spring animation - gesture input is always real-time.
+    //
+    // NESTED DESKTOP GESTURE BUBBLING (Version 3):
+    // When this container is at the edge of its desktops and the user continues
+    // swiping in that direction, the gesture "bubbles up" to the parent desktop host.
+    // This allows nested desktop hosts to work naturally - the innermost one handles
+    // gestures first, then passes them up the hierarchy when at the edge.
 
     public override func scrollWheel(with event: NSEvent) {
         // Only handle gesture scroll events (not legacy mouse wheel)
@@ -549,6 +630,7 @@ public class DockDesktopContainerView: NSView {
         if event.phase == .began {
             // New gesture starting - stop any animation and take over
             isGestureActive = true
+            isBubblingToParent = false
             stopSpringAnimation()
             // Notify delegate immediately so host can pause expensive rendering
             delegate?.desktopContainerDidBeginSwipeGesture(self)
@@ -587,6 +669,45 @@ public class DockDesktopContainerView: NSView {
                 lastScrollTime = currentTime
             }
 
+            // Check for gesture bubbling to parent (Version 3 nested desktops)
+            // If we're at an edge and user is swiping beyond, bubble to parent
+            let isAtLeftEdge = activeDesktopIndex == 0 && gestureAmount >= 0
+            let isAtRightEdge = activeDesktopIndex == desktops.count - 1 && gestureAmount <= 0
+            let swipingBeyondLeft = isAtLeftEdge && deltaX > 0
+            let swipingBeyondRight = isAtRightEdge && deltaX < 0
+
+            if (swipingBeyondLeft || swipingBeyondRight) && swipeGestureDelegate != nil {
+                // We're at an edge and swiping beyond - bubble to parent
+                if !isBubblingToParent {
+                    // First time bubbling - reset our visual state to edge position
+                    isBubblingToParent = true
+                    gestureAmount = 0
+                    swipeOffset = 0
+                    updateContentPosition(animated: false)
+                }
+                // Pass event to parent
+                _ = swipeGestureDelegate?.handleBubbledScrollEvent(event, from: self)
+                return
+            }
+
+            // If we were bubbling but direction changed back, stop bubbling
+            if isBubblingToParent {
+                let stoppedBubbling: Bool
+                if isAtLeftEdge && deltaX < 0 {
+                    stoppedBubbling = true
+                } else if isAtRightEdge && deltaX > 0 {
+                    stoppedBubbling = true
+                } else {
+                    stoppedBubbling = false
+                }
+
+                if stoppedBubbling {
+                    isBubblingToParent = false
+                    swipeGestureDelegate?.nestedContainerDidEndGesture(self)
+                    // Continue processing this event locally
+                }
+            }
+
             // NO time scaling on input - gesture feels normal
             gestureAmount += deltaX / desktopWidth
 
@@ -620,6 +741,10 @@ public class DockDesktopContainerView: NSView {
         // Handle momentum end
         if event.momentumPhase == .ended || event.momentumPhase == .cancelled {
             isGestureActive = false
+            if isBubblingToParent {
+                isBubblingToParent = false
+                swipeGestureDelegate?.nestedContainerDidEndGesture(self)
+            }
             finalizeGesture()
         }
 
@@ -630,6 +755,10 @@ public class DockDesktopContainerView: NSView {
                 guard let self = self, self.isGestureActive else { return }
                 // Still active means no momentum came
                 self.isGestureActive = false
+                if self.isBubblingToParent {
+                    self.isBubblingToParent = false
+                    self.swipeGestureDelegate?.nestedContainerDidEndGesture(self)
+                }
                 self.finalizeGesture()
             }
         }
@@ -864,5 +993,103 @@ extension DockDesktopContainerView: DockTabGroupViewControllerDelegate {
 
     public func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {
         // Handle new tab request - could create a new panel
+    }
+}
+
+// MARK: - SwipeGestureDelegate (Version 3: Nested Desktop Support)
+
+extension DockDesktopContainerView: SwipeGestureDelegate {
+    /// Handle a scroll event bubbled up from a nested desktop container.
+    /// The nested container is at the edge of its desktops and cannot handle the gesture.
+    public func handleBubbledScrollEvent(_ event: NSEvent, from container: DockDesktopContainerView) -> Bool {
+        // Process the event as if it came directly to us
+        // We need to simulate the gesture lifecycle since the nested container
+        // is forwarding mid-gesture events
+
+        // Handle gesture begin if needed
+        if event.phase == .began || (!isGestureActive && (event.phase == .changed || event.momentumPhase == .changed)) {
+            isGestureActive = true
+            isBubblingToParent = false
+            stopSpringAnimation()
+            delegate?.desktopContainerDidBeginSwipeGesture(self)
+            gestureVelocity = 0
+            lastScrollTime = CACurrentMediaTime()
+        }
+
+        guard isGestureActive && springState == nil else {
+            return false
+        }
+
+        // Apply scroll delta
+        if event.phase == .changed || event.momentumPhase == .changed {
+            let desktopWidth = bounds.width
+            guard desktopWidth > 0 else { return false }
+
+            let deltaX = event.scrollingDeltaX
+
+            // Track velocity
+            if event.phase == .changed {
+                let currentTime = CACurrentMediaTime()
+                let dt = currentTime - lastScrollTime
+                if dt > 0 {
+                    let instantVelocity = deltaX / CGFloat(dt)
+                    gestureVelocity = gestureVelocity * 0.7 + instantVelocity * 0.3
+                }
+                lastScrollTime = currentTime
+            }
+
+            // Check if we also need to bubble (recursive nesting)
+            let isAtLeftEdge = activeDesktopIndex == 0 && gestureAmount >= 0
+            let isAtRightEdge = activeDesktopIndex == desktops.count - 1 && gestureAmount <= 0
+            let swipingBeyondLeft = isAtLeftEdge && deltaX > 0
+            let swipingBeyondRight = isAtRightEdge && deltaX < 0
+
+            if (swipingBeyondLeft || swipingBeyondRight) && swipeGestureDelegate != nil {
+                if !isBubblingToParent {
+                    isBubblingToParent = true
+                    gestureAmount = 0
+                    swipeOffset = 0
+                    updateContentPosition(animated: false)
+                }
+                return swipeGestureDelegate?.handleBubbledScrollEvent(event, from: self) ?? false
+            }
+
+            // Process locally
+            gestureAmount += deltaX / desktopWidth
+
+            let maxLeft = CGFloat(activeDesktopIndex)
+            let maxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
+
+            let visualAmount: CGFloat
+            if gestureAmount > maxLeft {
+                let overshoot = gestureAmount - maxLeft
+                visualAmount = maxLeft + rubberBand(overshoot, dimension: 1.0)
+            } else if gestureAmount < -maxRight {
+                let overshoot = -maxRight - gestureAmount
+                visualAmount = -maxRight - rubberBand(overshoot, dimension: 1.0)
+            } else {
+                visualAmount = gestureAmount
+            }
+
+            swipeOffset = visualAmount * desktopWidth
+            let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+            contentViewLeadingConstraint?.constant = targetX
+
+            updateIndicatorForGestureAmount(gestureAmount)
+        }
+
+        return true
+    }
+
+    /// Called when a nested container's gesture ends.
+    public func nestedContainerDidEndGesture(_ container: DockDesktopContainerView) {
+        // Finalize our gesture state
+        guard isGestureActive else { return }
+        isGestureActive = false
+        if isBubblingToParent {
+            isBubblingToParent = false
+            swipeGestureDelegate?.nestedContainerDidEndGesture(self)
+        }
+        finalizeGesture()
     }
 }

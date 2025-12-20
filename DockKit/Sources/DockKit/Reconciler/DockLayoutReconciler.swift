@@ -479,6 +479,11 @@ public class DockLayoutReconciler {
             for child in split.children {
                 detachAllPanels(from: child)
             }
+        case .desktopHost(let desktopHost):
+            for desktop in desktopHost.desktops {
+                let node = DockNode.from(desktop.layout)
+                detachAllPanels(from: node)
+            }
         }
     }
 
@@ -489,6 +494,7 @@ public class DockLayoutReconciler {
         switch node {
         case .split(let n): return n.id
         case .tabGroup(let n): return n.id
+        case .desktopHost(let n): return n.id
         }
     }
 
@@ -542,6 +548,9 @@ public class DockLayoutReconciler {
                 activeTabIndex: tabGroupLayout.activeTabIndex,
                 displayMode: tabGroupLayout.displayMode
             ))
+
+        case .desktopHost(let desktopHostLayout):
+            return .desktopHost(DesktopHostNode(from: desktopHostLayout))
         }
     }
 

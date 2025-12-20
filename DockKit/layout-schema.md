@@ -22,7 +22,7 @@ DockKit uses a JSON object as the single source of truth for all panels and thei
 The layout tree uses a discriminated union pattern. Nodes are identified by their `type` field.
 
 ```typescript
-type DockLayoutNode = SplitLayoutNode | TabGroupLayoutNode
+type DockLayoutNode = SplitLayoutNode | TabGroupLayoutNode | DesktopHostLayoutNode
 
 interface SplitLayoutNode {
   type: "split"
@@ -37,6 +37,16 @@ interface TabGroupLayoutNode {
   id: string
   tabs: TabLayoutState[]
   activeTabIndex: number
+}
+
+interface DesktopHostLayoutNode {
+  type: "desktopHost"
+  id: string
+  title?: string
+  iconName?: string
+  activeDesktopIndex: number
+  desktops: Desktop[]
+  displayMode?: "tabs" | "thumbnails"
 }
 
 interface TabLayoutState {
@@ -97,6 +107,29 @@ The `proportions` array must have the same length as `children` and sum to 1.0.
 ## Tab Group Node
 
 Tab groups are the leaf nodes containing actual panel tabs. The `activeTabIndex` determines which tab is visible.
+
+## Nested Desktop Host Node (Version 3)
+
+Desktop hosts can be nested within layouts using the `desktopHost` type. This enables recursive virtual workspaces - for example, a "Coding" desktop containing a nested "Projects" desktop host with Project A, B, C workspaces.
+
+```json
+{
+  "type": "desktopHost",
+  "id": "nested-projects",
+  "title": "Projects",
+  "iconName": "folder.fill.badge.gearshape",
+  "activeDesktopIndex": 0,
+  "displayMode": "thumbnails",
+  "desktops": [
+    { "id": "project-a", "title": "Project A", "layout": { ... } },
+    { "id": "project-b", "title": "Project B", "layout": { ... } },
+    { "id": "project-c", "title": "Project C", "layout": { ... } }
+  ]
+}
+```
+
+**Gesture Bubbling:**
+When a user swipes to switch desktops, gestures are handled by the innermost desktop host first. When that container reaches its edge (first or last desktop), the gesture automatically "bubbles up" to the parent desktop host. This creates an intuitive experience where inner workspaces are navigated first, then outer workspaces.
 
 ```json
 {
@@ -344,7 +377,7 @@ type CGRect = {
   height: number
 }
 
-type DockLayoutNode = SplitLayoutNode | TabGroupLayoutNode
+type DockLayoutNode = SplitLayoutNode | TabGroupLayoutNode | DesktopHostLayoutNode
 
 type SplitLayoutNode = {
   type: "split"
@@ -361,6 +394,16 @@ type TabGroupLayoutNode = {
   activeTabIndex: number
 }
 
+type DesktopHostLayoutNode = {
+  type: "desktopHost"
+  id: string
+  title?: string
+  iconName?: string
+  activeDesktopIndex: number
+  desktops: Desktop[]
+  displayMode?: "tabs" | "thumbnails"
+}
+
 type TabLayoutState = {
   id: string
   title: string
@@ -374,6 +417,8 @@ type TabLayoutState = {
 ## Desktop Host Layouts
 
 Desktop hosts provide multiple virtual workspaces within a single window. See [Desktop Hosts](../docs/DESKTOP_HOSTS.md) for usage details.
+
+**Nesting (Version 3):** Desktop hosts can be nested within layouts using the `desktopHost` node type. When nested, gesture bubbling ensures the innermost desktop host handles swipes first, then passes gestures up the hierarchy when at the edge.
 
 ### Desktop
 
@@ -506,5 +551,17 @@ type DesktopHostWindowState = {
   isFullScreen: boolean
   activeDesktopIndex: number
   desktops: Desktop[]
+}
+
+// Nested Desktop Host (Version 3)
+// Can be used as a DockLayoutNode within splits/desktops
+type DesktopHostLayoutNode = {
+  type: "desktopHost"
+  id: string
+  title?: string
+  iconName?: string
+  activeDesktopIndex: number
+  desktops: Desktop[]
+  displayMode?: "tabs" | "thumbnails"
 }
 ```

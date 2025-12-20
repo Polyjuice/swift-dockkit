@@ -154,6 +154,25 @@ public class DockLayoutVerifier {
                 actual: String(describing: type(of: actual)),
                 severity: .error
             ))
+
+        case (.desktopHost(let layoutDesktopHost), let hostVC as DockDesktopHostViewController):
+            // Verify desktop host ID matches
+            if layoutDesktopHost.id != hostVC.layoutNode.id {
+                mismatches.append(LayoutMismatch(
+                    path: "\(path).id",
+                    expected: layoutDesktopHost.id.uuidString.prefix(8).description,
+                    actual: hostVC.layoutNode.id.uuidString.prefix(8).description,
+                    severity: .error
+                ))
+            }
+
+        case (.desktopHost, _):
+            mismatches.append(LayoutMismatch(
+                path: path,
+                expected: "DockDesktopHostViewController",
+                actual: String(describing: type(of: actual)),
+                severity: .error
+            ))
         }
 
         return mismatches

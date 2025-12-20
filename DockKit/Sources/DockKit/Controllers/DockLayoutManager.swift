@@ -366,6 +366,9 @@ public class DockLayoutManager: DockWindowDelegate {
                 activeTabIndex: tabGroupLayout.activeTabIndex,
                 displayMode: tabGroupLayout.displayMode
             ))
+
+        case .desktopHost(let desktopHostLayout):
+            return .desktopHost(DesktopHostNode(from: desktopHostLayout))
         }
     }
 

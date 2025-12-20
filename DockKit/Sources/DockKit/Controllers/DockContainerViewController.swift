@@ -87,6 +87,24 @@ open class DockContainerViewController: NSViewController {
             let tabGroupVC = DockTabGroupViewController(tabGroupNode: tabGroupNode)
             tabGroupVC.delegate = self
             return tabGroupVC
+
+        case .desktopHost(let desktopHostNode):
+            // Create a nested desktop host view controller (Version 3 feature)
+            let layoutNode = DesktopHostLayoutNode(
+                id: desktopHostNode.id,
+                title: desktopHostNode.title,
+                iconName: desktopHostNode.iconName,
+                activeDesktopIndex: desktopHostNode.activeDesktopIndex,
+                desktops: desktopHostNode.desktops,
+                displayMode: desktopHostNode.displayMode
+            )
+            let hostVC = DockDesktopHostViewController(
+                layoutNode: layoutNode,
+                panelProvider: { [weak self] id in
+                    self?.panelRegistry[id]
+                }
+            )
+            return hostVC
         }
     }
 
@@ -215,6 +233,10 @@ open class DockContainerViewController: NSViewController {
             } else {
                 node = .split(splitNode)
             }
+
+        case .desktopHost:
+            // Desktop hosts manage their own tabs internally
+            break
         }
     }
 
@@ -345,6 +367,9 @@ open class DockContainerViewController: NSViewController {
 
         case .tabGroup(let tabGroupLayout):
             return .tabGroup(restoreTabGroupNode(from: tabGroupLayout))
+
+        case .desktopHost(let desktopHostLayout):
+            return .desktopHost(DesktopHostNode(from: desktopHostLayout))
         }
     }
 
@@ -417,6 +442,9 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
                 updateTabGroupNodeInTree(updatedNode, in: &splitNode.children[i])
             }
             node = .split(splitNode)
+        case .desktopHost:
+            // Desktop hosts manage their own tab groups internally
+            break
         }
     }
 
@@ -490,6 +518,9 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
             } else {
                 node = .split(splitNode)
             }
+        case .desktopHost:
+            // Desktop hosts manage their own cleanup
+            break
         }
     }
 
@@ -543,6 +574,10 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
             } else {
                 node = .split(splitNode)
             }
+
+        case .desktopHost:
+            // Desktop hosts manage their own tab groups
+            break
         }
     }
 
@@ -573,6 +608,8 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
                 result += "\(indent)  child[\(i)]: \(describeNode(child, indent: indent + "    "))\n"
             }
             return result
+        case .desktopHost(let desktopHost):
+            return "\(indent)DesktopHost(id:\(desktopHost.id.uuidString.prefix(8)), desktops:\(desktopHost.desktops.count))"
         }
     }
 
@@ -592,6 +629,10 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
                 splitNodeContainingGroup(groupId, direction: direction, withNewNode: newNode, in: &splitNode.children[i])
             }
             node = .split(splitNode)
+
+        case .desktopHost:
+            // Cannot split inside a desktop host from outside
+            break
         }
     }
 }

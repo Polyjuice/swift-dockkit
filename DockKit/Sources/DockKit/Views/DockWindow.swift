@@ -132,6 +132,22 @@ public class DockWindow: NSWindow {
             let tabGroupVC = DockTabGroupViewController(tabGroupNode: tabGroupNode)
             tabGroupVC.delegate = self
             return tabGroupVC
+
+        case .desktopHost(let desktopHostNode):
+            // Create a nested desktop host view controller (Version 3 feature)
+            let layoutNode = DesktopHostLayoutNode(
+                id: desktopHostNode.id,
+                title: desktopHostNode.title,
+                iconName: desktopHostNode.iconName,
+                activeDesktopIndex: desktopHostNode.activeDesktopIndex,
+                desktops: desktopHostNode.desktops,
+                displayMode: desktopHostNode.displayMode
+            )
+            let hostVC = DockDesktopHostViewController(
+                layoutNode: layoutNode,
+                panelProvider: nil
+            )
+            return hostVC
         }
     }
 
@@ -209,6 +225,14 @@ public class DockWindow: NSWindow {
                 }
             }
             return nil
+        case .desktopHost(let desktopHostNode):
+            for desktop in desktopHostNode.desktops {
+                let node = DockNode.from(desktop.layout)
+                if let found = findPanel(panelId, in: node) {
+                    return found
+                }
+            }
+            return nil
         }
     }
 
@@ -218,6 +242,11 @@ public class DockWindow: NSWindow {
             return !tabGroupNode.tabs.isEmpty
         case .split(let splitNode):
             return splitNode.children.contains { containsAnyPanel(in: $0) }
+        case .desktopHost(let desktopHostNode):
+            return desktopHostNode.desktops.contains { desktop in
+                let node = DockNode.from(desktop.layout)
+                return containsAnyPanel(in: node)
+            }
         }
     }
 
@@ -230,6 +259,13 @@ public class DockWindow: NSWindow {
                 if let tab = findFirstActiveTab(in: child) {
                     return tab
                 }
+            }
+            return nil
+        case .desktopHost(let desktopHostNode):
+            if desktopHostNode.activeDesktopIndex < desktopHostNode.desktops.count {
+                let activeDesktop = desktopHostNode.desktops[desktopHostNode.activeDesktopIndex]
+                let node = DockNode.from(activeDesktop.layout)
+                return findFirstActiveTab(in: node)
             }
             return nil
         }
@@ -286,6 +322,10 @@ public class DockWindow: NSWindow {
                 }
             }
             return false
+
+        case .desktopHost:
+            // Desktop hosts manage their own tabs internally
+            return false
         }
     }
 
@@ -316,6 +356,10 @@ public class DockWindow: NSWindow {
             } else {
                 node = .split(splitNode)
             }
+
+        case .desktopHost:
+            // Desktop hosts manage their own cleanup internally
+            break
         }
     }
 

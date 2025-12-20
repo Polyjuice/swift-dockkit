@@ -1,10 +1,13 @@
 import AppKit
 
 /// Recursive tree structure for dock layout
-/// Each node is either a split (container with children) or a tab group (leaf with tabs)
+/// Each node is either a split (container with children), a tab group (leaf with tabs),
+/// or a desktop host (nested desktops with swipe navigation - Version 3)
 public indirect enum DockNode {
     case split(SplitNode)
     case tabGroup(TabGroupNode)
+    /// A nested desktop host (Version 3: nested desktops)
+    case desktopHost(DesktopHostNode)
 
     /// Generate a unique ID for this node
     public var nodeId: UUID {
@@ -12,6 +15,8 @@ public indirect enum DockNode {
         case .split(let node):
             return node.id
         case .tabGroup(let node):
+            return node.id
+        case .desktopHost(let node):
             return node.id
         }
     }
@@ -120,6 +125,55 @@ public struct TabGroupNode: Identifiable {
     }
 }
 
+/// A runtime node representing a nested desktop host (Version 3: nested desktops)
+/// This allows desktop hosts to be embedded within other layouts, enabling
+/// recursive nesting of virtual workspaces with swipe gesture navigation.
+public struct DesktopHostNode: Identifiable {
+    public let id: UUID
+    public var title: String?
+    public var iconName: String?
+    public var activeDesktopIndex: Int
+    public var desktops: [Desktop]
+    public var displayMode: DesktopDisplayMode
+
+    public init(
+        id: UUID = UUID(),
+        title: String? = nil,
+        iconName: String? = nil,
+        activeDesktopIndex: Int = 0,
+        desktops: [Desktop] = [],
+        displayMode: DesktopDisplayMode = .thumbnails
+    ) {
+        self.id = id
+        self.title = title
+        self.iconName = iconName
+        self.activeDesktopIndex = activeDesktopIndex
+        self.desktops = desktops
+        self.displayMode = displayMode
+    }
+
+    /// Create from a layout node
+    public init(from layoutNode: DesktopHostLayoutNode) {
+        self.id = layoutNode.id
+        self.title = layoutNode.title
+        self.iconName = layoutNode.iconName
+        self.activeDesktopIndex = layoutNode.activeDesktopIndex
+        self.desktops = layoutNode.desktops
+        self.displayMode = layoutNode.displayMode
+    }
+
+    /// Convert to a DesktopHostWindowState for view creation
+    public func toDesktopHostWindowState(frame: CGRect = .zero) -> DesktopHostWindowState {
+        DesktopHostWindowState(
+            id: id,
+            frame: frame,
+            activeDesktopIndex: activeDesktopIndex,
+            desktops: desktops,
+            displayMode: displayMode
+        )
+    }
+}
+
 /// A single tab within a tab group
 public class DockTab: Identifiable {
     public let id: UUID
@@ -190,6 +244,11 @@ public extension DockNode {
             }
         case .tabGroup:
             break
+        case .desktopHost(let desktopHostNode):
+            for desktop in desktopHostNode.desktops {
+                let node = DockNode.from(desktop.layout)
+                node.flattenNodes(into: &result)
+            }
         }
     }
 
@@ -208,6 +267,14 @@ public extension DockNode {
             }
             return nil
         case .tabGroup:
+            return nil
+        case .desktopHost(let desktopHostNode):
+            for desktop in desktopHostNode.desktops {
+                let node = DockNode.from(desktop.layout)
+                if let found = node.findNode(byId: id) {
+                    return found
+                }
+            }
             return nil
         }
     }
@@ -229,6 +296,15 @@ public extension DockNode {
                 }
             }
             return nil
+
+        case .desktopHost(let desktopHostNode):
+            for desktop in desktopHostNode.desktops {
+                let node = DockNode.from(desktop.layout)
+                if let found = node.findTabGroup(containingTabId: tabId) {
+                    return found
+                }
+            }
+            return nil
         }
     }
 
@@ -239,13 +315,18 @@ public extension DockNode {
         return result
     }
 
-    private func collectTabIds(into result: inout [UUID]) {
+    func collectTabIds(into result: inout [UUID]) {
         switch self {
         case .tabGroup(let tabGroupNode):
             result.append(contentsOf: tabGroupNode.tabs.map { $0.id })
         case .split(let splitNode):
             for child in splitNode.children {
                 child.collectTabIds(into: &result)
+            }
+        case .desktopHost(let desktopHostNode):
+            for desktop in desktopHostNode.desktops {
+                let node = DockNode.from(desktop.layout)
+                node.collectTabIds(into: &result)
             }
         }
     }
@@ -265,6 +346,11 @@ public extension DockNode {
             for child in splitNode.children {
                 child.collectTabGroups(into: &result)
             }
+        case .desktopHost(let desktopHostNode):
+            for desktop in desktopHostNode.desktops {
+                let node = DockNode.from(desktop.layout)
+                node.collectTabGroups(into: &result)
+            }
         }
     }
 
@@ -275,6 +361,11 @@ public extension DockNode {
             return tabGroupNode.tabs.count
         case .split(let splitNode):
             return splitNode.children.reduce(0) { $0 + $1.totalTabCount }
+        case .desktopHost(let desktopHostNode):
+            return desktopHostNode.desktops.reduce(0) { total, desktop in
+                let node = DockNode.from(desktop.layout)
+                return total + node.totalTabCount
+            }
         }
     }
 
@@ -298,6 +389,7 @@ public extension DockLayoutNode {
         switch self {
         case .split(let node): return node.id
         case .tabGroup(let node): return node.id
+        case .desktopHost(let node): return node.id
         }
     }
 
@@ -311,6 +403,11 @@ public extension DockLayoutNode {
             }
         case .tabGroup:
             break
+        case .desktopHost(let desktopHostNode):
+            // Flatten all desktops
+            for desktop in desktopHostNode.desktops {
+                desktop.layout.flattenNodes(into: &result)
+            }
         }
     }
 
@@ -330,6 +427,13 @@ public extension DockLayoutNode {
             return nil
         case .tabGroup:
             return nil
+        case .desktopHost(let desktopHostNode):
+            for desktop in desktopHostNode.desktops {
+                if let found = desktop.layout.findNode(byId: id) {
+                    return found
+                }
+            }
+            return nil
         }
     }
 
@@ -345,6 +449,14 @@ public extension DockLayoutNode {
         case .split(let splitNode):
             for child in splitNode.children {
                 if let found = child.findTabGroup(containingTabId: tabId) {
+                    return found
+                }
+            }
+            return nil
+
+        case .desktopHost(let desktopHostNode):
+            for desktop in desktopHostNode.desktops {
+                if let found = desktop.layout.findTabGroup(containingTabId: tabId) {
                     return found
                 }
             }
@@ -367,6 +479,49 @@ public extension DockLayoutNode {
             for child in splitNode.children {
                 child.collectTabIds(into: &result)
             }
+        case .desktopHost(let desktopHostNode):
+            // Collect from all desktops in the nested host
+            for desktop in desktopHostNode.desktops {
+                // Convert layout to DockNode and collect recursively
+                let node = DockNode.from(desktop.layout)
+                node.collectTabIds(into: &result)
+            }
+        }
+    }
+}
+
+// MARK: - Conversion from DockLayoutNode
+
+extension DockNode {
+    /// Create a runtime DockNode from a layout node
+    public static func from(_ layoutNode: DockLayoutNode) -> DockNode {
+        switch layoutNode {
+        case .split(let splitLayoutNode):
+            let children = splitLayoutNode.children.map { DockNode.from($0) }
+            return .split(SplitNode(
+                id: splitLayoutNode.id,
+                axis: splitLayoutNode.axis,
+                children: children,
+                proportions: splitLayoutNode.proportions
+            ))
+        case .tabGroup(let tabGroupLayoutNode):
+            let tabs = tabGroupLayoutNode.tabs.map { tabState in
+                DockTab(
+                    id: tabState.id,
+                    title: tabState.title,
+                    iconName: tabState.iconName,
+                    panel: nil,
+                    cargo: tabState.cargo
+                )
+            }
+            return .tabGroup(TabGroupNode(
+                id: tabGroupLayoutNode.id,
+                tabs: tabs,
+                activeTabIndex: tabGroupLayoutNode.activeTabIndex,
+                displayMode: tabGroupLayoutNode.displayMode
+            ))
+        case .desktopHost(let desktopHostLayoutNode):
+            return .desktopHost(DesktopHostNode(from: desktopHostLayoutNode))
         }
     }
 }

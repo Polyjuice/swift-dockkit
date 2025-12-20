@@ -62,6 +62,9 @@ public class DockSplitViewController: NSSplitViewController {
     /// Delegate for child tab groups - passed down from container
     public weak var tabGroupDelegate: DockTabGroupViewControllerDelegate?
 
+    /// Delegate for swipe gesture bubbling - passed down to nested desktop hosts (Version 3)
+    public weak var swipeGestureDelegate: SwipeGestureDelegate?
+
     /// The split node this controller represents
     public private(set) var splitNode: SplitNode
 
@@ -178,12 +181,32 @@ public class DockSplitViewController: NSSplitViewController {
             let splitVC = DockSplitViewController(splitNode: splitNode)
             splitVC.dockDelegate = dockDelegate
             splitVC.tabGroupDelegate = tabGroupDelegate
+            // Pass swipe gesture delegate down for nested desktop hosts (Version 3)
+            splitVC.swipeGestureDelegate = swipeGestureDelegate
             return splitVC
 
         case .tabGroup(let tabGroupNode):
             let tabGroupVC = DockTabGroupViewController(tabGroupNode: tabGroupNode)
             tabGroupVC.delegate = tabGroupDelegate
             return tabGroupVC
+
+        case .desktopHost(let desktopHostNode):
+            // Create a nested desktop host view controller (Version 3 feature)
+            let layoutNode = DesktopHostLayoutNode(
+                id: desktopHostNode.id,
+                title: desktopHostNode.title,
+                iconName: desktopHostNode.iconName,
+                activeDesktopIndex: desktopHostNode.activeDesktopIndex,
+                desktops: desktopHostNode.desktops,
+                displayMode: desktopHostNode.displayMode
+            )
+            let hostVC = DockDesktopHostViewController(
+                layoutNode: layoutNode,
+                panelProvider: nil // Will be set by parent if needed
+            )
+            // Connect swipe gesture delegate for bubbling (Version 3)
+            hostVC.swipeGestureDelegate = swipeGestureDelegate
+            return hostVC
         }
     }
 

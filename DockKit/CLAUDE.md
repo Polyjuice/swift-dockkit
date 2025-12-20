@@ -116,6 +116,43 @@ Desktop hosts handle tearing internally without requiring DockLayoutManager or d
 **Optional Customization:**
 Apps that need to intercept or customize tearing can implement `DockDesktopHostWindowDelegate.willTearPanel(_:at:)` and return `false` to prevent tearing.
 
+### Nested Desktop Hosts (Version 3)
+
+Desktop hosts can be nested within other desktop hosts using the `.desktopHost` layout node type. This enables recursive virtual workspaces - for example, a "Coding" desktop containing a nested "Projects" desktop host with Project A, B, C workspaces.
+
+**Layout Structure:**
+```swift
+// A desktop containing a nested desktop host
+Desktop(
+    title: "Coding",
+    layout: .split(SplitLayoutNode(
+        axis: .vertical,
+        children: [
+            .desktopHost(DesktopHostLayoutNode(  // Nested desktop host!
+                title: "Projects",
+                desktops: [projectA, projectB, projectC]
+            )),
+            .tabGroup(terminalGroup)
+        ]
+    ))
+)
+```
+
+**Gesture Bubbling:**
+When a user swipes to switch desktops, gestures are handled by the innermost desktop host first. When that container reaches its edge (first or last desktop), the gesture "bubbles up" to the parent desktop host:
+
+1. User swipes left on nested "Project C" (last project)
+2. Nested container detects it's at the right edge
+3. Nested container passes event to parent via `SwipeGestureDelegate`
+4. Parent container handles the gesture and switches from "Coding" to "Design"
+
+This creates an intuitive experience where inner workspaces are navigated first, then outer workspaces.
+
+**Key Components:**
+- `SwipeGestureDelegate` - Protocol for gesture bubbling between containers
+- `DockDesktopHostViewController` - Wraps nested host views with gesture delegation
+- `DockSplitViewController.swipeGestureDelegate` - Propagates delegate through split hierarchies
+
 ## Panel Lifecycle Callbacks
 
 Panels receive lifecycle notifications:
