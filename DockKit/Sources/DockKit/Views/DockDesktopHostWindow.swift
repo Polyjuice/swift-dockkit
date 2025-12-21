@@ -173,12 +173,13 @@ public class DockDesktopHostWindow: NSWindow {
         isReleasedWhenClosed = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
-        toolbarStyle = .unifiedCompact
         animationBehavior = .none
 
-        let toolbar = NSToolbar(identifier: "DockDesktopHostWindowToolbar-\(windowId.uuidString)")
-        toolbar.displayMode = .iconOnly
-        self.toolbar = toolbar
+        // Extend content under title bar - header view becomes the title bar area
+        styleMask.insert(.fullSizeContentView)
+
+        // No toolbar - the header view contains all controls
+        self.toolbar = nil
 
         minSize = NSSize(width: 400, height: 300)
 

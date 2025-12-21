@@ -138,6 +138,8 @@ public class DockDesktopHeaderView: NSView {
         NSLayoutConstraint.activate([
             stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // Ensure stack doesn't overlap traffic light buttons (close/minimize/zoom)
+            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 78),
             stackHeightConstraint,
             addDesktopButton.widthAnchor.constraint(equalToConstant: 44),
             addDesktopButton.heightAnchor.constraint(equalToConstant: 44)
@@ -197,6 +199,100 @@ public class DockDesktopHeaderView: NSView {
 
     @objc private func addDesktopClicked(_ sender: NSButton) {
         delegate?.desktopHeaderDidRequestNewDesktop(self)
+    }
+
+    // MARK: - Window Dragging
+
+    private var eventMonitor: Any?
+    private var dragStartLocation: NSPoint?
+
+    /// Title bar height to exclude from drag area
+    private let titleBarHeight: CGFloat = 28
+
+    private func setupDragMonitor() {
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            guard let self = self, let window = self.window else { return event }
+
+            // Convert to header view coordinates
+            let locationInWindow = event.locationInWindow
+            let locationInHeader = self.convert(locationInWindow, from: nil)
+
+            // Check if event is in our bounds
+            guard self.bounds.contains(locationInHeader) else {
+                return event
+            }
+
+            // Exclude the title bar area at the top (where close/minimize/zoom buttons are)
+            // In flipped coordinates, 0 is top. In non-flipped, 0 is bottom.
+            let windowHeight = window.frame.height
+            let yFromTop = windowHeight - locationInWindow.y
+            if yFromTop < self.titleBarHeight {
+                // In title bar area - let system handle it
+                return event
+            }
+
+            // Check if click is on an interactive control
+            if event.type == .leftMouseDown {
+                // Use hitTest from the window's content view to find what's under the click
+                if let contentView = window.contentView {
+                    let locationInContent = contentView.convert(locationInWindow, from: nil)
+                    if let hit = contentView.hitTest(locationInContent) {
+                        if self.isInteractiveControl(hit) {
+                            // Let the control handle it
+                            return event
+                        }
+                    }
+                }
+                // Start drag
+                self.dragStartLocation = locationInWindow
+                return nil  // Consume the event
+            } else if event.type == .leftMouseDragged {
+                if let startLocation = self.dragStartLocation {
+                    let delta = NSPoint(
+                        x: locationInWindow.x - startLocation.x,
+                        y: locationInWindow.y - startLocation.y
+                    )
+                    var newOrigin = window.frame.origin
+                    newOrigin.x += delta.x
+                    newOrigin.y += delta.y
+                    window.setFrameOrigin(newOrigin)
+                    return nil  // Consume the event
+                }
+            } else if event.type == .leftMouseUp {
+                if self.dragStartLocation != nil {
+                    self.dragStartLocation = nil
+                    return nil  // Consume the event
+                }
+            }
+
+            return event
+        }
+    }
+
+    private func isInteractiveControl(_ view: NSView?) -> Bool {
+        guard let view = view else { return false }
+        // Only the header view itself and the stack view background are non-interactive
+        // Everything else (buttons, switches, desktop buttons, their subviews) is interactive
+        if view === self || view === stackView {
+            return false
+        }
+        return true
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil && eventMonitor == nil {
+            setupDragMonitor()
+        } else if window == nil, let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+    }
+
+    deinit {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     // MARK: - Public API
