@@ -33,6 +33,11 @@ public protocol DockablePanel: AnyObject {
 
     /// Called when another tab becomes active (this panel goes to background)
     func panelDidResignActive()
+
+    /// Update the panel's display title
+    /// Implementations should update their internal title state.
+    /// The docking system will re-read panelTitle after calling this.
+    func updateTitle(_ newTitle: String)
 }
 
 /// Default implementations for optional protocol methods
@@ -43,6 +48,7 @@ public extension DockablePanel {
     func panelDidDock(at position: DockPosition) {}
     func panelDidBecomeActive() {}
     func panelDidResignActive() {}
+    func updateTitle(_ newTitle: String) {}
 }
 
 /// Positions where a panel can be docked
