@@ -499,6 +499,15 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
 extension DockStageHostWindow: StageHostControllerDelegate {
     public func controller(_ controller: StageHostController, didUpdateLayout layout: DockLayoutNode, forStageAt index: Int) {
         containerView.updateStageLayout(layout, forStageAt: index)
+
+        // Recapture thumbnails after layout changes
+        if controller.displayMode == .thumbnails {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self = self else { return }
+                let thumbnails = self.containerView.captureStageThumbnails()
+                self.headerView.setThumbnails(thumbnails)
+            }
+        }
     }
 
     public func controller(_ controller: StageHostController, didUpdateStages stages: [Stage], activeIndex: Int) {
