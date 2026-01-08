@@ -1,13 +1,13 @@
 # DockKit Custom Renderers
 
-DockKit provides a renderer system that allows host apps to completely customize the visual appearance of tabs, desktop indicators, and drop zone overlays while keeping the underlying docking behavior intact.
+DockKit provides a renderer system that allows host apps to completely customize the visual appearance of tabs, stage indicators, and drop zone overlays while keeping the underlying docking behavior intact.
 
 ## Renderer Types
 
 DockKit supports three types of custom renderers:
 
 1. **Tab Renderer** (`DockTabRenderer`) - Customizes tab appearance in tab bars
-2. **Desktop Renderer** (`DockDesktopRenderer`) - Customizes desktop indicator appearance in headers
+2. **Stage Renderer** (`DockStageRenderer`) - Customizes stage indicator appearance in headers
 3. **Drop Zone Renderer** (`DockDropZoneRenderer`) - Customizes drop preview styling
 
 ## Configuration
@@ -19,13 +19,13 @@ Custom renderers are registered globally via the `DockKit` namespace:
 ```swift
 // Register custom renderers at app launch
 DockKit.customTabRenderer = MyTabRenderer()
-DockKit.customDesktopRenderer = MyDesktopRenderer()
+DockKit.customStageRenderer = MyStageRenderer()
 DockKit.customDropZoneRenderer = MyDropZoneRenderer()
 ```
 
 ### Per-Window Display Mode
 
-Each desktop host window can toggle between display modes via the `displayMode` property:
+Each stage host window can toggle between display modes via the `displayMode` property:
 
 ```swift
 // Programmatically
@@ -33,14 +33,14 @@ window.displayMode = .tabs    // Use built-in tab style
 window.displayMode = .custom  // Use custom renderer
 ```
 
-**Note:** The `.thumbnails` mode is for desktop switching in the header only, not for the tab bar. Tab bars support `.tabs` (standard) or `.custom` modes.
+**Note:** The `.thumbnails` mode is for stage switching in the header only, not for the tab bar. Tab bars support `.tabs` (standard) or `.custom` modes.
 
-The display mode is also persisted in the layout JSON via `DesktopHostWindowState.displayMode`:
+The display mode is also persisted in the layout JSON via `StageHostWindowState.displayMode`:
 
 ```json
 {
   "displayMode": "custom",
-  "desktops": [...]
+  "stages": [...]
 }
 ```
 
@@ -79,33 +79,33 @@ public protocol DockTabView: NSView {
 }
 ```
 
-### DockDesktopRenderer
+### DockStageRenderer
 
 ```swift
-public protocol DockDesktopRenderer: AnyObject {
+public protocol DockStageRenderer: AnyObject {
     /// Height of the header bar in points
     var headerHeight: CGFloat { get }
 
-    /// Create a view for a desktop indicator
-    func createDesktopView(for desktop: Desktop, index: Int, isActive: Bool) -> DockDesktopView
+    /// Create a view for a stage indicator
+    func createStageView(for stage: Stage, index: Int, isActive: Bool) -> DockStageView
 
-    /// Update an existing desktop view
-    func updateDesktopView(_ view: DockDesktopView, for desktop: Desktop, index: Int, isActive: Bool)
+    /// Update an existing stage view
+    func updateStageView(_ view: DockStageView, for stage: Stage, index: Int, isActive: Bool)
 
     /// Set swipe target highlight during gestures
-    func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool, on view: DockDesktopView)
+    func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool, on view: DockStageView)
 
-    /// Set a thumbnail image on a desktop view
-    func setThumbnail(_ image: NSImage?, on view: DockDesktopView)
+    /// Set a thumbnail image on a stage view
+    func setThumbnail(_ image: NSImage?, on view: DockStageView)
 }
 ```
 
-Desktop views must conform to `DockDesktopView`:
+Stage views must conform to `DockStageView`:
 
 ```swift
-public protocol DockDesktopView: NSView {
+public protocol DockStageView: NSView {
     var onSelect: ((Int) -> Void)? { get set }
-    var desktopIndex: Int { get set }
+    var stageIndex: Int { get set }
 }
 ```
 
@@ -157,7 +157,7 @@ The example includes two custom renderer styles selectable via the control bar:
 A minimalist, barebone design for prototyping and debugging:
 - **Bold uppercase text** with black borders on white background
 - **Inverted colors** (white-on-black) for selected states
-- **Index badges** on desktop indicators
+- **Index badges** on stage indicators
 
 ### Polished Style
 A refined, production-ready design:
@@ -166,7 +166,7 @@ A refined, production-ready design:
 - **Smooth hover/press animations** with scale effects
 - **Focus rings** for accessibility
 
-Both styles include matching tab renderers and desktop renderers that switch together.
+Both styles include matching tab renderers and stage renderers that switch together.
 
 The control bar at the top allows switching between:
 - **Tab Style:** Standard | Custom

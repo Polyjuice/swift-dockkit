@@ -188,7 +188,7 @@ class ColoredPanelViewController: NSViewController {
 
 // MARK: - Base Panel
 
-class BaseDesktopPanel: DockablePanel {
+class BaseStagePanel: DockablePanel {
     let panelId = UUID()
     let panelTitle: String
     let panelIcon: NSImage?
@@ -204,9 +204,9 @@ class BaseDesktopPanel: DockablePanel {
     }
 }
 
-// MARK: - Coding Desktop Panels
+// MARK: - Coding Stage Panels
 
-class CodeEditorPanel: BaseDesktopPanel {
+class CodeEditorPanel: BaseStagePanel {
     init(filename: String) {
         super.init(
             title: filename,
@@ -217,18 +217,18 @@ class CodeEditorPanel: BaseDesktopPanel {
     }
 }
 
-class TerminalPanel: BaseDesktopPanel {
+class TerminalPanel: BaseStagePanel {
     init(name: String) {
         super.init(
             title: name,
             icon: NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "Terminal"),
             backgroundColor: NSColor.systemIndigo.withAlphaComponent(0.5),
-            content: "💻 Terminal: \(name)\n\n$ echo 'Hello from Desktop Demo!'\nHello from Desktop Demo!\n\n$_"
+            content: "💻 Terminal: \(name)\n\n$ echo 'Hello from Stage Demo!'\nHello from Stage Demo!\n\n$_"
         )
     }
 }
 
-class FileExplorerPanel: BaseDesktopPanel {
+class FileExplorerPanel: BaseStagePanel {
     init() {
         super.init(
             title: "Files",
@@ -239,7 +239,7 @@ class FileExplorerPanel: BaseDesktopPanel {
     }
 }
 
-class GitPanel: BaseDesktopPanel {
+class GitPanel: BaseStagePanel {
     init() {
         super.init(
             title: "Git",
@@ -250,20 +250,20 @@ class GitPanel: BaseDesktopPanel {
     }
 }
 
-// MARK: - Design Desktop Panels
+// MARK: - Design Stage Panels
 
-class CanvasPanel: BaseDesktopPanel {
+class CanvasPanel: BaseStagePanel {
     init(name: String) {
         super.init(
             title: name,
             icon: NSImage(systemSymbolName: "paintbrush.fill", accessibilityDescription: "Canvas"),
             backgroundColor: NSColor.systemPink.withAlphaComponent(0.4),
-            content: "🎨 Design Canvas\n\n\(name)\n\nCreate beautiful designs here.\nSwipe left/right to switch desktops!"
+            content: "🎨 Design Canvas\n\n\(name)\n\nCreate beautiful designs here.\nSwipe left/right to switch stages!"
         )
     }
 }
 
-class LayersPanel: BaseDesktopPanel {
+class LayersPanel: BaseStagePanel {
     init() {
         super.init(
             title: "Layers",
@@ -274,7 +274,7 @@ class LayersPanel: BaseDesktopPanel {
     }
 }
 
-class ColorsPanel: BaseDesktopPanel {
+class ColorsPanel: BaseStagePanel {
     init() {
         super.init(
             title: "Colors",
@@ -285,7 +285,7 @@ class ColorsPanel: BaseDesktopPanel {
     }
 }
 
-class AssetsPanel: BaseDesktopPanel {
+class AssetsPanel: BaseStagePanel {
     init() {
         super.init(
             title: "Assets",
@@ -296,9 +296,9 @@ class AssetsPanel: BaseDesktopPanel {
     }
 }
 
-// MARK: - Notes Desktop Panels
+// MARK: - Notes Stage Panels
 
-class NotesListPanel: BaseDesktopPanel {
+class NotesListPanel: BaseStagePanel {
     init() {
         super.init(
             title: "All Notes",
@@ -309,18 +309,18 @@ class NotesListPanel: BaseDesktopPanel {
     }
 }
 
-class NoteEditorPanel: BaseDesktopPanel {
+class NoteEditorPanel: BaseStagePanel {
     init(title: String) {
         super.init(
             title: title,
             icon: NSImage(systemSymbolName: "pencil", accessibilityDescription: "Edit"),
             backgroundColor: NSColor.systemGreen.withAlphaComponent(0.4),
-            content: "✏️ \(title)\n\n─────────────────\n\nStart typing your note here...\n\nDesktop Demo showcases:\n• Multiple virtual workspaces\n• Swipe gesture navigation\n• Independent layouts per desktop"
+            content: "✏️ \(title)\n\n─────────────────\n\nStart typing your note here...\n\nStage Demo showcases:\n• Multiple virtual workspaces\n• Swipe gesture navigation\n• Independent layouts per stage"
         )
     }
 }
 
-class TagsPanel: BaseDesktopPanel {
+class TagsPanel: BaseStagePanel {
     init() {
         super.init(
             title: "Tags",

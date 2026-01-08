@@ -219,12 +219,12 @@ public class DockLayoutManager: DockWindowDelegate {
         }
     }
 
-    /// Called by DockDesktopHostWindow when it closes
-    /// This is a stub for desktop host windows - they are managed separately
-    internal func windowDidClose(_ window: DockDesktopHostWindow) {
-        // Desktop host windows are not tracked in the windows array
+    /// Called by DockStageHostWindow when it closes
+    /// This is a stub for stage host windows - they are managed separately
+    internal func windowDidClose(_ window: DockStageHostWindow) {
+        // Stage host windows are not tracked in the windows array
         // This method exists to satisfy the window's close callback
-        // Full desktop host support can be added later
+        // Full stage host support can be added later
     }
 
     /// Find window containing a specific panel
@@ -367,8 +367,8 @@ public class DockLayoutManager: DockWindowDelegate {
                 displayMode: tabGroupLayout.displayMode
             ))
 
-        case .desktopHost(let desktopHostLayout):
-            return .desktopHost(DesktopHostNode(from: desktopHostLayout))
+        case .stageHost(let stageHostLayout):
+            return .stageHost(StageHostNode(from: stageHostLayout))
         }
     }
 

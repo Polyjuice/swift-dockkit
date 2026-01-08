@@ -1,23 +1,23 @@
-# Desktop Hosts
+# Stage Hosts
 
-Desktop hosts provide multiple virtual workspaces within a single window, similar to macOS Mission Control spaces or VS Code's workspaces. Each desktop has its own independent layout tree.
+Stage hosts provide multiple virtual workspaces within a single window, similar to macOS Mission Control spaces or VS Code's workspaces. Each stage has its own independent layout tree.
 
 ## Overview
 
 ```
 ┌─────────────────────────────────────────┐
-│  Desktop Header (selection UI)          │  ← Shows desktop icons/titles
+│  Stage Header (selection UI)          │  ← Shows stage icons/titles
 ├─────────────────────────────────────────┤
 │                                         │
-│       Desktop Container                 │  ← Active desktop's layout
+│       Stage Container                 │  ← Active stage's layout
 │       (swipe to switch)                 │
 │                                         │
 └─────────────────────────────────────────┘
 ```
 
-## When to Use Desktop Hosts
+## When to Use Stage Hosts
 
-**Use desktop hosts when:**
+**Use stage hosts when:**
 - Users need distinct workspaces (e.g., "Coding", "Design", "Notes")
 - You want swipe gesture navigation between layouts
 - Layouts are related but shouldn't clutter each other
@@ -31,12 +31,12 @@ Desktop hosts provide multiple virtual workspaces within a single window, simila
 
 ## Core Types
 
-### Desktop
+### Stage
 
 A single virtual workspace with its own layout:
 
 ```swift
-public struct Desktop: Codable, Identifiable {
+public struct Stage: Codable, Identifiable {
     public let id: UUID
     public var title: String?       // Shown in header
     public var iconName: String?    // SF Symbol for header
@@ -44,23 +44,23 @@ public struct Desktop: Codable, Identifiable {
 }
 ```
 
-### DesktopHostWindowState
+### StageHostWindowState
 
-State for the entire desktop host window:
+State for the entire stage host window:
 
 ```swift
-public struct DesktopHostWindowState: Codable, Identifiable {
+public struct StageHostWindowState: Codable, Identifiable {
     public let id: UUID
     public var frame: CGRect
     public var isFullScreen: Bool
-    public var activeDesktopIndex: Int
-    public var desktops: [Desktop]
+    public var activeStageIndex: Int
+    public var stages: [Stage]
 }
 ```
 
 ---
 
-## Creating a Desktop Host Window
+## Creating a Stage Host Window
 
 ### 1. Create Panels
 
@@ -84,10 +84,10 @@ for panel in codingPanels + designPanels {
 }
 ```
 
-### 2. Create Desktop Layouts
+### 2. Create Stage Layouts
 
 ```swift
-func createCodingDesktop(with panels: [any DockablePanel]) -> Desktop {
+func createCodingStage(with panels: [any DockablePanel]) -> Stage {
     let explorer = panels[0]
     let editor = panels[1]
     let terminal = panels[2]
@@ -118,7 +118,7 @@ func createCodingDesktop(with panels: [any DockablePanel]) -> Desktop {
         proportions: [0.2, 0.8]
     )
 
-    return Desktop(
+    return Stage(
         title: "Coding",
         iconName: "chevron.left.forwardslash.chevron.right",
         layout: .split(mainSplit)
@@ -130,16 +130,16 @@ func createCodingDesktop(with panels: [any DockablePanel]) -> Desktop {
 
 ```swift
 // Build state
-let desktopHostState = DesktopHostWindowState(
+let stageHostState = StageHostWindowState(
     frame: NSRect(x: 100, y: 100, width: 1200, height: 800),
-    activeDesktopIndex: 0,
-    desktops: [codingDesktop, designDesktop, notesDesktop]
+    activeStageIndex: 0,
+    stages: [codingStage, designStage, notesStage]
 )
 
 // Create window
-let window = DockDesktopHostWindow(
-    desktopHostState: desktopHostState,
-    frame: desktopHostState.frame
+let window = DockStageHostWindow(
+    stageHostState: stageHostState,
+    frame: stageHostState.frame
 )
 
 // Provide panel lookup
@@ -152,16 +152,16 @@ window.makeKeyAndOrderFront(nil)
 
 ---
 
-## Desktop Switching
+## Stage Switching
 
 ### Programmatic Switching
 
 ```swift
-// Switch to a specific desktop by index
-window.switchToDesktop(at: 1, animated: true)
+// Switch to a specific stage by index
+window.switchToStage(at: 1, animated: true)
 
 // Get current active index
-let current = window.desktopHostState.activeDesktopIndex
+let current = window.stageHostState.activeStageIndex
 ```
 
 ### Swipe Gesture Navigation
@@ -174,20 +174,20 @@ Swipe gestures are built-in:
 
 ### Header UI
 
-The header shows clickable buttons for each desktop:
+The header shows clickable buttons for each stage:
 - Icon (SF Symbol) + title
-- Active desktop has accent highlight and indicator dot
+- Active stage has accent highlight and indicator dot
 - Click to switch (animated)
 
 ### Delegate Callbacks
 
 ```swift
-window.desktopDelegate = self
+window.stageDelegate = self
 
-// Implement DockDesktopHostWindowDelegate
-func desktopHostWindow(_ window: DockDesktopHostWindow, didSwitchToDesktopAt index: Int) {
+// Implement DockStageHostWindowDelegate
+func stageHostWindow(_ window: DockStageHostWindow, didSwitchToStageAt index: Int) {
     // Called after switch completes
-    print("Switched to desktop \(index)")
+    print("Switched to stage \(index)")
 }
 ```
 
@@ -195,24 +195,24 @@ func desktopHostWindow(_ window: DockDesktopHostWindow, didSwitchToDesktopAt ind
 
 ## Panel Tearing
 
-When you drag a panel outside a desktop host window, a **new desktop host window** is created—not a regular DockWindow. This is a deliberate architectural decision.
+When you drag a panel outside a stage host window, a **new stage host window** is created—not a regular DockWindow. This is a deliberate architectural decision.
 
-### Why Desktop Hosts Spawn Desktop Hosts
+### Why Stage Hosts Spawn Stage Hosts
 
 ```
 ┌─────────────────────────────────────┐
-│  DockDesktopHostWindow (original)   │
+│  DockStageHostWindow (original)   │
 │  ┌─────┬─────┬─────┐                │
-│  │ D1  │ D2  │ D3  │  ← 3 desktops  │
+│  │ D1  │ D2  │ D3  │  ← 3 stages  │
 │  └─────┴─────┴─────┘                │
 │  [Panel A] [Panel B] [Panel C]      │
 │         ↓ tear Panel B              │
 └─────────────────────────────────────┘
                  ↓
 ┌─────────────────────────────────────┐
-│  DockDesktopHostWindow (spawned)    │
+│  DockStageHostWindow (spawned)    │
 │  ┌─────┐                            │
-│  │ D1  │  ← starts with 1 desktop   │
+│  │ D1  │  ← starts with 1 stage   │
 │  └─────┘                            │
 │  [Panel B]                          │
 └─────────────────────────────────────┘
@@ -221,25 +221,25 @@ When you drag a panel outside a desktop host window, a **new desktop host window
 **Key benefits:**
 
 1. **Uniform window type** — Your app only has one window type to reason about
-2. **Swipe works everywhere** — Once a spawned window has 2+ desktops, swipe navigation works
-3. **Symmetric behavior** — Desktop hosts spawn desktop hosts, tearing from the spawned window creates another
-4. **Expandable** — Users can add more desktops to any window later
+2. **Swipe works everywhere** — Once a spawned window has 2+ stages, swipe navigation works
+3. **Symmetric behavior** — Stage hosts spawn stage hosts, tearing from the spawned window creates another
+4. **Expandable** — Users can add more stages to any window later
 
 ### Comparison with Mission Control
 
-Unlike macOS Mission Control where the three-finger swipe is a global system gesture, desktop host swipe gestures are **captured within each window**. This means:
+Unlike macOS Mission Control where the three-finger swipe is a global system gesture, stage host swipe gestures are **captured within each window**. This means:
 
-- Multiple desktop host windows can exist simultaneously
-- Each window has independent desktop navigation
+- Multiple stage host windows can exist simultaneously
+- Each window has independent stage navigation
 - Swiping in one window doesn't affect others
 - No conflict with system gestures
 
 ### How Tearing Works
 
 1. User drags a tab outside the window bounds
-2. The panel is removed from its current desktop
-3. A new `DockDesktopHostWindow` is created with:
-   - One desktop containing the torn panel
+2. The panel is removed from its current stage
+3. A new `DockStageHostWindow` is created with:
+   - One stage containing the torn panel
    - Same `panelProvider` as the parent
    - Independent lifecycle
 4. The new window appears at the drag location
@@ -250,20 +250,20 @@ The spawned window is fully functional:
 
 - Add more panels via drag-and-drop
 - Create splits by dropping on edges
-- Add new desktops (if your app exposes this)
+- Add new stages (if your app exposes this)
 - Tear panels to create more windows
 - Close to return panels (if drag-back is implemented)
 
 ### Tracking Spawned Windows
 
-Desktop host windows automatically track their children:
+Stage host windows automatically track their children:
 
 ```swift
 // Parent window tracks spawned children
-window.spawnedWindows  // [DockDesktopHostWindow]
+window.spawnedWindows  // [DockStageHostWindow]
 
 // Each child knows its spawner
-childWindow.spawnerWindow  // DockDesktopHostWindow?
+childWindow.spawnerWindow  // DockStageHostWindow?
 ```
 
 When a child window closes, it's automatically removed from the spawner's tracking.
@@ -273,9 +273,9 @@ When a child window closes, it's automatically removed from the spawner's tracki
 If you need to intercept or customize tearing:
 
 ```swift
-window.desktopDelegate = self
+window.stageDelegate = self
 
-func desktopHostWindow(_ window: DockDesktopHostWindow,
+func stageHostWindow(_ window: DockStageHostWindow,
                         willTearPanel panel: any DockablePanel,
                         at screenPoint: NSPoint) -> Bool {
     // Return false to prevent tearing
@@ -288,13 +288,13 @@ func desktopHostWindow(_ window: DockDesktopHostWindow,
 
 ---
 
-## Desktop State Management
+## Stage State Management
 
 ### Updating State
 
 ```swift
 // Update the entire state (for reconciliation)
-window.updateDesktopHostState(newState)
+window.updateStageHostState(newState)
 ```
 
 ### Checking Content
@@ -310,13 +310,13 @@ let isEmpty = window.isEmpty
 ### Getting Active Layout
 
 ```swift
-// Get the active desktop's root node
-if let rootNode = window.activeDesktopRootNode {
+// Get the active stage's root node
+if let rootNode = window.activeStageRootNode {
     // Work with the DockNode tree
 }
 
 // Get active layout directly
-let layout = window.desktopHostState.activeLayout
+let layout = window.stageHostState.activeLayout
 ```
 
 ---
@@ -336,30 +336,30 @@ The header also includes a "Slow" toggle switch.
 
 ---
 
-## Layout JSON for Desktops
+## Layout JSON for Stages
 
-### Desktop Structure
+### Stage Structure
 
 ```json
 {
-  "id": "desktop-uuid",
+  "id": "stage-uuid",
   "title": "Coding",
   "iconName": "chevron.left.forwardslash.chevron.right",
   "layout": { ... DockLayoutNode ... }
 }
 ```
 
-### DesktopHostWindowState Structure
+### StageHostWindowState Structure
 
 ```json
 {
   "id": "window-uuid",
   "frame": { "x": 100, "y": 100, "width": 1200, "height": 800 },
   "isFullScreen": false,
-  "activeDesktopIndex": 0,
-  "desktops": [
+  "activeStageIndex": 0,
+  "stages": [
     {
-      "id": "coding-desktop",
+      "id": "coding-stage",
       "title": "Coding",
       "iconName": "chevron.left.forwardslash.chevron.right",
       "layout": {
@@ -370,7 +370,7 @@ The header also includes a "Slow" toggle switch.
       }
     },
     {
-      "id": "design-desktop",
+      "id": "design-stage",
       "title": "Design",
       "iconName": "paintbrush.fill",
       "layout": {
@@ -391,14 +391,14 @@ import DockKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var desktopWindow: DockDesktopHostWindow?
+    private var stageWindow: DockStageHostWindow?
     private var panelRegistry: [UUID: any DockablePanel] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        createDesktopHostWindow()
+        createStageHostWindow()
     }
 
-    private func createDesktopHostWindow() {
+    private func createStageHostWindow() {
         // Create panels
         let editor = CodeEditorPanel(filename: "main.swift")
         let terminal = TerminalPanel()
@@ -410,8 +410,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panelRegistry[$0.panelId] = $0
         }
 
-        // Create desktops
-        let codingDesktop = Desktop(
+        // Create stages
+        let codingStage = Stage(
             title: "Coding",
             iconName: "chevron.left.forwardslash.chevron.right",
             layout: .split(SplitLayoutNode(
@@ -428,7 +428,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ))
         )
 
-        let designDesktop = Desktop(
+        let designStage = Stage(
             title: "Design",
             iconName: "paintbrush.fill",
             layout: .split(SplitLayoutNode(
@@ -446,33 +446,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         // Create window
-        let state = DesktopHostWindowState(
+        let state = StageHostWindowState(
             frame: NSRect(x: 100, y: 100, width: 1200, height: 800),
-            activeDesktopIndex: 0,
-            desktops: [codingDesktop, designDesktop]
+            activeStageIndex: 0,
+            stages: [codingStage, designStage]
         )
 
-        desktopWindow = DockDesktopHostWindow(
-            desktopHostState: state,
+        stageWindow = DockStageHostWindow(
+            stageHostState: state,
             frame: state.frame
         )
 
-        desktopWindow?.panelProvider = { [weak self] id in
+        stageWindow?.panelProvider = { [weak self] id in
             self?.panelRegistry[id]
         }
 
-        desktopWindow?.desktopDelegate = self
-        desktopWindow?.center()
-        desktopWindow?.makeKeyAndOrderFront(nil)
+        stageWindow?.stageDelegate = self
+        stageWindow?.center()
+        stageWindow?.makeKeyAndOrderFront(nil)
     }
 }
 
-extension AppDelegate: DockDesktopHostWindowDelegate {
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didSwitchToDesktopAt index: Int) {
-        print("Now on desktop \(index)")
+extension AppDelegate: DockStageHostWindowDelegate {
+    func stageHostWindow(_ window: DockStageHostWindow, didSwitchToStageAt index: Int) {
+        print("Now on stage \(index)")
     }
 
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didClose: Void) {
+    func stageHostWindow(_ window: DockStageHostWindow, didClose: Void) {
         print("Window closed")
     }
 }

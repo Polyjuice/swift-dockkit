@@ -293,10 +293,10 @@ public extension DockLayout {
             for child in split.children {
                 collectTabGroupIds(from: child, into: &ids)
             }
-        case .desktopHost(let desktopHost):
-            // Collect from all desktops in the nested host
-            for desktop in desktopHost.desktops {
-                collectTabGroupIds(from: desktop.layout, into: &ids)
+        case .stageHost(let stageHost):
+            // Collect from all stages in the nested host
+            for stage in stageHost.stages {
+                collectTabGroupIds(from: stage.layout, into: &ids)
             }
         }
     }
@@ -324,14 +324,14 @@ extension DockLayoutNode {
             }
             return .split(split)
 
-        case .desktopHost(var desktopHost):
-            // Recurse into all desktops
-            desktopHost.desktops = desktopHost.desktops.map { desktop in
-                var d = desktop
+        case .stageHost(var stageHost):
+            // Recurse into all stages
+            stageHost.stages = stageHost.stages.map { stage in
+                var d = stage
                 d.layout = d.layout.addingTab(tab, toGroupId: groupId, at: index, modified: &modified)
                 return d
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 
@@ -357,13 +357,13 @@ extension DockLayoutNode {
             // Clean up empty children and collapse if needed
             return DockLayoutNode.split(split).cleanedUp()
 
-        case .desktopHost(var desktopHost):
-            desktopHost.desktops = desktopHost.desktops.map { desktop in
-                var d = desktop
+        case .stageHost(var stageHost):
+            stageHost.stages = stageHost.stages.map { stage in
+                var d = stage
                 d.layout = d.layout.removingTab(tabId, modified: &modified)
                 return d
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 
@@ -389,13 +389,13 @@ extension DockLayoutNode {
             }
             return .split(split)
 
-        case .desktopHost(var desktopHost):
-            desktopHost.desktops = desktopHost.desktops.map { desktop in
-                var d = desktop
+        case .stageHost(var stageHost):
+            stageHost.stages = stageHost.stages.map { stage in
+                var d = stage
                 d.layout = d.layout.removingTabWithoutCleanup(tabId, modified: &modified)
                 return d
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 
@@ -433,14 +433,14 @@ extension DockLayoutNode {
 
             return .split(split)
 
-        case .desktopHost(var desktopHost):
-            // Clean up all desktops
-            desktopHost.desktops = desktopHost.desktops.map { desktop in
-                var d = desktop
+        case .stageHost(var stageHost):
+            // Clean up all stages
+            stageHost.stages = stageHost.stages.map { stage in
+                var d = stage
                 d.layout = d.layout.cleanedUp()
                 return d
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 
@@ -461,13 +461,13 @@ extension DockLayoutNode {
             }
             return .split(split)
 
-        case .desktopHost(var desktopHost):
-            desktopHost.desktops = desktopHost.desktops.map { desktop in
-                var d = desktop
+        case .stageHost(var stageHost):
+            stageHost.stages = stageHost.stages.map { stage in
+                var d = stage
                 d.layout = d.layout.settingActiveTab(inGroupId: groupId, to: index, modified: &modified)
                 return d
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 
@@ -509,13 +509,13 @@ extension DockLayoutNode {
             }
             return .split(split)
 
-        case .desktopHost(var desktopHost):
-            desktopHost.desktops = desktopHost.desktops.map { desktop in
-                var d = desktop
+        case .stageHost(var stageHost):
+            stageHost.stages = stageHost.stages.map { stage in
+                var d = stage
                 d.layout = d.layout.reorderingTab(tabId, inGroupId: groupId, to: index, modified: &modified)
                 return d
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 
@@ -571,13 +571,13 @@ extension DockLayoutNode {
             }
             return .split(split)
 
-        case .desktopHost(var desktopHost):
-            desktopHost.desktops = desktopHost.desktops.map { desktop in
-                var d = desktop
+        case .stageHost(var stageHost):
+            stageHost.stages = stageHost.stages.map { stage in
+                var d = stage
                 d.layout = d.layout.splitting(groupId: groupId, direction: direction, withTab: tab, modified: &modified)
                 return d
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 
@@ -598,13 +598,13 @@ extension DockLayoutNode {
             }
             return .split(split)
 
-        case .desktopHost(var desktopHost):
-            desktopHost.desktops = desktopHost.desktops.map { desktop in
-                var d = desktop
+        case .stageHost(var stageHost):
+            stageHost.stages = stageHost.stages.map { stage in
+                var d = stage
                 d.layout = d.layout.updatingSplitProportions(splitId, proportions: proportions, modified: &modified)
                 return d
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 
@@ -627,9 +627,9 @@ extension DockLayoutNode {
             }
             return nil
 
-        case .desktopHost(let desktopHost):
-            for desktop in desktopHost.desktops {
-                if let result = desktop.layout.findTabInfo(tabId) {
+        case .stageHost(let stageHost):
+            for stage in stageHost.stages {
+                if let result = stage.layout.findTabInfo(tabId) {
                     return result
                 }
             }
@@ -651,9 +651,9 @@ extension DockLayoutNode {
             }
             return nil
 
-        case .desktopHost(let desktopHost):
-            for desktop in desktopHost.desktops {
-                if let result = desktop.layout.findTabGroupNode(groupId) {
+        case .stageHost(let stageHost):
+            for stage in stageHost.stages {
+                if let result = stage.layout.findTabGroupNode(groupId) {
                     return result
                 }
             }

@@ -1,4 +1,4 @@
-Desktop Slide Test Results
+Stage Slide Test Results
 ========================================
 
 Test: 01_traditional_panel0

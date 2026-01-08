@@ -53,8 +53,8 @@ public struct WindowState: Codable, Identifiable {
 public indirect enum DockLayoutNode: Codable {
     case split(SplitLayoutNode)
     case tabGroup(TabGroupLayoutNode)
-    /// A nested desktop host (Version 3: nested desktops)
-    case desktopHost(DesktopHostLayoutNode)
+    /// A nested stage host (Version 3: nested stages)
+    case stageHost(StageHostLayoutNode)
 
     // Custom coding to add "type" discriminator
     private enum CodingKeys: String, CodingKey {
@@ -64,7 +64,7 @@ public indirect enum DockLayoutNode: Codable {
     private enum NodeType: String, Codable {
         case split
         case tabGroup
-        case desktopHost
+        case stageHost
     }
 
     public init(from decoder: Decoder) throws {
@@ -76,8 +76,8 @@ public indirect enum DockLayoutNode: Codable {
             self = .split(try SplitLayoutNode(from: decoder))
         case .tabGroup:
             self = .tabGroup(try TabGroupLayoutNode(from: decoder))
-        case .desktopHost:
-            self = .desktopHost(try DesktopHostLayoutNode(from: decoder))
+        case .stageHost:
+            self = .stageHost(try StageHostLayoutNode(from: decoder))
         }
     }
 
@@ -91,8 +91,8 @@ public indirect enum DockLayoutNode: Codable {
         case .tabGroup(let node):
             try container.encode(NodeType.tabGroup, forKey: .type)
             try node.encode(to: encoder)
-        case .desktopHost(let node):
-            try container.encode(NodeType.desktopHost, forKey: .type)
+        case .stageHost(let node):
+            try container.encode(NodeType.stageHost, forKey: .type)
             try node.encode(to: encoder)
         }
     }
@@ -172,34 +172,34 @@ public struct TabLayoutState: Codable {
     }
 }
 
-/// Codable version of a nested desktop host (Version 3: nested desktops)
-/// This allows desktop hosts to be embedded within other layouts, enabling
+/// Codable version of a nested stage host (Version 3: nested stages)
+/// This allows stage hosts to be embedded within other layouts, enabling
 /// recursive nesting of virtual workspaces.
-public struct DesktopHostLayoutNode: Codable {
+public struct StageHostLayoutNode: Codable {
     public let id: UUID
     public var title: String?
     public var iconName: String?
-    public var activeDesktopIndex: Int
-    public var desktops: [Desktop]
-    public var displayMode: DesktopDisplayMode
+    public var activeStageIndex: Int
+    public var stages: [Stage]
+    public var displayMode: StageDisplayMode
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, iconName, activeDesktopIndex, desktops, displayMode
+        case id, title, iconName, activeStageIndex, stages, displayMode
     }
 
     public init(
         id: UUID = UUID(),
         title: String? = nil,
         iconName: String? = nil,
-        activeDesktopIndex: Int = 0,
-        desktops: [Desktop] = [],
-        displayMode: DesktopDisplayMode = .thumbnails
+        activeStageIndex: Int = 0,
+        stages: [Stage] = [],
+        displayMode: StageDisplayMode = .thumbnails
     ) {
         self.id = id
         self.title = title
         self.iconName = iconName
-        self.activeDesktopIndex = activeDesktopIndex
-        self.desktops = desktops
+        self.activeStageIndex = activeStageIndex
+        self.stages = stages
         self.displayMode = displayMode
     }
 
@@ -208,28 +208,28 @@ public struct DesktopHostLayoutNode: Codable {
         id = try container.decode(UUID.self, forKey: .id)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         iconName = try container.decodeIfPresent(String.self, forKey: .iconName)
-        activeDesktopIndex = try container.decode(Int.self, forKey: .activeDesktopIndex)
-        desktops = try container.decode([Desktop].self, forKey: .desktops)
-        displayMode = try container.decodeIfPresent(DesktopDisplayMode.self, forKey: .displayMode) ?? .thumbnails
+        activeStageIndex = try container.decode(Int.self, forKey: .activeStageIndex)
+        stages = try container.decode([Stage].self, forKey: .stages)
+        displayMode = try container.decodeIfPresent(StageDisplayMode.self, forKey: .displayMode) ?? .thumbnails
     }
 
-    /// Create from a DesktopHostWindowState
-    public init(from state: DesktopHostWindowState, title: String? = nil, iconName: String? = nil) {
+    /// Create from a StageHostWindowState
+    public init(from state: StageHostWindowState, title: String? = nil, iconName: String? = nil) {
         self.id = state.id
         self.title = title
         self.iconName = iconName
-        self.activeDesktopIndex = state.activeDesktopIndex
-        self.desktops = state.desktops
+        self.activeStageIndex = state.activeStageIndex
+        self.stages = state.stages
         self.displayMode = state.displayMode
     }
 
-    /// Convert to a DesktopHostWindowState
-    public func toDesktopHostWindowState(frame: CGRect = .zero) -> DesktopHostWindowState {
-        DesktopHostWindowState(
+    /// Convert to a StageHostWindowState
+    public func toStageHostWindowState(frame: CGRect = .zero) -> StageHostWindowState {
+        StageHostWindowState(
             id: id,
             frame: frame,
-            activeDesktopIndex: activeDesktopIndex,
-            desktops: desktops,
+            activeStageIndex: activeStageIndex,
+            stages: stages,
             displayMode: displayMode
         )
     }
@@ -245,8 +245,8 @@ public extension DockLayoutNode {
             return tabGroup.tabs.isEmpty
         case .split(let split):
             return split.children.allSatisfy { $0.isEmpty }
-        case .desktopHost(let desktopHost):
-            return desktopHost.desktops.allSatisfy { $0.layout.isEmpty }
+        case .stageHost(let stageHost):
+            return stageHost.stages.allSatisfy { $0.layout.isEmpty }
         }
     }
 }
@@ -271,14 +271,14 @@ public extension DockLayoutNode {
                 activeTabIndex: tabGroupNode.activeTabIndex,
                 displayMode: tabGroupNode.displayMode
             ))
-        case .desktopHost(let desktopHostNode):
-            return .desktopHost(DesktopHostLayoutNode(
-                id: desktopHostNode.id,
-                title: desktopHostNode.title,
-                iconName: desktopHostNode.iconName,
-                activeDesktopIndex: desktopHostNode.activeDesktopIndex,
-                desktops: desktopHostNode.desktops,
-                displayMode: desktopHostNode.displayMode
+        case .stageHost(let stageHostNode):
+            return .stageHost(StageHostLayoutNode(
+                id: stageHostNode.id,
+                title: stageHostNode.title,
+                iconName: stageHostNode.iconName,
+                activeStageIndex: stageHostNode.activeStageIndex,
+                stages: stageHostNode.stages,
+                displayMode: stageHostNode.displayMode
             ))
         }
     }

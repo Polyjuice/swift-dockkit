@@ -88,17 +88,17 @@ open class DockContainerViewController: NSViewController {
             tabGroupVC.delegate = self
             return tabGroupVC
 
-        case .desktopHost(let desktopHostNode):
-            // Create a nested desktop host view controller (Version 3 feature)
-            let layoutNode = DesktopHostLayoutNode(
-                id: desktopHostNode.id,
-                title: desktopHostNode.title,
-                iconName: desktopHostNode.iconName,
-                activeDesktopIndex: desktopHostNode.activeDesktopIndex,
-                desktops: desktopHostNode.desktops,
-                displayMode: desktopHostNode.displayMode
+        case .stageHost(let stageHostNode):
+            // Create a nested stage host view controller (Version 3 feature)
+            let layoutNode = StageHostLayoutNode(
+                id: stageHostNode.id,
+                title: stageHostNode.title,
+                iconName: stageHostNode.iconName,
+                activeStageIndex: stageHostNode.activeStageIndex,
+                stages: stageHostNode.stages,
+                displayMode: stageHostNode.displayMode
             )
-            let hostVC = DockDesktopHostViewController(
+            let hostVC = DockStageHostViewController(
                 layoutNode: layoutNode,
                 panelProvider: { [weak self] id in
                     self?.panelRegistry[id]
@@ -234,8 +234,8 @@ open class DockContainerViewController: NSViewController {
                 node = .split(splitNode)
             }
 
-        case .desktopHost:
-            // Desktop hosts manage their own tabs internally
+        case .stageHost:
+            // Stage hosts manage their own tabs internally
             break
         }
     }
@@ -368,8 +368,8 @@ open class DockContainerViewController: NSViewController {
         case .tabGroup(let tabGroupLayout):
             return .tabGroup(restoreTabGroupNode(from: tabGroupLayout))
 
-        case .desktopHost(let desktopHostLayout):
-            return .desktopHost(DesktopHostNode(from: desktopHostLayout))
+        case .stageHost(let stageHostLayout):
+            return .stageHost(StageHostNode(from: stageHostLayout))
         }
     }
 
@@ -442,8 +442,8 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
                 updateTabGroupNodeInTree(updatedNode, in: &splitNode.children[i])
             }
             node = .split(splitNode)
-        case .desktopHost:
-            // Desktop hosts manage their own tab groups internally
+        case .stageHost:
+            // Stage hosts manage their own tab groups internally
             break
         }
     }
@@ -518,8 +518,8 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
             } else {
                 node = .split(splitNode)
             }
-        case .desktopHost:
-            // Desktop hosts manage their own cleanup
+        case .stageHost:
+            // Stage hosts manage their own cleanup
             break
         }
     }
@@ -575,8 +575,8 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
                 node = .split(splitNode)
             }
 
-        case .desktopHost:
-            // Desktop hosts manage their own tab groups
+        case .stageHost:
+            // Stage hosts manage their own tab groups
             break
         }
     }
@@ -608,8 +608,8 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
                 result += "\(indent)  child[\(i)]: \(describeNode(child, indent: indent + "    "))\n"
             }
             return result
-        case .desktopHost(let desktopHost):
-            return "\(indent)DesktopHost(id:\(desktopHost.id.uuidString.prefix(8)), desktops:\(desktopHost.desktops.count))"
+        case .stageHost(let stageHost):
+            return "\(indent)StageHost(id:\(stageHost.id.uuidString.prefix(8)), stages:\(stageHost.stages.count))"
         }
     }
 
@@ -630,8 +630,8 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
             }
             node = .split(splitNode)
 
-        case .desktopHost:
-            // Cannot split inside a desktop host from outside
+        case .stageHost:
+            // Cannot split inside a stage host from outside
             break
         }
     }

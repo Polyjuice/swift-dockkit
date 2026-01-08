@@ -306,5 +306,5 @@ layoutManager.updateLayout(layout)
 ## See Also
 
 - [Layout Schema](../DockKit/layout-schema.md) - JSON structure reference
-- [Desktop Hosts](DESKTOP_HOSTS.md) - Multiple virtual desktops
+- [Stage Hosts](DESKTOP_HOSTS.md) - Multiple virtual stages
 - [ARCHITECTURE.md](../ARCHITECTURE.md) - System overview

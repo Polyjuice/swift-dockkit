@@ -2,7 +2,7 @@
 
 ## Issue Summary
 
-SwiftUI Text views don't render when their containing NSView is positioned outside the visible window area. This affects desktop switching animations where adjacent desktops appear blank until they become active.
+SwiftUI Text views don't render when their containing NSView is positioned outside the visible window area. This affects stage switching animations where adjacent stages appear blank until they become active.
 
 ## Observations
 

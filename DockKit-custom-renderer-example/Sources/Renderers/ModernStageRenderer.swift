@@ -1,35 +1,35 @@
 import AppKit
 import DockKit
 
-/// Modern desktop renderer with card-style indicators
-class ModernDesktopRenderer: DockDesktopRenderer {
+/// Modern stage renderer with card-style indicators
+class ModernStageRenderer: DockStageRenderer {
 
     var headerHeight: CGFloat { 56 }
 
-    func createDesktopView(for desktop: Desktop, index: Int, isActive: Bool) -> DockDesktopView {
-        let view = ModernDesktopIndicator()
-        view.configure(desktop: desktop, index: index, isActive: isActive)
+    func createStageView(for stage: Stage, index: Int, isActive: Bool) -> DockStageView {
+        let view = ModernStageIndicator()
+        view.configure(stage: stage, index: index, isActive: isActive)
         return view
     }
 
-    func updateDesktopView(_ view: DockDesktopView, for desktop: Desktop, index: Int, isActive: Bool) {
-        (view as? ModernDesktopIndicator)?.configure(desktop: desktop, index: index, isActive: isActive)
+    func updateStageView(_ view: DockStageView, for stage: Stage, index: Int, isActive: Bool) {
+        (view as? ModernStageIndicator)?.configure(stage: stage, index: index, isActive: isActive)
     }
 
-    func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool, on view: DockDesktopView) {
-        (view as? ModernDesktopIndicator)?.setSwipeTarget(isTarget, swipeMode: swipeMode)
+    func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool, on view: DockStageView) {
+        (view as? ModernStageIndicator)?.setSwipeTarget(isTarget, swipeMode: swipeMode)
     }
 
-    func setThumbnail(_ image: NSImage?, on view: DockDesktopView) {
-        (view as? ModernDesktopIndicator)?.thumbnail = image
+    func setThumbnail(_ image: NSImage?, on view: DockStageView) {
+        (view as? ModernStageIndicator)?.thumbnail = image
     }
 }
 
-// MARK: - ModernDesktopIndicator
+// MARK: - ModernStageIndicator
 
-class ModernDesktopIndicator: NSView, DockDesktopView {
+class ModernStageIndicator: NSView, DockStageView {
     var onSelect: ((Int) -> Void)?
-    var desktopIndex: Int = 0
+    var stageIndex: Int = 0
 
     var thumbnail: NSImage? {
         didSet {
@@ -108,7 +108,7 @@ class ModernDesktopIndicator: NSView, DockDesktopView {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
-        // Badge (desktop number)
+        // Badge (stage number)
         badgeLabel = NSTextField(labelWithString: "1")
         badgeLabel.font = NSFont.systemFont(ofSize: 9, weight: .bold)
         badgeLabel.textColor = .white
@@ -166,13 +166,13 @@ class ModernDesktopIndicator: NSView, DockDesktopView {
         glowLayer.frame = bounds.insetBy(dx: 0, dy: 0)
     }
 
-    func configure(desktop: Desktop, index: Int, isActive: Bool) {
-        self.desktopIndex = index
+    func configure(stage: Stage, index: Int, isActive: Bool) {
+        self.stageIndex = index
         self.isActive = isActive
 
         // Set icon
-        if let iconName = desktop.iconName,
-           let image = NSImage(systemSymbolName: iconName, accessibilityDescription: desktop.title) {
+        if let iconName = stage.iconName,
+           let image = NSImage(systemSymbolName: iconName, accessibilityDescription: stage.title) {
             iconView.image = image
         } else {
             iconView.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
@@ -180,7 +180,7 @@ class ModernDesktopIndicator: NSView, DockDesktopView {
         iconView.contentTintColor = isActive ? .controlAccentColor : .secondaryLabelColor
 
         // Set title
-        titleLabel.stringValue = desktop.title ?? "Desktop \(index + 1)"
+        titleLabel.stringValue = stage.title ?? "Stage \(index + 1)"
 
         // Set badge
         badgeLabel.stringValue = "\(index + 1)"
@@ -251,7 +251,7 @@ class ModernDesktopIndicator: NSView, DockDesktopView {
     override func mouseUp(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         if bounds.contains(location) {
-            onSelect?(desktopIndex)
+            onSelect?(stageIndex)
         }
         updateAppearance()
     }

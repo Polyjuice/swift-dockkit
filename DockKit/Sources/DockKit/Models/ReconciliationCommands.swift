@@ -245,9 +245,9 @@ public extension DockLayout {
             for child in split.children {
                 collectTabs(from: child, windowId: windowId, into: &result)
             }
-        case .desktopHost(let desktopHost):
-            for desktop in desktopHost.desktops {
-                collectTabs(from: desktop.layout, windowId: windowId, into: &result)
+        case .stageHost(let stageHost):
+            for stage in stageHost.stages {
+                collectTabs(from: stage.layout, windowId: windowId, into: &result)
             }
         }
     }

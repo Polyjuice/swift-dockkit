@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>DockKitDesktopDemo</string>
+    <string>DockKitStageDemo</string>
     <key>CFBundleIdentifier</key>
-    <string>com.dockkit.desktopdemo</string>
+    <string>com.dockkit.stagedemo</string>
     <key>CFBundleName</key>
-    <string>DockKit Desktop Demo</string>
+    <string>DockKit Stage Demo</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>

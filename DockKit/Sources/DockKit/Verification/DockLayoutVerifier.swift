@@ -155,21 +155,21 @@ public class DockLayoutVerifier {
                 severity: .error
             ))
 
-        case (.desktopHost(let layoutDesktopHost), let hostVC as DockDesktopHostViewController):
-            // Verify desktop host ID matches
-            if layoutDesktopHost.id != hostVC.layoutNode.id {
+        case (.stageHost(let layoutStageHost), let hostVC as DockStageHostViewController):
+            // Verify stage host ID matches
+            if layoutStageHost.id != hostVC.layoutNode.id {
                 mismatches.append(LayoutMismatch(
                     path: "\(path).id",
-                    expected: layoutDesktopHost.id.uuidString.prefix(8).description,
+                    expected: layoutStageHost.id.uuidString.prefix(8).description,
                     actual: hostVC.layoutNode.id.uuidString.prefix(8).description,
                     severity: .error
                 ))
             }
 
-        case (.desktopHost, _):
+        case (.stageHost, _):
             mismatches.append(LayoutMismatch(
                 path: path,
-                expected: "DockDesktopHostViewController",
+                expected: "DockStageHostViewController",
                 actual: String(describing: type(of: actual)),
                 severity: .error
             ))

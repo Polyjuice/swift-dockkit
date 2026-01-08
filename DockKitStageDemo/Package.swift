@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "DockKitDesktopDemo",
+    name: "DockKitStageDemo",
     platforms: [
         .macOS(.v13)
     ],
@@ -11,9 +11,9 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "DockKitDesktopDemo",
+            name: "DockKitStageDemo",
             dependencies: ["DockKit"],
-            path: "DockKitDesktopDemo"
+            path: "DockKitStageDemo"
         )
     ]
 )

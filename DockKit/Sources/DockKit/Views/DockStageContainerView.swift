@@ -1,102 +1,102 @@
 import AppKit
 
-/// Protocol for handling swipe gestures that bubble up from nested desktop hosts.
-/// When a nested desktop host is at the edge of its desktops, the gesture bubbles
-/// up to the parent desktop host.
+/// Protocol for handling swipe gestures that bubble up from nested stage hosts.
+/// When a nested stage host is at the edge of its stages, the gesture bubbles
+/// up to the parent stage host.
 public protocol SwipeGestureDelegate: AnyObject {
     /// Called when a nested container wants to pass a scroll event up the hierarchy.
-    /// The container is at the edge of its desktops and cannot handle the gesture.
+    /// The container is at the edge of its stages and cannot handle the gesture.
     /// - Parameters:
     ///   - event: The scroll wheel event
     ///   - container: The container that is passing the event up
     /// - Returns: true if the parent handled the event, false otherwise
-    func handleBubbledScrollEvent(_ event: NSEvent, from container: DockDesktopContainerView) -> Bool
+    func handleBubbledScrollEvent(_ event: NSEvent, from container: DockStageContainerView) -> Bool
 
     /// Called when a nested container's gesture ends and it was bubbling events.
     /// The parent should finalize any gesture state.
-    func nestedContainerDidEndGesture(_ container: DockDesktopContainerView)
+    func nestedContainerDidEndGesture(_ container: DockStageContainerView)
 }
 
-/// Delegate for desktop container events
-public protocol DockDesktopContainerViewDelegate: AnyObject {
+/// Delegate for stage container events
+public protocol DockStageContainerViewDelegate: AnyObject {
     /// Called immediately when a horizontal swipe gesture begins.
     /// Use this to pause expensive rendering (games, animations) during swipe.
-    func desktopContainerDidBeginSwipeGesture(_ container: DockDesktopContainerView)
+    func stageContainerDidBeginSwipeGesture(_ container: DockStageContainerView)
 
     /// Called when swipe gesture and animation complete.
     /// Use this to resume expensive rendering after swipe finishes.
-    func desktopContainerDidEndSwipeGesture(_ container: DockDesktopContainerView)
+    func stageContainerDidEndSwipeGesture(_ container: DockStageContainerView)
 
-    /// Called when desktop index changes during swipe (for UI feedback)
-    func desktopContainer(_ container: DockDesktopContainerView, didBeginSwipingTo index: Int)
+    /// Called when stage index changes during swipe (for UI feedback)
+    func stageContainer(_ container: DockStageContainerView, didBeginSwipingTo index: Int)
 
-    /// Called when desktop switch animation completes
-    func desktopContainer(_ container: DockDesktopContainerView, didSwitchTo index: Int)
+    /// Called when stage switch animation completes
+    func stageContainer(_ container: DockStageContainerView, didSwitchTo index: Int)
 
     /// Called when a panel needs to be looked up by ID
-    func desktopContainer(_ container: DockDesktopContainerView, panelForId id: UUID) -> (any DockablePanel)?
+    func stageContainer(_ container: DockStageContainerView, panelForId id: UUID) -> (any DockablePanel)?
 
     /// Called when a tab is dropped in a tab group
-    func desktopContainer(_ container: DockDesktopContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
+    func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
 
     /// Called when a panel wants to detach (tear off)
-    func desktopContainer(_ container: DockDesktopContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint)
+    func stageContainer(_ container: DockStageContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint)
 
     /// Called when a split is requested
-    func desktopContainer(_ container: DockDesktopContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
+    func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
 }
 
 /// Default implementations
-public extension DockDesktopContainerViewDelegate {
-    func desktopContainerDidBeginSwipeGesture(_ container: DockDesktopContainerView) {}
-    func desktopContainerDidEndSwipeGesture(_ container: DockDesktopContainerView) {}
-    func desktopContainer(_ container: DockDesktopContainerView, didBeginSwipingTo index: Int) {}
-    func desktopContainer(_ container: DockDesktopContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
-    func desktopContainer(_ container: DockDesktopContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
-    func desktopContainer(_ container: DockDesktopContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
+public extension DockStageContainerViewDelegate {
+    func stageContainerDidBeginSwipeGesture(_ container: DockStageContainerView) {}
+    func stageContainerDidEndSwipeGesture(_ container: DockStageContainerView) {}
+    func stageContainer(_ container: DockStageContainerView, didBeginSwipingTo index: Int) {}
+    func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
+    func stageContainer(_ container: DockStageContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
+    func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
 }
 
-/// A container view that hosts multiple desktops with swipe gesture navigation
-/// Each desktop has its own independent layout tree
-public class DockDesktopContainerView: NSView {
+/// A container view that hosts multiple stages with swipe gesture navigation
+/// Each stage has its own independent layout tree
+public class DockStageContainerView: NSView {
 
     // MARK: - Properties
 
-    public weak var delegate: DockDesktopContainerViewDelegate?
+    public weak var delegate: DockStageContainerViewDelegate?
 
-    /// Delegate for bubbling swipe gestures to parent desktop host
+    /// Delegate for bubbling swipe gestures to parent stage host
     public weak var swipeGestureDelegate: SwipeGestureDelegate?
 
     /// Whether this container is currently bubbling gestures to parent
     private var isBubblingToParent: Bool = false
 
-    /// The desktop layouts this container displays
-    private var desktops: [Desktop] = []
+    /// The stage layouts this container displays
+    private var stages: [Stage] = []
 
-    /// Current active desktop index
-    public private(set) var activeDesktopIndex: Int = 0
+    /// Current active stage index
+    public private(set) var activeStageIndex: Int = 0
 
-    /// View controllers for each desktop (lazily created)
-    private var desktopViewControllers: [UUID: NSViewController] = [:]
+    /// View controllers for each stage (lazily created)
+    private var stageViewControllers: [UUID: NSViewController] = [:]
 
-    /// The clip view that contains all desktop views
+    /// The clip view that contains all stage views
     private var clipView: NSView!
 
     /// The content view that slides horizontally
     private var contentView: NSView!
 
-    /// Individual desktop container views
-    private var desktopViews: [NSView] = []
+    /// Individual stage container views
+    private var stageViews: [NSView] = []
 
     /// Constraint for contentView leading position (for sliding animation)
     private var contentViewLeadingConstraint: NSLayoutConstraint?
 
-    /// Constraint for contentView width (multiplied by desktop count)
+    /// Constraint for contentView width (multiplied by stage count)
     private var contentViewWidthConstraint: NSLayoutConstraint?
 
     // MARK: - Gesture State
 
-    /// Current offset during swipe (0 = centered on active desktop)
+    /// Current offset during swipe (0 = centered on active stage)
     private var swipeOffset: CGFloat = 0
 
     /// Display link for spring animation
@@ -123,7 +123,7 @@ public class DockDesktopContainerView: NSView {
     }
 
     /// Display mode for tabs in this container
-    public var displayMode: DesktopDisplayMode = .tabs {
+    public var displayMode: StageDisplayMode = .tabs {
         didSet {
             if displayMode != oldValue {
                 updateAllTabGroupDisplayModes()
@@ -145,14 +145,14 @@ public class DockDesktopContainerView: NSView {
 
     /// Update display mode on all tab group view controllers
     private func updateAllTabGroupDisplayModes() {
-        // Update all desktop view controllers
-        for (_, viewController) in desktopViewControllers {
+        // Update all stage view controllers
+        for (_, viewController) in stageViewControllers {
             updateTabGroupDisplayMode(in: viewController, to: displayMode)
         }
     }
 
     /// Recursively update display mode in a view controller hierarchy
-    private func updateTabGroupDisplayMode(in viewController: NSViewController, to mode: DesktopDisplayMode) {
+    private func updateTabGroupDisplayMode(in viewController: NSViewController, to mode: StageDisplayMode) {
         if let tabGroupVC = viewController as? DockTabGroupViewController {
             tabGroupVC.setDisplayMode(mode)
         } else if let splitVC = viewController as? DockSplitViewController {
@@ -215,7 +215,7 @@ public class DockDesktopContainerView: NSView {
             let locationInSelf = self.convert(event.locationInWindow, from: nil)
             guard self.bounds.contains(locationInSelf) else { return event }
 
-            // VERSION 3 FIX: Check if there's a nested DockDesktopContainerView under the mouse
+            // VERSION 3 FIX: Check if there's a nested DockStageContainerView under the mouse
             // If so, let the event pass through so the nested container handles it first.
             // The nested container will bubble events up to us when it's at its edge.
             if self.hasNestedContainerAt(point: locationInSelf) {
@@ -252,14 +252,14 @@ public class DockDesktopContainerView: NSView {
         }
     }
 
-    /// Check if there's a nested DockDesktopContainerView at the given point (in self's coordinates)
+    /// Check if there's a nested DockStageContainerView at the given point (in self's coordinates)
     /// Returns true if a nested container exists and contains the point
     private func hasNestedContainerAt(point: NSPoint) -> Bool {
         return findNestedContainerAt(point: point, in: self) != nil
     }
 
-    /// Recursively search for a nested DockDesktopContainerView at the given point
-    private func findNestedContainerAt(point: NSPoint, in view: NSView) -> DockDesktopContainerView? {
+    /// Recursively search for a nested DockStageContainerView at the given point
+    private func findNestedContainerAt(point: NSPoint, in view: NSView) -> DockStageContainerView? {
         for subview in view.subviews {
             // Convert point to subview's coordinate system
             let pointInSubview = subview.convert(point, from: self)
@@ -267,8 +267,8 @@ public class DockDesktopContainerView: NSView {
             // Check if point is within subview bounds
             guard subview.bounds.contains(pointInSubview) else { continue }
 
-            // If this subview is a DockDesktopContainerView (and not self), we found a nested one
-            if let nestedContainer = subview as? DockDesktopContainerView, nestedContainer !== self {
+            // If this subview is a DockStageContainerView (and not self), we found a nested one
+            if let nestedContainer = subview as? DockStageContainerView, nestedContainer !== self {
                 return nestedContainer
             }
 
@@ -315,92 +315,92 @@ public class DockDesktopContainerView: NSView {
 
     // MARK: - Public API
 
-    /// Set the desktops to display
-    public func setDesktops(_ newDesktops: [Desktop], activeIndex: Int) {
-        desktops = newDesktops
-        activeDesktopIndex = max(0, min(activeIndex, desktops.count - 1))
+    /// Set the stages to display
+    public func setStages(_ newStages: [Stage], activeIndex: Int) {
+        stages = newStages
+        activeStageIndex = max(0, min(activeIndex, stages.count - 1))
 
-        rebuildDesktopViews()
+        rebuildStageViews()
         updateContentPosition(animated: false)
     }
 
-    /// Switch to a specific desktop with animation
-    public func switchToDesktop(at index: Int, animated: Bool = true) {
-        guard index >= 0 && index < desktops.count else { return }
+    /// Switch to a specific stage with animation
+    public func switchToStage(at index: Int, animated: Bool = true) {
+        guard index >= 0 && index < stages.count else { return }
 
         if animated {
-            animateToDesktop(at: index)
+            animateToStage(at: index)
         } else {
-            activeDesktopIndex = index
+            activeStageIndex = index
             updateContentPosition(animated: false)
-            delegate?.desktopContainer(self, didSwitchTo: activeDesktopIndex)
+            delegate?.stageContainer(self, didSwitchTo: activeStageIndex)
         }
     }
 
-    /// Get the view controller for the active desktop
-    public var activeDesktopViewController: NSViewController? {
-        guard activeDesktopIndex >= 0 && activeDesktopIndex < desktops.count else { return nil }
-        let desktopId = desktops[activeDesktopIndex].id
-        return desktopViewControllers[desktopId]
+    /// Get the view controller for the active stage
+    public var activeStageViewController: NSViewController? {
+        guard activeStageIndex >= 0 && activeStageIndex < stages.count else { return nil }
+        let stageId = stages[activeStageIndex].id
+        return stageViewControllers[stageId]
     }
 
-    /// Update a specific desktop's layout
-    public func updateDesktopLayout(_ layout: DockLayoutNode, forDesktopAt index: Int) {
-        guard index >= 0 && index < desktops.count else { return }
+    /// Update a specific stage's layout
+    public func updateStageLayout(_ layout: DockLayoutNode, forStageAt index: Int) {
+        guard index >= 0 && index < stages.count else { return }
 
-        let desktopId = desktops[index].id
-        desktops[index].layout = layout
+        let stageId = stages[index].id
+        stages[index].layout = layout
 
-        // Rebuild the view controller for this desktop
-        if let existingVC = desktopViewControllers[desktopId],
-           index < desktopViews.count {
+        // Rebuild the view controller for this stage
+        if let existingVC = stageViewControllers[stageId],
+           index < stageViews.count {
             // Remove old view
             existingVC.view.removeFromSuperview()
 
             // Create new view controller
-            let newVC = createViewController(for: desktops[index].layout)
-            desktopViewControllers[desktopId] = newVC
+            let newVC = createViewController(for: stages[index].layout)
+            stageViewControllers[stageId] = newVC
 
-            // Add to desktop view
-            let desktopView = desktopViews[index]
+            // Add to stage view
+            let stageView = stageViews[index]
             newVC.view.translatesAutoresizingMaskIntoConstraints = false
-            desktopView.addSubview(newVC.view)
+            stageView.addSubview(newVC.view)
 
             NSLayoutConstraint.activate([
-                newVC.view.leadingAnchor.constraint(equalTo: desktopView.leadingAnchor),
-                newVC.view.trailingAnchor.constraint(equalTo: desktopView.trailingAnchor),
-                newVC.view.topAnchor.constraint(equalTo: desktopView.topAnchor),
-                newVC.view.bottomAnchor.constraint(equalTo: desktopView.bottomAnchor)
+                newVC.view.leadingAnchor.constraint(equalTo: stageView.leadingAnchor),
+                newVC.view.trailingAnchor.constraint(equalTo: stageView.trailingAnchor),
+                newVC.view.topAnchor.constraint(equalTo: stageView.topAnchor),
+                newVC.view.bottomAnchor.constraint(equalTo: stageView.bottomAnchor)
             ])
         }
     }
 
-    /// Capture thumbnails for all desktops
-    public func captureDesktopThumbnails() -> [NSImage?] {
+    /// Capture thumbnails for all stages
+    public func captureStageThumbnails() -> [NSImage?] {
         var thumbnails: [NSImage?] = []
 
-        for (index, desktopView) in desktopViews.enumerated() {
-            guard index < desktops.count else {
+        for (index, stageView) in stageViews.enumerated() {
+            guard index < stages.count else {
                 thumbnails.append(nil)
                 continue
             }
 
-            // Capture the desktop view
+            // Capture the stage view
             let targetSize = NSSize(width: 112, height: 68) // Fit in thumbnail area
 
-            guard desktopView.bounds.width > 0, desktopView.bounds.height > 0,
-                  let bitmapRep = desktopView.bitmapImageRepForCachingDisplay(in: desktopView.bounds) else {
+            guard stageView.bounds.width > 0, stageView.bounds.height > 0,
+                  let bitmapRep = stageView.bitmapImageRepForCachingDisplay(in: stageView.bounds) else {
                 thumbnails.append(nil)
                 continue
             }
 
-            desktopView.cacheDisplay(in: desktopView.bounds, to: bitmapRep)
+            stageView.cacheDisplay(in: stageView.bounds, to: bitmapRep)
 
             let image = NSImage(size: targetSize)
             image.lockFocus()
 
             // Draw scaled to fit
-            let sourceSize = desktopView.bounds.size
+            let sourceSize = stageView.bounds.size
             let scaleFactor = min(targetSize.width / sourceSize.width, targetSize.height / sourceSize.height)
             let scaledWidth = sourceSize.width * scaleFactor
             let scaledHeight = sourceSize.height * scaleFactor
@@ -416,15 +416,15 @@ public class DockDesktopContainerView: NSView {
         return thumbnails
     }
 
-    // MARK: - Desktop View Management
+    // MARK: - Stage View Management
 
-    private func rebuildDesktopViews() {
+    private func rebuildStageViews() {
         // Remove old views
-        for view in desktopViews {
+        for view in stageViews {
             view.removeFromSuperview()
         }
-        desktopViews.removeAll()
-        desktopViewControllers.removeAll()
+        stageViews.removeAll()
+        stageViewControllers.removeAll()
 
         // Remove old width constraint
         if let oldWidthConstraint = contentViewWidthConstraint {
@@ -432,41 +432,41 @@ public class DockDesktopContainerView: NSView {
             contentViewWidthConstraint = nil
         }
 
-        guard !desktops.isEmpty else {
+        guard !stages.isEmpty else {
             return
         }
 
-        // Create new desktop views - use frame-based layout for horizontal positioning
-        for (_, desktop) in desktops.enumerated() {
-            let desktopView = NSView()
-            desktopView.wantsLayer = true
-            // Use frame-based layout for desktop views (positioned in layout())
-            desktopView.translatesAutoresizingMaskIntoConstraints = true
-            contentView.addSubview(desktopView)
-            desktopViews.append(desktopView)
+        // Create new stage views - use frame-based layout for horizontal positioning
+        for (_, stage) in stages.enumerated() {
+            let stageView = NSView()
+            stageView.wantsLayer = true
+            // Use frame-based layout for stage views (positioned in layout())
+            stageView.translatesAutoresizingMaskIntoConstraints = true
+            contentView.addSubview(stageView)
+            stageViews.append(stageView)
 
-            // Create view controller for desktop layout
-            let vc = createViewController(for: desktop.layout)
-            desktopViewControllers[desktop.id] = vc
+            // Create view controller for stage layout
+            let vc = createViewController(for: stage.layout)
+            stageViewControllers[stage.id] = vc
 
             // VC view uses auto layout to fill its container
             vc.view.translatesAutoresizingMaskIntoConstraints = false
-            desktopView.addSubview(vc.view)
+            stageView.addSubview(vc.view)
 
             NSLayoutConstraint.activate([
-                vc.view.leadingAnchor.constraint(equalTo: desktopView.leadingAnchor),
-                vc.view.trailingAnchor.constraint(equalTo: desktopView.trailingAnchor),
-                vc.view.topAnchor.constraint(equalTo: desktopView.topAnchor),
-                vc.view.bottomAnchor.constraint(equalTo: desktopView.bottomAnchor)
+                vc.view.leadingAnchor.constraint(equalTo: stageView.leadingAnchor),
+                vc.view.trailingAnchor.constraint(equalTo: stageView.trailingAnchor),
+                vc.view.topAnchor.constraint(equalTo: stageView.topAnchor),
+                vc.view.bottomAnchor.constraint(equalTo: stageView.bottomAnchor)
             ])
         }
 
         // Set content view width (track the constraint so we can remove it later)
-        contentViewWidthConstraint = contentView.widthAnchor.constraint(equalTo: clipView.widthAnchor, multiplier: CGFloat(desktops.count))
+        contentViewWidthConstraint = contentView.widthAnchor.constraint(equalTo: clipView.widthAnchor, multiplier: CGFloat(stages.count))
         contentViewWidthConstraint?.isActive = true
 
-        // Reset leading constraint for new desktop count
-        contentViewLeadingConstraint?.constant = -CGFloat(activeDesktopIndex) * clipView.bounds.width
+        // Reset leading constraint for new stage count
+        contentViewLeadingConstraint?.constant = -CGFloat(activeStageIndex) * clipView.bounds.width
 
         // Force layout
         needsLayout = true
@@ -476,16 +476,16 @@ public class DockDesktopContainerView: NSView {
     public override func layout() {
         super.layout()
 
-        // Position desktop views using frame-based layout
-        let desktopWidth = clipView.bounds.width
-        let desktopHeight = clipView.bounds.height
+        // Position stage views using frame-based layout
+        let stageWidth = clipView.bounds.width
+        let stageHeight = clipView.bounds.height
 
-        for (index, desktopView) in desktopViews.enumerated() {
-            desktopView.frame = NSRect(
-                x: CGFloat(index) * desktopWidth,
+        for (index, stageView) in stageViews.enumerated() {
+            stageView.frame = NSRect(
+                x: CGFloat(index) * stageWidth,
                 y: 0,
-                width: desktopWidth,
-                height: desktopHeight
+                width: stageWidth,
+                height: stageHeight
             )
         }
 
@@ -500,7 +500,7 @@ public class DockDesktopContainerView: NSView {
         case .split(let splitNode):
             let splitVC = DockSplitViewController(splitNode: createSplitNode(from: splitNode))
             splitVC.tabGroupDelegate = self
-            // Pass swipe gesture delegate for nested desktop hosts (Version 3)
+            // Pass swipe gesture delegate for nested stage hosts (Version 3)
             splitVC.swipeGestureDelegate = self
             return splitVC
 
@@ -509,12 +509,12 @@ public class DockDesktopContainerView: NSView {
             tabGroupVC.delegate = self
             return tabGroupVC
 
-        case .desktopHost(let desktopHostNode):
-            // Create a nested desktop host view controller (Version 3 feature)
-            let hostVC = DockDesktopHostViewController(
-                layoutNode: desktopHostNode,
+        case .stageHost(let stageHostNode):
+            // Create a nested stage host view controller (Version 3 feature)
+            let hostVC = DockStageHostViewController(
+                layoutNode: stageHostNode,
                 panelProvider: { [weak self] id in
-                    self?.delegate?.desktopContainer(self!, panelForId: id)
+                    self?.delegate?.stageContainer(self!, panelForId: id)
                 }
             )
             // Connect gesture bubbling - nested host bubbles to this container
@@ -535,7 +535,7 @@ public class DockDesktopContainerView: NSView {
 
     private func createTabGroupNode(from layout: TabGroupLayoutNode) -> TabGroupNode {
         let tabs = layout.tabs.compactMap { tabState -> DockTab? in
-            if let panel = delegate?.desktopContainer(self, panelForId: tabState.id) {
+            if let panel = delegate?.stageContainer(self, panelForId: tabState.id) {
                 return DockTab(from: panel, cargo: tabState.cargo)
             }
             return DockTab(
@@ -560,16 +560,16 @@ public class DockDesktopContainerView: NSView {
             return .split(createSplitNode(from: splitNode))
         case .tabGroup(let tabGroupNode):
             return .tabGroup(createTabGroupNode(from: tabGroupNode))
-        case .desktopHost(let desktopHostNode):
-            return .desktopHost(DesktopHostNode(from: desktopHostNode))
+        case .stageHost(let stageHostNode):
+            return .stageHost(StageHostNode(from: stageHostNode))
         }
     }
 
     // MARK: - Content Positioning
 
     private func updateContentPosition(animated: Bool) {
-        let desktopWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
-        let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+        let stageWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
+        let targetX = -CGFloat(activeStageIndex) * stageWidth + swipeOffset
 
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -597,7 +597,7 @@ public class DockDesktopContainerView: NSView {
     /// Velocity threshold for flick-based switching (pixels per second)
     private let flickVelocityThreshold: CGFloat = 500
 
-    /// Position threshold for drag-based switching (fraction of desktop width)
+    /// Position threshold for drag-based switching (fraction of stage width)
     /// Apple uses 50% (halfway) for slow drags
     private let dragPositionThreshold: CGFloat = 0.5
 
@@ -607,9 +607,9 @@ public class DockDesktopContainerView: NSView {
     // Slow motion only affects spring animation - gesture input is always real-time.
     //
     // NESTED DESKTOP GESTURE BUBBLING (Version 3):
-    // When this container is at the edge of its desktops and the user continues
-    // swiping in that direction, the gesture "bubbles up" to the parent desktop host.
-    // This allows nested desktop hosts to work naturally - the innermost one handles
+    // When this container is at the edge of its stages and the user continues
+    // swiping in that direction, the gesture "bubbles up" to the parent stage host.
+    // This allows nested stage hosts to work naturally - the innermost one handles
     // gestures first, then passes them up the hierarchy when at the edge.
 
     public override func scrollWheel(with event: NSEvent) {
@@ -633,7 +633,7 @@ public class DockDesktopContainerView: NSView {
             isBubblingToParent = false
             stopSpringAnimation()
             // Notify delegate immediately so host can pause expensive rendering
-            delegate?.desktopContainerDidBeginSwipeGesture(self)
+            delegate?.stageContainerDidBeginSwipeGesture(self)
             // Don't reset gestureAmount - preserve current position if interrupting
             // Reset velocity tracking
             gestureVelocity = 0
@@ -652,8 +652,8 @@ public class DockDesktopContainerView: NSView {
         // NOTE: Gesture input is NOT scaled for slow motion - physical movement = visual movement
         // Only spring animation time is scaled for slow motion debugging
         if event.phase == .changed || event.momentumPhase == .changed {
-            let desktopWidth = bounds.width
-            guard desktopWidth > 0 else { return }
+            let stageWidth = bounds.width
+            guard stageWidth > 0 else { return }
 
             let deltaX = event.scrollingDeltaX
 
@@ -669,10 +669,10 @@ public class DockDesktopContainerView: NSView {
                 lastScrollTime = currentTime
             }
 
-            // Check for gesture bubbling to parent (Version 3 nested desktops)
+            // Check for gesture bubbling to parent (Version 3 nested stages)
             // If we're at an edge and user is swiping beyond, bubble to parent
-            let isAtLeftEdge = activeDesktopIndex == 0 && gestureAmount >= 0
-            let isAtRightEdge = activeDesktopIndex == desktops.count - 1 && gestureAmount <= 0
+            let isAtLeftEdge = activeStageIndex == 0 && gestureAmount >= 0
+            let isAtRightEdge = activeStageIndex == stages.count - 1 && gestureAmount <= 0
             let swipingBeyondLeft = isAtLeftEdge && deltaX > 0
             let swipingBeyondRight = isAtRightEdge && deltaX < 0
 
@@ -709,11 +709,11 @@ public class DockDesktopContainerView: NSView {
             }
 
             // NO time scaling on input - gesture feels normal
-            gestureAmount += deltaX / desktopWidth
+            gestureAmount += deltaX / stageWidth
 
             // Calculate visual offset with rubber band effect at edges
-            let maxLeft = CGFloat(activeDesktopIndex)
-            let maxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
+            let maxLeft = CGFloat(activeStageIndex)
+            let maxRight = CGFloat(stages.count - 1 - activeStageIndex)
 
             let visualAmount: CGFloat
             if gestureAmount > maxLeft {
@@ -730,8 +730,8 @@ public class DockDesktopContainerView: NSView {
             }
 
             // Update visual position
-            swipeOffset = visualAmount * desktopWidth
-            let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+            swipeOffset = visualAmount * stageWidth
+            let targetX = -CGFloat(activeStageIndex) * stageWidth + swipeOffset
             contentViewLeadingConstraint?.constant = targetX
 
             // Update header indicator
@@ -770,17 +770,17 @@ public class DockDesktopContainerView: NSView {
         // Velocity is only considered at finalization (when user releases)
         let target: Int
 
-        if gestureAmount >= dragPositionThreshold && activeDesktopIndex > 0 {
-            target = activeDesktopIndex - 1
-        } else if gestureAmount <= -dragPositionThreshold && activeDesktopIndex < desktops.count - 1 {
-            target = activeDesktopIndex + 1
+        if gestureAmount >= dragPositionThreshold && activeStageIndex > 0 {
+            target = activeStageIndex - 1
+        } else if gestureAmount <= -dragPositionThreshold && activeStageIndex < stages.count - 1 {
+            target = activeStageIndex + 1
         } else {
-            target = activeDesktopIndex
+            target = activeStageIndex
         }
 
         if target != lastIndicatorTarget {
             lastIndicatorTarget = target
-            delegate?.desktopContainer(self, didBeginSwipingTo: target)
+            delegate?.stageContainer(self, didBeginSwipingTo: target)
         }
     }
 
@@ -788,11 +788,11 @@ public class DockDesktopContainerView: NSView {
         lastIndicatorTarget = -1
 
         // Calculate bounds for gesture amount
-        let maxLeft = CGFloat(activeDesktopIndex)
-        let maxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
+        let maxLeft = CGFloat(activeStageIndex)
+        let maxRight = CGFloat(stages.count - 1 - activeStageIndex)
 
         // Clamp gestureAmount to valid bounds for decision making
-        // (rubber band overshoot shouldn't trigger desktop switches)
+        // (rubber band overshoot shouldn't trigger stage switches)
         let clampedAmount = max(-maxRight, min(maxLeft, gestureAmount))
 
         // Check velocity-based switching (flick) - takes priority
@@ -801,26 +801,26 @@ public class DockDesktopContainerView: NSView {
         // Determine target based on velocity OR position
         if velocityBasedSwitch {
             // Flick: velocity determines direction
-            if gestureVelocity > 0 && activeDesktopIndex > 0 {
-                activeDesktopIndex -= 1
+            if gestureVelocity > 0 && activeStageIndex > 0 {
+                activeStageIndex -= 1
                 gestureAmount -= 1.0
-            } else if gestureVelocity < 0 && activeDesktopIndex < desktops.count - 1 {
-                activeDesktopIndex += 1
+            } else if gestureVelocity < 0 && activeStageIndex < stages.count - 1 {
+                activeStageIndex += 1
                 gestureAmount += 1.0
             }
-        } else if clampedAmount >= dragPositionThreshold && activeDesktopIndex > 0 {
+        } else if clampedAmount >= dragPositionThreshold && activeStageIndex > 0 {
             // Drag: position determines switch
-            activeDesktopIndex -= 1
+            activeStageIndex -= 1
             gestureAmount -= 1.0
-        } else if clampedAmount <= -dragPositionThreshold && activeDesktopIndex < desktops.count - 1 {
-            activeDesktopIndex += 1
+        } else if clampedAmount <= -dragPositionThreshold && activeStageIndex < stages.count - 1 {
+            activeStageIndex += 1
             gestureAmount += 1.0
         }
 
         // Calculate visual offset (with rubber band effect if past edges)
         let visualAmount: CGFloat
-        let newMaxLeft = CGFloat(activeDesktopIndex)
-        let newMaxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
+        let newMaxLeft = CGFloat(activeStageIndex)
+        let newMaxRight = CGFloat(stages.count - 1 - activeStageIndex)
 
         if gestureAmount > newMaxLeft {
             let overshoot = gestureAmount - newMaxLeft
@@ -834,7 +834,7 @@ public class DockDesktopContainerView: NSView {
 
         // Animate to final position from current visual position
         swipeOffset = visualAmount * bounds.width
-        animateToDesktop(at: activeDesktopIndex)
+        animateToStage(at: activeStageIndex)
         gestureAmount = 0
         gestureVelocity = 0
     }
@@ -856,12 +856,12 @@ public class DockDesktopContainerView: NSView {
         var target: CGFloat
     }
 
-    private func animateToDesktop(at index: Int) {
+    private func animateToStage(at index: Int) {
         let targetPosition: CGFloat = 0
-        let oldIndex = activeDesktopIndex
+        let oldIndex = activeStageIndex
 
-        // Adjust swipeOffset to maintain visual continuity when changing desktop index
-        // Position formula: targetX = -activeDesktopIndex * width + swipeOffset
+        // Adjust swipeOffset to maintain visual continuity when changing stage index
+        // Position formula: targetX = -activeStageIndex * width + swipeOffset
         // To keep same visual position after index change:
         // -oldIndex * width + swipeOffset = -index * width + newSwipeOffset
         // newSwipeOffset = swipeOffset + (index - oldIndex) * width
@@ -870,19 +870,19 @@ public class DockDesktopContainerView: NSView {
         }
 
         let currentPosition = swipeOffset
-        activeDesktopIndex = index
+        activeStageIndex = index
 
         // IMMEDIATELY notify delegate of committed switch
         // This updates the header indicator without waiting for animation to complete
         // Provides faster visual feedback to the user
-        delegate?.desktopContainer(self, didSwitchTo: index)
+        delegate?.stageContainer(self, didSwitchTo: index)
 
         // If we're already at target, just snap
         if abs(currentPosition - targetPosition) < 1 {
             swipeOffset = 0
             updateContentPosition(animated: false)
             // Notify delegate that swipe gesture is complete - host can resume rendering
-            delegate?.desktopContainerDidEndSwipeGesture(self)
+            delegate?.stageContainerDidEndSwipeGesture(self)
             return
         }
 
@@ -905,7 +905,7 @@ public class DockDesktopContainerView: NSView {
         guard let link = link else { return }
 
         let callback: CVDisplayLinkOutputCallback = { displayLink, inNow, inOutputTime, flagsIn, flagsOut, displayLinkContext in
-            let container = Unmanaged<DockDesktopContainerView>.fromOpaque(displayLinkContext!).takeUnretainedValue()
+            let container = Unmanaged<DockStageContainerView>.fromOpaque(displayLinkContext!).takeUnretainedValue()
 
             DispatchQueue.main.async {
                 container.updateSpringAnimation()
@@ -946,8 +946,8 @@ public class DockDesktopContainerView: NSView {
 
         // Update position
         swipeOffset = state.position
-        let desktopWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
-        let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+        let stageWidth = clipView.bounds.width > 0 ? clipView.bounds.width : bounds.width
+        let targetX = -CGFloat(activeStageIndex) * stageWidth + swipeOffset
         contentViewLeadingConstraint?.constant = targetX
 
         // Check if animation is done
@@ -959,7 +959,7 @@ public class DockDesktopContainerView: NSView {
             stopDisplayLink()
             // Note: didSwitchTo already called at animation start for faster feedback
             // Notify delegate that swipe gesture is complete - host can resume rendering
-            delegate?.desktopContainerDidEndSwipeGesture(self)
+            delegate?.stageContainerDidEndSwipeGesture(self)
         } else {
             springState = state
         }
@@ -974,17 +974,17 @@ public class DockDesktopContainerView: NSView {
 
 // MARK: - DockTabGroupViewControllerDelegate
 
-extension DockDesktopContainerView: DockTabGroupViewControllerDelegate {
+extension DockStageContainerView: DockTabGroupViewControllerDelegate {
     public func tabGroup(_ tabGroup: DockTabGroupViewController, didReceiveTab tabInfo: DockTabDragInfo, at index: Int) {
-        delegate?.desktopContainer(self, didReceiveTab: tabInfo, in: tabGroup, at: index)
+        delegate?.stageContainer(self, didReceiveTab: tabInfo, in: tabGroup, at: index)
     }
 
     public func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachTab tab: DockTab, at screenPoint: NSPoint) {
-        delegate?.desktopContainer(self, wantsToDetachTab: tab, from: tabGroup, at: screenPoint)
+        delegate?.stageContainer(self, wantsToDetachTab: tab, from: tabGroup, at: screenPoint)
     }
 
     public func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab) {
-        delegate?.desktopContainer(self, wantsToSplit: direction, withTab: tab, in: tabGroup)
+        delegate?.stageContainer(self, wantsToSplit: direction, withTab: tab, in: tabGroup)
     }
 
     public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastTab: Bool) {
@@ -996,12 +996,12 @@ extension DockDesktopContainerView: DockTabGroupViewControllerDelegate {
     }
 }
 
-// MARK: - SwipeGestureDelegate (Version 3: Nested Desktop Support)
+// MARK: - SwipeGestureDelegate (Version 3: Nested Stage Support)
 
-extension DockDesktopContainerView: SwipeGestureDelegate {
-    /// Handle a scroll event bubbled up from a nested desktop container.
-    /// The nested container is at the edge of its desktops and cannot handle the gesture.
-    public func handleBubbledScrollEvent(_ event: NSEvent, from container: DockDesktopContainerView) -> Bool {
+extension DockStageContainerView: SwipeGestureDelegate {
+    /// Handle a scroll event bubbled up from a nested stage container.
+    /// The nested container is at the edge of its stages and cannot handle the gesture.
+    public func handleBubbledScrollEvent(_ event: NSEvent, from container: DockStageContainerView) -> Bool {
         // Process the event as if it came directly to us
         // We need to simulate the gesture lifecycle since the nested container
         // is forwarding mid-gesture events
@@ -1011,7 +1011,7 @@ extension DockDesktopContainerView: SwipeGestureDelegate {
             isGestureActive = true
             isBubblingToParent = false
             stopSpringAnimation()
-            delegate?.desktopContainerDidBeginSwipeGesture(self)
+            delegate?.stageContainerDidBeginSwipeGesture(self)
             gestureVelocity = 0
             lastScrollTime = CACurrentMediaTime()
         }
@@ -1022,8 +1022,8 @@ extension DockDesktopContainerView: SwipeGestureDelegate {
 
         // Apply scroll delta
         if event.phase == .changed || event.momentumPhase == .changed {
-            let desktopWidth = bounds.width
-            guard desktopWidth > 0 else { return false }
+            let stageWidth = bounds.width
+            guard stageWidth > 0 else { return false }
 
             let deltaX = event.scrollingDeltaX
 
@@ -1039,8 +1039,8 @@ extension DockDesktopContainerView: SwipeGestureDelegate {
             }
 
             // Check if we also need to bubble (recursive nesting)
-            let isAtLeftEdge = activeDesktopIndex == 0 && gestureAmount >= 0
-            let isAtRightEdge = activeDesktopIndex == desktops.count - 1 && gestureAmount <= 0
+            let isAtLeftEdge = activeStageIndex == 0 && gestureAmount >= 0
+            let isAtRightEdge = activeStageIndex == stages.count - 1 && gestureAmount <= 0
             let swipingBeyondLeft = isAtLeftEdge && deltaX > 0
             let swipingBeyondRight = isAtRightEdge && deltaX < 0
 
@@ -1055,10 +1055,10 @@ extension DockDesktopContainerView: SwipeGestureDelegate {
             }
 
             // Process locally
-            gestureAmount += deltaX / desktopWidth
+            gestureAmount += deltaX / stageWidth
 
-            let maxLeft = CGFloat(activeDesktopIndex)
-            let maxRight = CGFloat(desktops.count - 1 - activeDesktopIndex)
+            let maxLeft = CGFloat(activeStageIndex)
+            let maxRight = CGFloat(stages.count - 1 - activeStageIndex)
 
             let visualAmount: CGFloat
             if gestureAmount > maxLeft {
@@ -1071,8 +1071,8 @@ extension DockDesktopContainerView: SwipeGestureDelegate {
                 visualAmount = gestureAmount
             }
 
-            swipeOffset = visualAmount * desktopWidth
-            let targetX = -CGFloat(activeDesktopIndex) * desktopWidth + swipeOffset
+            swipeOffset = visualAmount * stageWidth
+            let targetX = -CGFloat(activeStageIndex) * stageWidth + swipeOffset
             contentViewLeadingConstraint?.constant = targetX
 
             updateIndicatorForGestureAmount(gestureAmount)
@@ -1082,7 +1082,7 @@ extension DockDesktopContainerView: SwipeGestureDelegate {
     }
 
     /// Called when a nested container's gesture ends.
-    public func nestedContainerDidEndGesture(_ container: DockDesktopContainerView) {
+    public func nestedContainerDidEndGesture(_ container: DockStageContainerView) {
         // Finalize our gesture state
         guard isGestureActive else { return }
         isGestureActive = false

@@ -90,47 +90,47 @@ This keeps policy in one place regardless of which window type the panel came fr
 ### DockWindow
 A window containing a single dock layout tree (splits + tab groups). Managed by `DockLayoutManager`.
 
-### DockDesktopHostWindow
-A window containing multiple "desktops" (virtual workspaces), each with its own layout tree. Features:
-- Desktop switching with swipe gestures
-- Header bar showing desktop tabs
-- Each desktop is independent
+### DockStageHostWindow
+A window containing multiple "stages" (virtual workspaces), each with its own layout tree. Features:
+- Stage switching with swipe gestures
+- Header bar showing stage tabs
+- Each stage is independent
 
-**Panel Tearing in Desktop Hosts:**
-When a panel is torn from a DockDesktopHostWindow, a **new DockDesktopHostWindow** is created—not a regular DockWindow. This is intentional:
+**Panel Tearing in Stage Hosts:**
+When a panel is torn from a DockStageHostWindow, a **new DockStageHostWindow** is created—not a regular DockWindow. This is intentional:
 
 1. **Uniform window type** — Only one window type to reason about
-2. **Swipe works everywhere** — Spawned windows can have desktops added, enabling swipe
-3. **Symmetric behavior** — Desktop hosts spawn desktop hosts recursively
-4. **No global gesture conflicts** — Unlike Mission Control's three-finger swipe which is system-wide, desktop host swipe gestures are captured per-window
+2. **Swipe works everywhere** — Spawned windows can have stages added, enabling swipe
+3. **Symmetric behavior** — Stage hosts spawn stage hosts recursively
+4. **No global gesture conflicts** — Unlike Mission Control's three-finger swipe which is system-wide, stage host swipe gestures are captured per-window
 
 The spawned window:
-- Starts with one desktop containing the torn panel
+- Starts with one stage containing the torn panel
 - Inherits the spawner's `panelProvider`
 - Is tracked in spawner's `spawnedWindows` array
 - Can spawn its own children via tearing
 
 **Self-Contained Tearing:**
-Desktop hosts handle tearing internally without requiring DockLayoutManager or delegate callbacks. The panel view is simply reparented to a new window. This keeps the common case simple—tearing "just works" without host app involvement.
+Stage hosts handle tearing internally without requiring DockLayoutManager or delegate callbacks. The panel view is simply reparented to a new window. This keeps the common case simple—tearing "just works" without host app involvement.
 
 **Optional Customization:**
-Apps that need to intercept or customize tearing can implement `DockDesktopHostWindowDelegate.willTearPanel(_:at:)` and return `false` to prevent tearing.
+Apps that need to intercept or customize tearing can implement `DockStageHostWindowDelegate.willTearPanel(_:at:)` and return `false` to prevent tearing.
 
-### Nested Desktop Hosts (Version 3)
+### Nested Stage Hosts (Version 3)
 
-Desktop hosts can be nested within other desktop hosts using the `.desktopHost` layout node type. This enables recursive virtual workspaces - for example, a "Coding" desktop containing a nested "Projects" desktop host with Project A, B, C workspaces.
+Stage hosts can be nested within other stage hosts using the `.stageHost` layout node type. This enables recursive virtual workspaces - for example, a "Coding" stage containing a nested "Projects" stage host with Project A, B, C workspaces.
 
 **Layout Structure:**
 ```swift
-// A desktop containing a nested desktop host
-Desktop(
+// A stage containing a nested stage host
+Stage(
     title: "Coding",
     layout: .split(SplitLayoutNode(
         axis: .vertical,
         children: [
-            .desktopHost(DesktopHostLayoutNode(  // Nested desktop host!
+            .stageHost(StageHostLayoutNode(  // Nested stage host!
                 title: "Projects",
-                desktops: [projectA, projectB, projectC]
+                stages: [projectA, projectB, projectC]
             )),
             .tabGroup(terminalGroup)
         ]
@@ -139,7 +139,7 @@ Desktop(
 ```
 
 **Gesture Bubbling:**
-When a user swipes to switch desktops, gestures are handled by the innermost desktop host first. When that container reaches its edge (first or last desktop), the gesture "bubbles up" to the parent desktop host:
+When a user swipes to switch stages, gestures are handled by the innermost stage host first. When that container reaches its edge (first or last stage), the gesture "bubbles up" to the parent stage host:
 
 1. User swipes left on nested "Project C" (last project)
 2. Nested container detects it's at the right edge
@@ -150,7 +150,7 @@ This creates an intuitive experience where inner workspaces are navigated first,
 
 **Key Components:**
 - `SwipeGestureDelegate` - Protocol for gesture bubbling between containers
-- `DockDesktopHostViewController` - Wraps nested host views with gesture delegation
+- `DockStageHostViewController` - Wraps nested host views with gesture delegation
 - `DockSplitViewController.swipeGestureDelegate` - Propagates delegate through split hierarchies
 
 ## Panel Lifecycle Callbacks
@@ -176,17 +176,17 @@ struct DockLayout: Codable {
 }
 ```
 
-### DesktopHostWindowState (Codable)
-The serializable state for desktop host windows:
+### StageHostWindowState (Codable)
+The serializable state for stage host windows:
 ```swift
-struct DesktopHostWindowState: Codable {
+struct StageHostWindowState: Codable {
     var frame: CGRect
-    var activeDesktopIndex: Int
-    var desktops: [Desktop]
+    var activeStageIndex: Int
+    var stages: [Stage]
 }
 ```
 
-These are separate because desktop hosts have fundamentally different structure (multiple layouts vs one).
+These are separate because stage hosts have fundamentally different structure (multiple layouts vs one).
 
 ## Key Implementation Notes
 
@@ -215,6 +215,6 @@ This allows the host app to persist panel-specific configuration alongside the l
 
 2. **Don't assume panel availability** - Always handle `panelProvider` returning `nil`. Panels may have been deleted, or the layout may reference stale IDs.
 
-3. **Don't mix window types carelessly** - `DockWindow` and `DockDesktopHostWindow` have different internal structures. Operations that work on one may not directly apply to the other.
+3. **Don't mix window types carelessly** - `DockWindow` and `DockStageHostWindow` have different internal structures. Operations that work on one may not directly apply to the other.
 
 4. **Remember the manager tracks windows** - When windows close, they notify the manager. Don't manually remove from arrays or you'll get double-free issues.

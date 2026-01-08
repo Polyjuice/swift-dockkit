@@ -1,36 +1,36 @@
 import AppKit
 import DockKit
 
-/// Wireframe desktop renderer - minimalist, barebone style
+/// Wireframe stage renderer - minimalist, barebone style
 /// Matches the WireframeTabRenderer aesthetic: bold font, black border, white background
-class WireframeDesktopRenderer: DockDesktopRenderer {
+class WireframeStageRenderer: DockStageRenderer {
 
     var headerHeight: CGFloat { 44 }
 
-    func createDesktopView(for desktop: Desktop, index: Int, isActive: Bool) -> DockDesktopView {
-        let view = WireframeDesktopView(desktop: desktop, index: index)
+    func createStageView(for stage: Stage, index: Int, isActive: Bool) -> DockStageView {
+        let view = WireframeStageView(stage: stage, index: index)
         view.setActive(isActive)
         return view
     }
 
-    func updateDesktopView(_ view: DockDesktopView, for desktop: Desktop, index: Int, isActive: Bool) {
-        (view as? WireframeDesktopView)?.setActive(isActive)
+    func updateStageView(_ view: DockStageView, for stage: Stage, index: Int, isActive: Bool) {
+        (view as? WireframeStageView)?.setActive(isActive)
     }
 
-    func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool, on view: DockDesktopView) {
-        (view as? WireframeDesktopView)?.setSwipeTarget(isTarget, swipeMode: swipeMode)
+    func setSwipeTarget(_ isTarget: Bool, swipeMode: Bool, on view: DockStageView) {
+        (view as? WireframeStageView)?.setSwipeTarget(isTarget, swipeMode: swipeMode)
     }
 
-    func setThumbnail(_ image: NSImage?, on view: DockDesktopView) {
+    func setThumbnail(_ image: NSImage?, on view: DockStageView) {
         // Wireframe doesn't use thumbnails - just text
     }
 }
 
-// MARK: - WireframeDesktopView
+// MARK: - WireframeStageView
 
-class WireframeDesktopView: NSView, DockDesktopView {
+class WireframeStageView: NSView, DockStageView {
     var onSelect: ((Int) -> Void)?
-    var desktopIndex: Int
+    var stageIndex: Int
 
     private var titleLabel: NSTextField!
     private var indexLabel: NSTextField!
@@ -38,17 +38,17 @@ class WireframeDesktopView: NSView, DockDesktopView {
     private var isSwipeTarget: Bool = false
     private var isHovering: Bool = false
 
-    init(desktop: Desktop, index: Int) {
-        self.desktopIndex = index
+    init(stage: Stage, index: Int) {
+        self.stageIndex = index
         super.init(frame: .zero)
-        setupUI(desktop: desktop, index: index)
+        setupUI(stage: stage, index: index)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setupUI(desktop: Desktop, index: Int) {
+    private func setupUI(stage: Stage, index: Int) {
         wantsLayer = true
         layer?.backgroundColor = NSColor.white.cgColor
         layer?.borderColor = NSColor.black.cgColor
@@ -66,7 +66,7 @@ class WireframeDesktopView: NSView, DockDesktopView {
         addSubview(indexLabel)
 
         // Title
-        titleLabel = NSTextField(labelWithString: (desktop.title ?? "DESKTOP").uppercased())
+        titleLabel = NSTextField(labelWithString: (stage.title ?? "DESKTOP").uppercased())
         titleLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
         titleLabel.textColor = .black
         titleLabel.alignment = .center
@@ -151,7 +151,7 @@ class WireframeDesktopView: NSView, DockDesktopView {
     override func mouseUp(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         if bounds.contains(location) {
-            onSelect?(desktopIndex)
+            onSelect?(stageIndex)
         }
         updateAppearance()
     }

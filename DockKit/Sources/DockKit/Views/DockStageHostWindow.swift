@@ -1,61 +1,61 @@
 import AppKit
 
-/// Delegate for desktop host window events
-public protocol DockDesktopHostWindowDelegate: AnyObject {
+/// Delegate for stage host window events
+public protocol DockStageHostWindowDelegate: AnyObject {
     /// Called when the window is closed
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didClose: Void)
+    func stageHostWindow(_ window: DockStageHostWindow, didClose: Void)
 
-    /// Called when the active desktop changes
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didSwitchToDesktopAt index: Int)
+    /// Called when the active stage changes
+    func stageHostWindow(_ window: DockStageHostWindow, didSwitchToStageAt index: Int)
 
     /// Called when a tab is received via drag
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
+    func stageHostWindow(_ window: DockStageHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
 
     /// Called before a panel is torn off. Return false to prevent tearing.
-    func desktopHostWindow(_ window: DockDesktopHostWindow, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool
+    func stageHostWindow(_ window: DockStageHostWindow, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool
 
     /// Called after a panel was torn off into a new window
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockDesktopHostWindow)
+    func stageHostWindow(_ window: DockStageHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow)
 
     /// Called when a split is requested
-    func desktopHostWindow(_ window: DockDesktopHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
+    func stageHostWindow(_ window: DockStageHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
 }
 
 /// Default implementations
-public extension DockDesktopHostWindowDelegate {
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didClose: Void) {}
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didSwitchToDesktopAt index: Int) {}
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
-    func desktopHostWindow(_ window: DockDesktopHostWindow, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool { true }
-    func desktopHostWindow(_ window: DockDesktopHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockDesktopHostWindow) {}
-    func desktopHostWindow(_ window: DockDesktopHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
+public extension DockStageHostWindowDelegate {
+    func stageHostWindow(_ window: DockStageHostWindow, didClose: Void) {}
+    func stageHostWindow(_ window: DockStageHostWindow, didSwitchToStageAt index: Int) {}
+    func stageHostWindow(_ window: DockStageHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
+    func stageHostWindow(_ window: DockStageHostWindow, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool { true }
+    func stageHostWindow(_ window: DockStageHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow) {}
+    func stageHostWindow(_ window: DockStageHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
 }
 
-/// A window that hosts multiple desktops with swipe gesture navigation
+/// A window that hosts multiple stages with swipe gesture navigation
 /// Structure:
 /// ┌─────────────────────────────────────────┐
-/// │  Desktop Header (selection UI)          │  ← Fixed height, shows desktop icons/titles
+/// │  Stage Header (selection UI)          │  ← Fixed height, shows stage icons/titles
 /// ├─────────────────────────────────────────┤
 /// │                                         │
-/// │       Desktop Container                 │  ← Shows active desktop's layout
+/// │       Stage Container                 │  ← Shows active stage's layout
 /// │       (animated transitions)            │
 /// │                                         │
 /// └─────────────────────────────────────────┘
-public class DockDesktopHostWindow: NSWindow {
+public class DockStageHostWindow: NSWindow {
 
     // MARK: - Properties
 
     /// Window ID for tracking
     public let windowId: UUID
 
-    /// The desktop host state
-    public private(set) var desktopHostState: DesktopHostWindowState
+    /// The stage host state
+    public private(set) var stageHostState: StageHostWindowState
 
     /// Reference to the layout manager
     public weak var layoutManager: DockLayoutManager?
 
     /// Delegate for window events
-    public weak var desktopDelegate: DockDesktopHostWindowDelegate?
+    public weak var stageDelegate: DockStageHostWindowDelegate?
 
     /// Panel provider for looking up panels by ID
     public var panelProvider: ((UUID) -> (any DockablePanel)?)?
@@ -63,11 +63,11 @@ public class DockDesktopHostWindow: NSWindow {
     /// Flag to suppress auto-close during reconciliation
     internal var suppressAutoClose: Bool = false
 
-    /// Display mode for tabs and desktop indicators
-    public var displayMode: DesktopDisplayMode {
-        get { desktopHostState.displayMode }
+    /// Display mode for tabs and stage indicators
+    public var displayMode: StageDisplayMode {
+        get { stageHostState.displayMode }
         set {
-            desktopHostState.displayMode = newValue
+            stageHostState.displayMode = newValue
             headerView?.displayMode = newValue
             // Update tab bars in container if needed
             containerView?.displayMode = newValue
@@ -77,18 +77,18 @@ public class DockDesktopHostWindow: NSWindow {
     // MARK: - Child Window Tracking
 
     /// Child windows spawned from panel tearing
-    public private(set) var spawnedWindows: [DockDesktopHostWindow] = []
+    public private(set) var spawnedWindows: [DockStageHostWindow] = []
 
     /// Parent window (if this window was spawned from tearing)
-    public private(set) weak var spawnerWindow: DockDesktopHostWindow?
+    public private(set) weak var spawnerWindow: DockStageHostWindow?
 
     // MARK: - Views
 
-    /// The header view showing desktop tabs
-    private var headerView: DockDesktopHeaderView!
+    /// The header view showing stage tabs
+    private var headerView: DockStageHeaderView!
 
-    /// The container view holding desktop content
-    private var containerView: DockDesktopContainerView!
+    /// The container view holding stage content
+    private var containerView: DockStageContainerView!
 
     /// Content view that holds header + container
     private var rootView: NSView!
@@ -100,13 +100,13 @@ public class DockDesktopHostWindow: NSWindow {
 
     public init(
         id: UUID = UUID(),
-        desktopHostState: DesktopHostWindowState,
+        stageHostState: StageHostWindowState,
         frame: NSRect,
         layoutManager: DockLayoutManager? = nil,
         panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
     ) {
         self.windowId = id
-        self.desktopHostState = desktopHostState
+        self.stageHostState = stageHostState
         self.layoutManager = layoutManager
         self.panelProvider = panelProvider
 
@@ -119,17 +119,17 @@ public class DockDesktopHostWindow: NSWindow {
 
         setupWindow()
         setupViews()
-        loadDesktops()
+        loadStages()
     }
 
     /// Convenience initializer for creating a window with a single panel
-    /// Used when tearing a panel off to create a new desktop host
+    /// Used when tearing a panel off to create a new stage host
     public convenience init(
         singlePanel panel: any DockablePanel,
         at screenPoint: NSPoint,
         panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
     ) {
-        // Create a single desktop with the panel
+        // Create a single stage with the panel
         let tabState = TabLayoutState(
             id: panel.panelId,
             title: panel.panelTitle,
@@ -139,7 +139,7 @@ public class DockDesktopHostWindow: NSWindow {
             tabs: [tabState],
             activeTabIndex: 0
         )
-        let desktop = Desktop(
+        let stage = Stage(
             title: panel.panelTitle,
             iconName: nil,
             layout: .tabGroup(tabGroup)
@@ -154,14 +154,14 @@ public class DockDesktopHostWindow: NSWindow {
             height: size.height
         )
 
-        let state = DesktopHostWindowState(
+        let state = StageHostWindowState(
             frame: frame,
-            activeDesktopIndex: 0,
-            desktops: [desktop]
+            activeStageIndex: 0,
+            stages: [stage]
         )
 
         self.init(
-            desktopHostState: state,
+            stageHostState: state,
             frame: frame,
             panelProvider: panelProvider
         )
@@ -178,6 +178,9 @@ public class DockDesktopHostWindow: NSWindow {
         // Extend content under title bar - header view becomes the title bar area
         styleMask.insert(.fullSizeContentView)
 
+        // Enable full screen support
+        collectionBehavior = [.fullScreenPrimary, .managed]
+
         // No toolbar - the header view contains all controls
         self.toolbar = nil
 
@@ -193,19 +196,19 @@ public class DockDesktopHostWindow: NSWindow {
         contentView = rootView
 
         // Header view
-        headerView = DockDesktopHeaderView()
+        headerView = DockStageHeaderView()
         headerView.delegate = self
         headerView.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(headerView)
 
         // Container view
-        containerView = DockDesktopContainerView()
+        containerView = DockStageContainerView()
         containerView.delegate = self
         containerView.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(containerView)
 
         // Default to thumbnail mode height
-        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockDesktopHeaderView.thumbnailHeaderHeight)
+        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockStageHeaderView.thumbnailHeaderHeight)
 
         NSLayoutConstraint.activate([
             headerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
@@ -220,62 +223,62 @@ public class DockDesktopHostWindow: NSWindow {
         ])
     }
 
-    private func loadDesktops() {
-        headerView.setDesktops(desktopHostState.desktops, activeIndex: desktopHostState.activeDesktopIndex)
-        containerView.setDesktops(desktopHostState.desktops, activeIndex: desktopHostState.activeDesktopIndex)
+    private func loadStages() {
+        headerView.setStages(stageHostState.stages, activeIndex: stageHostState.activeStageIndex)
+        containerView.setStages(stageHostState.stages, activeIndex: stageHostState.activeStageIndex)
 
         // Capture thumbnails after a brief delay (for initial thumbnail mode)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self = self else { return }
-            let thumbnails = self.containerView.captureDesktopThumbnails()
+            let thumbnails = self.containerView.captureStageThumbnails()
             self.headerView.setThumbnails(thumbnails)
         }
     }
 
     // MARK: - Public API
 
-    /// Get the active desktop's root node
-    public var activeDesktopRootNode: DockNode? {
-        guard desktopHostState.activeDesktopIndex >= 0 &&
-              desktopHostState.activeDesktopIndex < desktopHostState.desktops.count else {
+    /// Get the active stage's root node
+    public var activeStageRootNode: DockNode? {
+        guard stageHostState.activeStageIndex >= 0 &&
+              stageHostState.activeStageIndex < stageHostState.stages.count else {
             return nil
         }
 
-        let layout = desktopHostState.desktops[desktopHostState.activeDesktopIndex].layout
+        let layout = stageHostState.stages[stageHostState.activeStageIndex].layout
         return convertLayoutNodeToDockNode(layout)
     }
 
-    /// Switch to a specific desktop
+    /// Switch to a specific stage
     /// Note: This is a local view state change, not a layout mutation.
     /// We update the state directly since switching doesn't add/remove panels.
-    public func switchToDesktop(at index: Int, animated: Bool = true) {
-        guard index >= 0 && index < desktopHostState.desktops.count else { return }
-        guard index != desktopHostState.activeDesktopIndex else { return }
+    public func switchToStage(at index: Int, animated: Bool = true) {
+        guard index >= 0 && index < stageHostState.stages.count else { return }
+        guard index != stageHostState.activeStageIndex else { return }
 
-        desktopHostState.activeDesktopIndex = index
-        containerView.switchToDesktop(at: index, animated: animated)
+        stageHostState.activeStageIndex = index
+        containerView.switchToStage(at: index, animated: animated)
         headerView.setActiveIndex(index)
         updateTitle()
     }
 
-    /// Update the desktop state (for reconciliation)
-    public func updateDesktopHostState(_ state: DesktopHostWindowState) {
-        let activeIndexChanged = desktopHostState.activeDesktopIndex != state.activeDesktopIndex
-        let desktopCountChanged = desktopHostState.desktops.count != state.desktops.count
+    /// Update the stage state (for reconciliation)
+    public func updateStageHostState(_ state: StageHostWindowState) {
+        let activeIndexChanged = stageHostState.activeStageIndex != state.activeStageIndex
+        let stageCountChanged = stageHostState.stages.count != state.stages.count
 
-        desktopHostState = state
-        headerView.setDesktops(state.desktops, activeIndex: state.activeDesktopIndex)
-        containerView.setDesktops(state.desktops, activeIndex: state.activeDesktopIndex)
+        stageHostState = state
+        headerView.setStages(state.stages, activeIndex: state.activeStageIndex)
+        containerView.setStages(state.stages, activeIndex: state.activeStageIndex)
 
-        if activeIndexChanged || desktopCountChanged {
+        if activeIndexChanged || stageCountChanged {
             updateTitle()
         }
 
         // Recapture thumbnails after views are rebuilt (if in thumbnail mode)
-        if desktopCountChanged && state.displayMode == .thumbnails {
+        if stageCountChanged && state.displayMode == .thumbnails {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
-                let thumbnails = self.containerView.captureDesktopThumbnails()
+                let thumbnails = self.containerView.captureStageThumbnails()
                 self.headerView.setThumbnails(thumbnails)
             }
         }
@@ -283,71 +286,71 @@ public class DockDesktopHostWindow: NSWindow {
 
     /// Check if window contains a specific panel
     public func containsPanel(_ panelId: UUID) -> Bool {
-        for desktop in desktopHostState.desktops {
-            if containsPanel(panelId, in: desktop.layout) {
+        for stage in stageHostState.stages {
+            if containsPanel(panelId, in: stage.layout) {
                 return true
             }
         }
         return false
     }
 
-    /// Check if window is empty (all desktops have no panels)
+    /// Check if window is empty (all stages have no panels)
     public var isEmpty: Bool {
-        return desktopHostState.desktops.allSatisfy { $0.layout.isEmpty }
+        return stageHostState.stages.allSatisfy { $0.layout.isEmpty }
     }
 
-    /// Add a new empty desktop
+    /// Add a new empty stage
     /// This creates a new state and sends it through the reconciler
     @discardableResult
-    public func addNewDesktop(title: String? = nil, iconName: String? = nil) -> Desktop {
-        let desktopNumber = desktopHostState.desktops.count + 1
-        let desktop = Desktop(
-            title: title ?? "Desktop \(desktopNumber)",
+    public func addNewStage(title: String? = nil, iconName: String? = nil) -> Stage {
+        let stageNumber = stageHostState.stages.count + 1
+        let stage = Stage(
+            title: title ?? "Stage \(stageNumber)",
             iconName: iconName,
             layout: .tabGroup(TabGroupLayoutNode())  // Empty tab group
         )
 
         // Create new state (immutable update pattern)
-        var newState = desktopHostState
-        newState.desktops.append(desktop)
-        newState.activeDesktopIndex = newState.desktops.count - 1
+        var newState = stageHostState
+        newState.stages.append(stage)
+        newState.activeStageIndex = newState.stages.count - 1
 
         // Send through reconciler
-        updateDesktopHostState(newState)
+        updateStageHostState(newState)
 
-        return desktop
+        return stage
     }
 
     // MARK: - Title
 
     public func updateTitle() {
-        guard desktopHostState.activeDesktopIndex >= 0 &&
-              desktopHostState.activeDesktopIndex < desktopHostState.desktops.count else {
-            title = "Desktop"
+        guard stageHostState.activeStageIndex >= 0 &&
+              stageHostState.activeStageIndex < stageHostState.stages.count else {
+            title = "Stage"
             return
         }
 
-        let desktop = desktopHostState.desktops[desktopHostState.activeDesktopIndex]
-        if let desktopTitle = desktop.title {
-            title = desktopTitle
+        let stage = stageHostState.stages[stageHostState.activeStageIndex]
+        if let stageTitle = stage.title {
+            title = stageTitle
         } else {
-            title = "Desktop \(desktopHostState.activeDesktopIndex + 1)"
+            title = "Stage \(stageHostState.activeStageIndex + 1)"
         }
     }
 
     // MARK: - Panel Removal
 
-    /// Remove a panel from any desktop in this window
+    /// Remove a panel from any stage in this window
     @discardableResult
     public func removePanel(_ panelId: UUID) -> Bool {
-        for i in 0..<desktopHostState.desktops.count {
-            var desktop = desktopHostState.desktops[i]
+        for i in 0..<stageHostState.stages.count {
+            var stage = stageHostState.stages[i]
             var modified = false
-            desktop.layout = desktop.layout.removingTab(panelId, modified: &modified)
+            stage.layout = stage.layout.removingTab(panelId, modified: &modified)
             if modified {
-                desktopHostState.desktops[i] = desktop
-                if i == desktopHostState.activeDesktopIndex {
-                    containerView.updateDesktopLayout(desktop.layout, forDesktopAt: i)
+                stageHostState.stages[i] = stage
+                if i == stageHostState.activeStageIndex {
+                    containerView.updateStageLayout(stage.layout, forStageAt: i)
                 }
                 return true
             }
@@ -355,30 +358,30 @@ public class DockDesktopHostWindow: NSWindow {
         return false
     }
 
-    /// Remove a tab from the currently active desktop
-    private func removeTabFromCurrentDesktop(_ tabId: UUID) {
-        guard desktopHostState.activeDesktopIndex < desktopHostState.desktops.count else { return }
+    /// Remove a tab from the currently active stage
+    private func removeTabFromCurrentStage(_ tabId: UUID) {
+        guard stageHostState.activeStageIndex < stageHostState.stages.count else { return }
 
-        var desktop = desktopHostState.desktops[desktopHostState.activeDesktopIndex]
+        var stage = stageHostState.stages[stageHostState.activeStageIndex]
         var modified = false
-        desktop.layout = desktop.layout.removingTab(tabId, modified: &modified)
+        stage.layout = stage.layout.removingTab(tabId, modified: &modified)
 
         if modified {
-            desktopHostState.desktops[desktopHostState.activeDesktopIndex] = desktop
-            containerView.updateDesktopLayout(desktop.layout, forDesktopAt: desktopHostState.activeDesktopIndex)
+            stageHostState.stages[stageHostState.activeStageIndex] = stage
+            containerView.updateStageLayout(stage.layout, forStageAt: stageHostState.activeStageIndex)
         }
     }
 
     // MARK: - Child Window Management
 
     /// Add a spawned child window (called internally during tearing)
-    private func addSpawnedWindow(_ child: DockDesktopHostWindow) {
+    private func addSpawnedWindow(_ child: DockStageHostWindow) {
         spawnedWindows.append(child)
         child.spawnerWindow = self
     }
 
     /// Remove a spawned child window (called when child closes)
-    internal func removeSpawnedWindow(_ child: DockDesktopHostWindow) {
+    internal func removeSpawnedWindow(_ child: DockStageHostWindow) {
         spawnedWindows.removeAll { $0.windowId == child.windowId }
     }
 
@@ -410,7 +413,7 @@ public class DockDesktopHostWindow: NSWindow {
         }
         spawnedWindows.removeAll()
 
-        desktopDelegate?.desktopHostWindow(self, didClose: ())
+        stageDelegate?.stageHostWindow(self, didClose: ())
         layoutManager?.windowDidClose(self)
         super.close()
     }
@@ -423,8 +426,8 @@ public class DockDesktopHostWindow: NSWindow {
             return tabGroup.tabs.contains { $0.id == panelId }
         case .split(let split):
             return split.children.contains { containsPanel(panelId, in: $0) }
-        case .desktopHost(let desktopHost):
-            return desktopHost.desktops.contains { containsPanel(panelId, in: $0.layout) }
+        case .stageHost(let stageHost):
+            return stageHost.stages.contains { containsPanel(panelId, in: $0.layout) }
         }
     }
 
@@ -460,31 +463,31 @@ public class DockDesktopHostWindow: NSWindow {
                 displayMode: tabGroupLayout.displayMode
             ))
 
-        case .desktopHost(let desktopHostLayout):
-            return .desktopHost(DesktopHostNode(from: desktopHostLayout))
+        case .stageHost(let stageHostLayout):
+            return .stageHost(StageHostNode(from: stageHostLayout))
         }
     }
 }
 
-// MARK: - DockDesktopHeaderViewDelegate
+// MARK: - DockStageHeaderViewDelegate
 
-extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
-    public func desktopHeader(_ header: DockDesktopHeaderView, didSelectDesktopAt index: Int) {
-        switchToDesktop(at: index, animated: true)
-        desktopDelegate?.desktopHostWindow(self, didSwitchToDesktopAt: index)
+extension DockStageHostWindow: DockStageHeaderViewDelegate {
+    public func stageHeader(_ header: DockStageHeaderView, didSelectStageAt index: Int) {
+        switchToStage(at: index, animated: true)
+        stageDelegate?.stageHostWindow(self, didSwitchToStageAt: index)
     }
 
-    public func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool) {
+    public func stageHeader(_ header: DockStageHeaderView, didToggleSlowMotion enabled: Bool) {
         containerView.slowMotionEnabled = enabled
     }
 
-    public func desktopHeader(_ header: DockDesktopHeaderView, didToggleThumbnailMode enabled: Bool) {
+    public func stageHeader(_ header: DockStageHeaderView, didToggleThumbnailMode enabled: Bool) {
         // Set thumbnail mode on header and get new height
         let newHeight = headerView.setThumbnailMode(enabled)
 
         // Capture and set thumbnails if enabling
         if enabled {
-            let thumbnails = containerView.captureDesktopThumbnails()
+            let thumbnails = containerView.captureStageThumbnails()
             headerView.setThumbnails(thumbnails)
         }
 
@@ -497,46 +500,46 @@ extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
         }
     }
 
-    public func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView) {
-        addNewDesktop()
+    public func stageHeaderDidRequestNewStage(_ header: DockStageHeaderView) {
+        addNewStage()
     }
 
-    public func desktopHeader(_ header: DockDesktopHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onDesktopAt targetIndex: Int) {
-        // Find which desktop contains the source tab
-        var sourceDesktopIndex: Int? = nil
-        for (index, desktop) in desktopHostState.desktops.enumerated() {
-            if containsTab(tabInfo.tabId, in: desktop.layout) {
-                sourceDesktopIndex = index
+    public func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt targetIndex: Int) {
+        // Find which stage contains the source tab
+        var sourceStageIndex: Int? = nil
+        for (index, stage) in stageHostState.stages.enumerated() {
+            if containsTab(tabInfo.tabId, in: stage.layout) {
+                sourceStageIndex = index
                 break
             }
         }
 
-        guard let srcIndex = sourceDesktopIndex else {
+        guard let srcIndex = sourceStageIndex else {
             return
         }
 
-        // Don't drop on the same desktop
+        // Don't drop on the same stage
         guard srcIndex != targetIndex else {
             return
         }
 
         // Create new state with tab moved
-        var newState = desktopHostState
+        var newState = stageHostState
 
-        // Remove tab from source desktop
-        guard let (tabState, newSourceLayout) = removeTab(tabInfo.tabId, from: newState.desktops[srcIndex].layout) else {
+        // Remove tab from source stage
+        guard let (tabState, newSourceLayout) = removeTab(tabInfo.tabId, from: newState.stages[srcIndex].layout) else {
             return
         }
-        newState.desktops[srcIndex].layout = newSourceLayout
+        newState.stages[srcIndex].layout = newSourceLayout
 
-        // Add tab to target desktop
-        newState.desktops[targetIndex].layout = addTab(tabState, to: newState.desktops[targetIndex].layout)
+        // Add tab to target stage
+        newState.stages[targetIndex].layout = addTab(tabState, to: newState.stages[targetIndex].layout)
 
-        // Switch to target desktop
-        newState.activeDesktopIndex = targetIndex
+        // Switch to target stage
+        newState.activeStageIndex = targetIndex
 
         // Update through reconciler
-        updateDesktopHostState(newState)
+        updateStageHostState(newState)
     }
 
     // MARK: - Layout Helpers
@@ -547,8 +550,8 @@ extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
             return tabGroup.tabs.contains { $0.id == tabId }
         case .split(let split):
             return split.children.contains { containsTab(tabId, in: $0) }
-        case .desktopHost(let desktopHost):
-            return desktopHost.desktops.contains { containsTab(tabId, in: $0.layout) }
+        case .stageHost(let stageHost):
+            return stageHost.stages.contains { containsTab(tabId, in: $0.layout) }
         }
     }
 
@@ -572,11 +575,11 @@ extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
                 }
             }
             return nil
-        case .desktopHost(var desktopHost):
-            for (i, desktop) in desktopHost.desktops.enumerated() {
-                if let (tab, newLayout) = removeTab(tabId, from: desktop.layout) {
-                    desktopHost.desktops[i].layout = newLayout
-                    return (tab, .desktopHost(desktopHost))
+        case .stageHost(var stageHost):
+            for (i, stage) in stageHost.stages.enumerated() {
+                if let (tab, newLayout) = removeTab(tabId, from: stage.layout) {
+                    stageHost.stages[i].layout = newLayout
+                    return (tab, .stageHost(stageHost))
                 }
             }
             return nil
@@ -595,70 +598,70 @@ extension DockDesktopHostWindow: DockDesktopHeaderViewDelegate {
                 split.children[0] = addTab(tab, to: split.children[0])
             }
             return .split(split)
-        case .desktopHost(var desktopHost):
-            // Add to the active desktop
-            if !desktopHost.desktops.isEmpty {
-                let activeIndex = min(desktopHost.activeDesktopIndex, desktopHost.desktops.count - 1)
-                desktopHost.desktops[activeIndex].layout = addTab(tab, to: desktopHost.desktops[activeIndex].layout)
+        case .stageHost(var stageHost):
+            // Add to the active stage
+            if !stageHost.stages.isEmpty {
+                let activeIndex = min(stageHost.activeStageIndex, stageHost.stages.count - 1)
+                stageHost.stages[activeIndex].layout = addTab(tab, to: stageHost.stages[activeIndex].layout)
             }
-            return .desktopHost(desktopHost)
+            return .stageHost(stageHost)
         }
     }
 }
 
-// MARK: - DockDesktopContainerViewDelegate
+// MARK: - DockStageContainerViewDelegate
 
-extension DockDesktopHostWindow: DockDesktopContainerViewDelegate {
-    public func desktopContainer(_ container: DockDesktopContainerView, didBeginSwipingTo index: Int) {
-        headerView.highlightDesktop(at: index)
+extension DockStageHostWindow: DockStageContainerViewDelegate {
+    public func stageContainer(_ container: DockStageContainerView, didBeginSwipingTo index: Int) {
+        headerView.highlightStage(at: index)
     }
 
-    public func desktopContainer(_ container: DockDesktopContainerView, didSwitchTo index: Int) {
-        // This is a user gesture completing - update state to reflect the new active desktop.
+    public func stageContainer(_ container: DockStageContainerView, didSwitchTo index: Int) {
+        // This is a user gesture completing - update state to reflect the new active stage.
         // This is a view state sync, not a layout mutation requiring reconciliation.
-        desktopHostState.activeDesktopIndex = index
+        stageHostState.activeStageIndex = index
         headerView.clearSwipeHighlight()
         headerView.setActiveIndex(index)
         updateTitle()
-        desktopDelegate?.desktopHostWindow(self, didSwitchToDesktopAt: index)
+        stageDelegate?.stageHostWindow(self, didSwitchToStageAt: index)
     }
 
-    public func desktopContainer(_ container: DockDesktopContainerView, panelForId id: UUID) -> (any DockablePanel)? {
+    public func stageContainer(_ container: DockStageContainerView, panelForId id: UUID) -> (any DockablePanel)? {
         return panelProvider?(id)
     }
 
-    public func desktopContainer(_ container: DockDesktopContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
-        // Get the current desktop's layout
-        guard desktopHostState.activeDesktopIndex < desktopHostState.desktops.count else { return }
+    public func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
+        // Get the current stage's layout
+        guard stageHostState.activeStageIndex < stageHostState.stages.count else { return }
 
-        var desktop = desktopHostState.desktops[desktopHostState.activeDesktopIndex]
+        var stage = stageHostState.stages[stageHostState.activeStageIndex]
         let targetGroupId = tabGroup.tabGroupNode.id
 
         // Use layout mutation to move the tab
-        let newLayout = desktop.layout.movingTab(tabInfo.tabId, toGroupId: targetGroupId, at: index)
-        desktop.layout = newLayout
-        desktopHostState.desktops[desktopHostState.activeDesktopIndex] = desktop
+        let newLayout = stage.layout.movingTab(tabInfo.tabId, toGroupId: targetGroupId, at: index)
+        stage.layout = newLayout
+        stageHostState.stages[stageHostState.activeStageIndex] = stage
 
-        // Rebuild the desktop view
-        containerView.updateDesktopLayout(newLayout, forDesktopAt: desktopHostState.activeDesktopIndex)
+        // Rebuild the stage view
+        containerView.updateStageLayout(newLayout, forStageAt: stageHostState.activeStageIndex)
     }
 
-    public func desktopContainer(_ container: DockDesktopContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {
+    public func stageContainer(_ container: DockStageContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {
         // Get the panel
         guard let panel = tab.panel ?? panelProvider?(tab.id) else { return }
 
         // Check if delegate allows tearing (default: yes)
-        let allowTear = desktopDelegate?.desktopHostWindow(self, willTearPanel: panel, at: screenPoint) ?? true
+        let allowTear = stageDelegate?.stageHostWindow(self, willTearPanel: panel, at: screenPoint) ?? true
         guard allowTear else { return }
 
         // Notify panel it's about to detach
         panel.panelWillDetach()
 
-        // Remove from current desktop
-        removeTabFromCurrentDesktop(tab.id)
+        // Remove from current stage
+        removeTabFromCurrentStage(tab.id)
 
-        // Create new desktop host window with the panel
-        let childWindow = DockDesktopHostWindow(
+        // Create new stage host window with the panel
+        let childWindow = DockStageHostWindow(
             singlePanel: panel,
             at: screenPoint,
             panelProvider: panelProvider
@@ -674,14 +677,14 @@ extension DockDesktopHostWindow: DockDesktopContainerViewDelegate {
         panel.panelDidDock(at: .floating)
 
         // Notify delegate
-        desktopDelegate?.desktopHostWindow(self, didTearPanel: panel, to: childWindow)
+        stageDelegate?.stageHostWindow(self, didTearPanel: panel, to: childWindow)
     }
 
-    public func desktopContainer(_ container: DockDesktopContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
-        // Get the current desktop's layout
-        guard desktopHostState.activeDesktopIndex < desktopHostState.desktops.count else { return }
+    public func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
+        // Get the current stage's layout
+        guard stageHostState.activeStageIndex < stageHostState.stages.count else { return }
 
-        var desktop = desktopHostState.desktops[desktopHostState.activeDesktopIndex]
+        var stage = stageHostState.stages[stageHostState.activeStageIndex]
         let targetGroupId = tabGroup.tabGroupNode.id
 
         // Create tab state from DockTab
@@ -693,15 +696,15 @@ extension DockDesktopHostWindow: DockDesktopContainerViewDelegate {
         )
 
         // Use layout mutation to perform the split
-        let newLayout = desktop.layout.splitting(
+        let newLayout = stage.layout.splitting(
             groupId: targetGroupId,
             direction: direction,
             withTab: tabState
         )
-        desktop.layout = newLayout
-        desktopHostState.desktops[desktopHostState.activeDesktopIndex] = desktop
+        stage.layout = newLayout
+        stageHostState.stages[stageHostState.activeStageIndex] = stage
 
-        // Rebuild the desktop view
-        containerView.updateDesktopLayout(newLayout, forDesktopAt: desktopHostState.activeDesktopIndex)
+        // Rebuild the stage view
+        containerView.updateStageLayout(newLayout, forStageAt: stageHostState.activeStageIndex)
     }
 }

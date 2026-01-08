@@ -3,25 +3,25 @@ import DockKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var desktopWindow: DockDesktopHostWindow?
+    private var stageWindow: DockStageHostWindow?
     private var panelRegistry: [UUID: any DockablePanel] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
-        createDesktopHostWindow()
+        createStageHostWindow()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
 
-    // MARK: - Desktop Host Window Setup
+    // MARK: - Stage Host Window Setup
 
-    private func createDesktopHostWindow() {
-        // Create panels for each desktop
-        let codingPanels = createCodingDesktopPanels()
-        let designPanels = createDesignDesktopPanels()
-        let notesPanels = createNotesDesktopPanels()
+    private func createStageHostWindow() {
+        // Create panels for each stage
+        let codingPanels = createCodingStagePanels()
+        let designPanels = createDesignStagePanels()
+        let notesPanels = createNotesStagePanels()
         let nestedProjectPanels = createNestedProjectPanels()
 
         // Register all panels
@@ -29,37 +29,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panelRegistry[panel.panelId] = panel
         }
 
-        // Create nested desktop host for Projects (Version 3 feature)
+        // Create nested stage host for Projects (Version 3 feature)
         let nestedProjectsHost = createNestedProjectsHost(with: nestedProjectPanels)
 
-        // Create desktop layouts
-        let codingDesktop = createCodingDesktop(with: codingPanels, nestedProjectsHost: nestedProjectsHost)
-        let designDesktop = createDesignDesktop(with: designPanels)
-        let notesDesktop = createNotesDesktop(with: notesPanels)
+        // Create stage layouts
+        let codingStage = createCodingStage(with: codingPanels, nestedProjectsHost: nestedProjectsHost)
+        let designStage = createDesignStage(with: designPanels)
+        let notesStage = createNotesStage(with: notesPanels)
 
-        // Create the desktop host state
-        let desktopHostState = DesktopHostWindowState(
+        // Create the stage host state
+        let stageHostState = StageHostWindowState(
             frame: NSRect(x: 100, y: 100, width: 1200, height: 800),
-            activeDesktopIndex: 0,
-            desktops: [codingDesktop, designDesktop, notesDesktop]
+            activeStageIndex: 0,
+            stages: [codingStage, designStage, notesStage]
         )
 
         // Create the window with panel provider available during init
-        desktopWindow = DockDesktopHostWindow(
-            desktopHostState: desktopHostState,
-            frame: desktopHostState.frame,
+        stageWindow = DockStageHostWindow(
+            stageHostState: stageHostState,
+            frame: stageHostState.frame,
             panelProvider: { [weak self] id in
                 self?.panelRegistry[id]
             }
         )
 
-        desktopWindow?.center()
-        desktopWindow?.makeKeyAndOrderFront(nil)
+        // Enable full screen support
+        stageWindow?.collectionBehavior = [.fullScreenPrimary, .managed]
+
+        stageWindow?.center()
+        stageWindow?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - Panel Creation
 
-    private func createCodingDesktopPanels() -> [any DockablePanel] {
+    private func createCodingStagePanels() -> [any DockablePanel] {
         return [
             FileExplorerPanel(),
             CodeEditorPanel(filename: "main.swift"),
@@ -70,7 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
-    /// Create panels for the nested "Projects" desktop host inside Coding desktop
+    /// Create panels for the nested "Projects" stage host inside Coding stage
     private func createNestedProjectPanels() -> [any DockablePanel] {
         return [
             // Project A panels
@@ -85,7 +88,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
-    private func createDesignDesktopPanels() -> [any DockablePanel] {
+    private func createDesignStagePanels() -> [any DockablePanel] {
         return [
             CanvasPanel(name: "Homepage Design"),
             CanvasPanel(name: "Mobile Layout"),
@@ -95,7 +98,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
-    private func createNotesDesktopPanels() -> [any DockablePanel] {
+    private func createNotesStagePanels() -> [any DockablePanel] {
         return [
             NotesListPanel(),
             NoteEditorPanel(title: "Meeting Notes"),
@@ -104,10 +107,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
-    // MARK: - Nested Desktop Host Creation (Version 3 Feature)
+    // MARK: - Nested Stage Host Creation (Version 3 Feature)
 
-    /// Create a nested desktop host containing multiple project workspaces
-    private func createNestedProjectsHost(with panels: [any DockablePanel]) -> DesktopHostLayoutNode {
+    /// Create a nested stage host containing multiple project workspaces
+    private func createNestedProjectsHost(with panels: [any DockablePanel]) -> StageHostLayoutNode {
         // Project A: editor + terminal
         let projectAEditor = panels[0]
         let projectATerminal = panels[1]
@@ -162,25 +165,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             proportions: [0.7, 0.3]
         )
 
-        // Create nested desktops for each project
-        let projectDesktops = [
-            Desktop(title: "Project A", iconName: "a.circle.fill", layout: .split(projectALayout)),
-            Desktop(title: "Project B", iconName: "b.circle.fill", layout: .split(projectBLayout)),
-            Desktop(title: "Project C", iconName: "c.circle.fill", layout: .split(projectCLayout))
+        // Create nested stages for each project
+        let projectStages = [
+            Stage(title: "Project A", iconName: "a.circle.fill", layout: .split(projectALayout)),
+            Stage(title: "Project B", iconName: "b.circle.fill", layout: .split(projectBLayout)),
+            Stage(title: "Project C", iconName: "c.circle.fill", layout: .split(projectCLayout))
         ]
 
-        return DesktopHostLayoutNode(
+        return StageHostLayoutNode(
             title: "Projects",
             iconName: "folder.fill.badge.gearshape",
-            activeDesktopIndex: 0,
-            desktops: projectDesktops,
+            activeStageIndex: 0,
+            stages: projectStages,
             displayMode: .thumbnails
         )
     }
 
-    // MARK: - Desktop Layout Creation
+    // MARK: - Stage Layout Creation
 
-    private func createCodingDesktop(with panels: [any DockablePanel], nestedProjectsHost: DesktopHostLayoutNode) -> Desktop {
+    private func createCodingStage(with panels: [any DockablePanel], nestedProjectsHost: StageHostLayoutNode) -> Stage {
         // Layout: [Explorer | [Nested Projects Host] / [Terminal, Console]] | Git
         // The nested projects host replaces the editor tabs, showing a swipeable workspace
         let explorer = panels[0]
@@ -207,12 +210,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             activeTabIndex: 0
         )
 
-        // Center area: Nested desktop host on top, terminal/console on bottom
+        // Center area: Nested stage host on top, terminal/console on bottom
         // The nested host allows swiping between Project A, B, C workspaces
         let centerArea = SplitLayoutNode(
             axis: .vertical,
             children: [
-                .desktopHost(nestedProjectsHost),  // Version 3: Nested desktop host!
+                .stageHost(nestedProjectsHost),  // Version 3: Nested stage host!
                 .tabGroup(bottomGroup)
             ],
             proportions: [0.7, 0.3]
@@ -229,14 +232,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             proportions: [0.2, 0.6, 0.2]
         )
 
-        return Desktop(
+        return Stage(
             title: "Coding",
             iconName: "chevron.left.forwardslash.chevron.right",
             layout: .split(mainSplit)
         )
     }
 
-    private func createDesignDesktop(with panels: [any DockablePanel]) -> Desktop {
+    private func createDesignStage(with panels: [any DockablePanel]) -> Stage {
         // Layout: [Layers | [Canvas1, Canvas2] | Colors / Assets]
         let canvas1 = panels[0]
         let canvas2 = panels[1]
@@ -288,14 +291,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             proportions: [0.15, 0.65, 0.2]
         )
 
-        return Desktop(
+        return Stage(
             title: "Design",
             iconName: "paintbrush.fill",
             layout: .split(mainSplit)
         )
     }
 
-    private func createNotesDesktop(with panels: [any DockablePanel]) -> Desktop {
+    private func createNotesStage(with panels: [any DockablePanel]) -> Stage {
         // Layout: [Notes List | [Note Editor 1, Note Editor 2] | Tags]
         let notesList = panels[0]
         let noteEditor1 = panels[1]
@@ -331,7 +334,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             proportions: [0.2, 0.6, 0.2]
         )
 
-        return Desktop(
+        return Stage(
             title: "Notes",
             iconName: "note.text",
             layout: .split(mainSplit)
@@ -348,21 +351,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
         appMenuItem.submenu = appMenu
-        appMenu.addItem(withTitle: "About Desktop Demo", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "About Stage Demo", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: "Quit Desktop Demo", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit Stage Demo", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
-        // Desktop menu
-        let desktopMenuItem = NSMenuItem()
-        mainMenu.addItem(desktopMenuItem)
-        let desktopMenu = NSMenu(title: "Desktop")
-        desktopMenuItem.submenu = desktopMenu
-        desktopMenu.addItem(withTitle: "Switch to Coding", action: #selector(switchToCoding(_:)), keyEquivalent: "1")
-        desktopMenu.addItem(withTitle: "Switch to Design", action: #selector(switchToDesign(_:)), keyEquivalent: "2")
-        desktopMenu.addItem(withTitle: "Switch to Notes", action: #selector(switchToNotes(_:)), keyEquivalent: "3")
-        desktopMenu.addItem(NSMenuItem.separator())
-        desktopMenu.addItem(withTitle: "Previous Desktop", action: #selector(previousDesktop(_:)), keyEquivalent: "[")
-        desktopMenu.addItem(withTitle: "Next Desktop", action: #selector(nextDesktop(_:)), keyEquivalent: "]")
+        // Stage menu
+        let stageMenuItem = NSMenuItem()
+        mainMenu.addItem(stageMenuItem)
+        let stageMenu = NSMenu(title: "Stage")
+        stageMenuItem.submenu = stageMenu
+        stageMenu.addItem(withTitle: "Switch to Coding", action: #selector(switchToCoding(_:)), keyEquivalent: "1")
+        stageMenu.addItem(withTitle: "Switch to Design", action: #selector(switchToDesign(_:)), keyEquivalent: "2")
+        stageMenu.addItem(withTitle: "Switch to Notes", action: #selector(switchToNotes(_:)), keyEquivalent: "3")
+        stageMenu.addItem(NSMenuItem.separator())
+        stageMenu.addItem(withTitle: "Previous Stage", action: #selector(previousStage(_:)), keyEquivalent: "[")
+        stageMenu.addItem(withTitle: "Next Stage", action: #selector(nextStage(_:)), keyEquivalent: "]")
 
         // Window menu
         let windowMenuItem = NSMenuItem()
@@ -388,11 +391,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(helpMenuItem)
         let helpMenu = NSMenu(title: "Help")
         helpMenuItem.submenu = helpMenu
-        helpMenu.addItem(withTitle: "Swipe left/right to switch desktops", action: nil, keyEquivalent: "")
-        helpMenu.addItem(withTitle: "Click header buttons to switch desktops", action: nil, keyEquivalent: "")
+        helpMenu.addItem(withTitle: "Swipe left/right to switch stages", action: nil, keyEquivalent: "")
+        helpMenu.addItem(withTitle: "Click header buttons to switch stages", action: nil, keyEquivalent: "")
         helpMenu.addItem(NSMenuItem.separator())
-        helpMenu.addItem(withTitle: "Version 3: Nested Desktops", action: nil, keyEquivalent: "")
-        helpMenu.addItem(withTitle: "  • The Coding desktop contains a nested 'Projects' host", action: nil, keyEquivalent: "")
+        helpMenu.addItem(withTitle: "Version 3: Nested Stages", action: nil, keyEquivalent: "")
+        helpMenu.addItem(withTitle: "  • The Coding stage contains a nested 'Projects' host", action: nil, keyEquivalent: "")
         helpMenu.addItem(withTitle: "  • Swipe inside the nested area to switch projects", action: nil, keyEquivalent: "")
         helpMenu.addItem(withTitle: "  • Gestures bubble up when at edge boundaries", action: nil, keyEquivalent: "")
 
@@ -404,30 +407,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Menu Actions
 
     @objc private func switchToCoding(_ sender: Any?) {
-        desktopWindow?.switchToDesktop(at: 0, animated: true)
+        stageWindow?.switchToStage(at: 0, animated: true)
     }
 
     @objc private func switchToDesign(_ sender: Any?) {
-        desktopWindow?.switchToDesktop(at: 1, animated: true)
+        stageWindow?.switchToStage(at: 1, animated: true)
     }
 
     @objc private func switchToNotes(_ sender: Any?) {
-        desktopWindow?.switchToDesktop(at: 2, animated: true)
+        stageWindow?.switchToStage(at: 2, animated: true)
     }
 
-    @objc private func previousDesktop(_ sender: Any?) {
-        guard let window = desktopWindow else { return }
-        let current = window.desktopHostState.activeDesktopIndex
+    @objc private func previousStage(_ sender: Any?) {
+        guard let window = stageWindow else { return }
+        let current = window.stageHostState.activeStageIndex
         if current > 0 {
-            window.switchToDesktop(at: current - 1, animated: true)
+            window.switchToStage(at: current - 1, animated: true)
         }
     }
 
-    @objc private func nextDesktop(_ sender: Any?) {
-        guard let window = desktopWindow else { return }
-        let current = window.desktopHostState.activeDesktopIndex
-        if current < window.desktopHostState.desktops.count - 1 {
-            window.switchToDesktop(at: current + 1, animated: true)
+    @objc private func nextStage(_ sender: Any?) {
+        guard let window = stageWindow else { return }
+        let current = window.stageHostState.activeStageIndex
+        if current < window.stageHostState.stages.count - 1 {
+            window.switchToStage(at: current + 1, animated: true)
         }
     }
 
@@ -436,7 +439,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleSlowMotion(_ sender: NSMenuItem?) {
-        guard let window = desktopWindow else { return }
+        guard let window = stageWindow else { return }
         window.slowMotionEnabled.toggle()
         sender?.state = window.slowMotionEnabled ? .on : .off
     }

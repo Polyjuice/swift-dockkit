@@ -1,62 +1,62 @@
 import AppKit
 
-/// Delegate for desktop header events
-public protocol DockDesktopHeaderViewDelegate: AnyObject {
-    /// Called when user clicks a desktop to switch to it
-    func desktopHeader(_ header: DockDesktopHeaderView, didSelectDesktopAt index: Int)
+/// Delegate for stage header events
+public protocol DockStageHeaderViewDelegate: AnyObject {
+    /// Called when user clicks a stage to switch to it
+    func stageHeader(_ header: DockStageHeaderView, didSelectStageAt index: Int)
 
-    /// Called when user reorders desktops (optional)
-    func desktopHeader(_ header: DockDesktopHeaderView, didMoveDesktopFrom fromIndex: Int, to toIndex: Int)
+    /// Called when user reorders stages (optional)
+    func stageHeader(_ header: DockStageHeaderView, didMoveStageFrom fromIndex: Int, to toIndex: Int)
 
     /// Called when slow motion toggle changes
-    func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool)
+    func stageHeader(_ header: DockStageHeaderView, didToggleSlowMotion enabled: Bool)
 
     /// Called when thumbnail mode toggle changes
-    func desktopHeader(_ header: DockDesktopHeaderView, didToggleThumbnailMode enabled: Bool)
+    func stageHeader(_ header: DockStageHeaderView, didToggleThumbnailMode enabled: Bool)
 
-    /// Called when user clicks the (+) button to create a new desktop
-    func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView)
+    /// Called when user clicks the (+) button to create a new stage
+    func stageHeaderDidRequestNewStage(_ header: DockStageHeaderView)
 
-    /// Called when a tab is dropped on a desktop thumbnail
-    func desktopHeader(_ header: DockDesktopHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onDesktopAt index: Int)
+    /// Called when a tab is dropped on a stage thumbnail
+    func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt index: Int)
 }
 
 /// Default implementations
-public extension DockDesktopHeaderViewDelegate {
-    func desktopHeader(_ header: DockDesktopHeaderView, didMoveDesktopFrom fromIndex: Int, to toIndex: Int) {}
-    func desktopHeader(_ header: DockDesktopHeaderView, didToggleSlowMotion enabled: Bool) {}
-    func desktopHeader(_ header: DockDesktopHeaderView, didToggleThumbnailMode enabled: Bool) {}
-    func desktopHeaderDidRequestNewDesktop(_ header: DockDesktopHeaderView) {}
-    func desktopHeader(_ header: DockDesktopHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onDesktopAt index: Int) {}
+public extension DockStageHeaderViewDelegate {
+    func stageHeader(_ header: DockStageHeaderView, didMoveStageFrom fromIndex: Int, to toIndex: Int) {}
+    func stageHeader(_ header: DockStageHeaderView, didToggleSlowMotion enabled: Bool) {}
+    func stageHeader(_ header: DockStageHeaderView, didToggleThumbnailMode enabled: Bool) {}
+    func stageHeaderDidRequestNewStage(_ header: DockStageHeaderView) {}
+    func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt index: Int) {}
 }
 
-/// A header view showing desktop icons/titles for selection
-public class DockDesktopHeaderView: NSView {
+/// A header view showing stage icons/titles for selection
+public class DockStageHeaderView: NSView {
 
     // MARK: - Properties
 
-    public weak var delegate: DockDesktopHeaderViewDelegate?
+    public weak var delegate: DockStageHeaderViewDelegate?
 
-    /// The desktops being displayed
-    private var desktops: [Desktop] = []
+    /// The stages being displayed
+    private var stages: [Stage] = []
 
-    /// Currently active desktop index
+    /// Currently active stage index
     private var activeIndex: Int = 0
 
-    /// Stack view containing desktop buttons
+    /// Stack view containing stage buttons
     private var stackView: NSStackView!
 
-    /// Desktop indicator buttons (built-in)
-    private var desktopButtons: [DockDesktopButton] = []
+    /// Stage indicator buttons (built-in)
+    private var stageButtons: [DockStageButton] = []
 
-    /// Custom desktop views (when using custom renderer)
-    private var customDesktopViews: [DockDesktopView] = []
+    /// Custom stage views (when using custom renderer)
+    private var customStageViews: [DockStageView] = []
 
     /// Stack view height constraint (changes in thumbnail mode)
     private var stackHeightConstraint: NSLayoutConstraint!
 
     /// Current display mode
-    public var displayMode: DesktopDisplayMode = .tabs {
+    public var displayMode: StageDisplayMode = .tabs {
         didSet {
             if displayMode != oldValue {
                 rebuildButtons()
@@ -81,8 +81,8 @@ public class DockDesktopHeaderView: NSView {
     /// Current thumbnail mode state (default: true for thumbnail mode)
     private var isThumbnailMode: Bool = true
 
-    /// Add desktop button (+)
-    private var addDesktopButton: NSButton!
+    /// Add stage button (+)
+    private var addStageButton: NSButton!
 
     // MARK: - Initialization
 
@@ -107,7 +107,7 @@ public class DockDesktopHeaderView: NSView {
         borderLayer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         borderLayer.autoresizingMask = [.layerWidthSizable]
 
-        // Create centered stack view for desktop indicators
+        // Create centered stack view for stage indicators
         stackView = NSStackView()
         stackView.orientation = .horizontal
         stackView.spacing = 8
@@ -117,23 +117,23 @@ public class DockDesktopHeaderView: NSView {
         addSubview(stackView)
 
         // Default to thumbnail mode height
-        stackHeightConstraint = stackView.heightAnchor.constraint(equalToConstant: DockDesktopButton.thumbnailHeight)
+        stackHeightConstraint = stackView.heightAnchor.constraint(equalToConstant: DockStageButton.thumbnailHeight)
 
-        // Add desktop button (+) - styled like Mission Control
-        addDesktopButton = NSButton(frame: .zero)
-        addDesktopButton.bezelStyle = .regularSquare
-        addDesktopButton.isBordered = false
-        addDesktopButton.title = ""
-        addDesktopButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Desktop")
-        addDesktopButton.imagePosition = .imageOnly
-        addDesktopButton.imageScaling = .scaleProportionallyDown
-        addDesktopButton.contentTintColor = .secondaryLabelColor
-        addDesktopButton.target = self
-        addDesktopButton.action = #selector(addDesktopClicked(_:))
-        addDesktopButton.translatesAutoresizingMaskIntoConstraints = false
-        addDesktopButton.wantsLayer = true
-        addDesktopButton.layer?.cornerRadius = 6
-        stackView.addArrangedSubview(addDesktopButton)
+        // Add stage button (+) - styled like Mission Control
+        addStageButton = NSButton(frame: .zero)
+        addStageButton.bezelStyle = .regularSquare
+        addStageButton.isBordered = false
+        addStageButton.title = ""
+        addStageButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Stage")
+        addStageButton.imagePosition = .imageOnly
+        addStageButton.imageScaling = .scaleProportionallyDown
+        addStageButton.contentTintColor = .secondaryLabelColor
+        addStageButton.target = self
+        addStageButton.action = #selector(addStageClicked(_:))
+        addStageButton.translatesAutoresizingMaskIntoConstraints = false
+        addStageButton.wantsLayer = true
+        addStageButton.layer?.cornerRadius = 6
+        stackView.addArrangedSubview(addStageButton)
 
         NSLayoutConstraint.activate([
             stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -141,8 +141,8 @@ public class DockDesktopHeaderView: NSView {
             // Ensure stack doesn't overlap traffic light buttons (close/minimize/zoom)
             stackView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 78),
             stackHeightConstraint,
-            addDesktopButton.widthAnchor.constraint(equalToConstant: 44),
-            addDesktopButton.heightAnchor.constraint(equalToConstant: 44)
+            addStageButton.widthAnchor.constraint(equalToConstant: 44),
+            addStageButton.heightAnchor.constraint(equalToConstant: 44)
         ])
 
         // Slow motion toggle on the right
@@ -190,15 +190,15 @@ public class DockDesktopHeaderView: NSView {
     }
 
     @objc private func slowMotionToggled(_ sender: NSSwitch) {
-        delegate?.desktopHeader(self, didToggleSlowMotion: sender.state == .on)
+        delegate?.stageHeader(self, didToggleSlowMotion: sender.state == .on)
     }
 
     @objc private func thumbnailToggled(_ sender: NSSwitch) {
-        delegate?.desktopHeader(self, didToggleThumbnailMode: sender.state == .on)
+        delegate?.stageHeader(self, didToggleThumbnailMode: sender.state == .on)
     }
 
-    @objc private func addDesktopClicked(_ sender: NSButton) {
-        delegate?.desktopHeaderDidRequestNewDesktop(self)
+    @objc private func addStageClicked(_ sender: NSButton) {
+        delegate?.stageHeaderDidRequestNewStage(self)
     }
 
     // MARK: - Window Dragging
@@ -206,8 +206,13 @@ public class DockDesktopHeaderView: NSView {
     private var eventMonitor: Any?
     private var dragStartLocation: NSPoint?
 
-    /// Title bar height to exclude from drag area
+    /// Title bar height to exclude from drag area (windowed mode only)
     private let titleBarHeight: CGFloat = 28
+
+    /// Check if window is in full screen mode
+    private var isInFullScreen: Bool {
+        window?.styleMask.contains(.fullScreen) ?? false
+    }
 
     private func setupDragMonitor() {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
@@ -223,10 +228,12 @@ public class DockDesktopHeaderView: NSView {
             }
 
             // Exclude the title bar area at the top (where close/minimize/zoom buttons are)
+            // In full screen mode, traffic lights are in the auto-hiding menu bar, not our content
             // In flipped coordinates, 0 is top. In non-flipped, 0 is bottom.
+            let titleBarExclusion: CGFloat = self.isInFullScreen ? 0 : self.titleBarHeight
             let windowHeight = window.frame.height
             let yFromTop = windowHeight - locationInWindow.y
-            if yFromTop < self.titleBarHeight {
+            if yFromTop < titleBarExclusion {
                 // In title bar area - let system handle it
                 return event
             }
@@ -272,7 +279,7 @@ public class DockDesktopHeaderView: NSView {
     private func isInteractiveControl(_ view: NSView?) -> Bool {
         guard let view = view else { return false }
         // Only the header view itself and the stack view background are non-interactive
-        // Everything else (buttons, switches, desktop buttons, their subviews) is interactive
+        // Everything else (buttons, switches, stage buttons, their subviews) is interactive
         if view === self || view === stackView {
             return false
         }
@@ -297,31 +304,31 @@ public class DockDesktopHeaderView: NSView {
 
     // MARK: - Public API
 
-    /// Set the desktops to display
-    public func setDesktops(_ newDesktops: [Desktop], activeIndex: Int) {
-        desktops = newDesktops
-        self.activeIndex = max(0, min(activeIndex, desktops.count - 1))
+    /// Set the stages to display
+    public func setStages(_ newStages: [Stage], activeIndex: Int) {
+        stages = newStages
+        self.activeIndex = max(0, min(activeIndex, stages.count - 1))
         rebuildButtons()
     }
 
-    /// Update the active desktop (visual highlight only)
+    /// Update the active stage (visual highlight only)
     public func setActiveIndex(_ index: Int) {
-        guard index >= 0 && index < desktops.count else { return }
+        guard index >= 0 && index < stages.count else { return }
         activeIndex = index
         updateButtonStates()
     }
 
-    /// Highlight a desktop during swipe (preview state)
-    /// This moves the indicator to the target desktop
-    public func highlightDesktop(at index: Int) {
+    /// Highlight a stage during swipe (preview state)
+    /// This moves the indicator to the target stage
+    public func highlightStage(at index: Int) {
         // Built-in buttons
-        for (i, button) in desktopButtons.enumerated() {
+        for (i, button) in stageButtons.enumerated() {
             button.setSwipeTarget(i == index, swipeMode: true)
         }
 
         // Custom views
-        if let renderer = DockKit.customDesktopRenderer {
-            for (i, view) in customDesktopViews.enumerated() {
+        if let renderer = DockKit.customStageRenderer {
+            for (i, view) in customStageViews.enumerated() {
                 renderer.setSwipeTarget(i == index, swipeMode: true, on: view)
             }
         }
@@ -330,45 +337,45 @@ public class DockDesktopHeaderView: NSView {
     /// Clear swipe highlighting (called when swipe ends)
     public func clearSwipeHighlight() {
         // Built-in buttons
-        for button in desktopButtons {
+        for button in stageButtons {
             button.setSwipeTarget(false, swipeMode: false)
         }
 
         // Custom views
-        if let renderer = DockKit.customDesktopRenderer {
-            for view in customDesktopViews {
+        if let renderer = DockKit.customStageRenderer {
+            for view in customStageViews {
                 renderer.setSwipeTarget(false, swipeMode: false, on: view)
             }
         }
     }
 
-    /// Set thumbnail mode for desktop buttons
+    /// Set thumbnail mode for stage buttons
     /// Returns the required header height for the new mode
     @discardableResult
     public func setThumbnailMode(_ enabled: Bool) -> CGFloat {
         isThumbnailMode = enabled
 
         // Update stack view height
-        stackHeightConstraint.constant = enabled ? DockDesktopButton.thumbnailHeight : 28
+        stackHeightConstraint.constant = enabled ? DockStageButton.thumbnailHeight : 28
 
-        for button in desktopButtons {
+        for button in stageButtons {
             button.setThumbnailMode(enabled)
         }
         return enabled ? Self.thumbnailHeaderHeight : Self.headerHeight
     }
 
-    /// Set thumbnails for each desktop
+    /// Set thumbnails for each stage
     public func setThumbnails(_ thumbnails: [NSImage?]) {
         // Built-in buttons
-        for (index, button) in desktopButtons.enumerated() {
+        for (index, button) in stageButtons.enumerated() {
             if index < thumbnails.count {
                 button.setThumbnail(thumbnails[index])
             }
         }
 
         // Custom views
-        if let renderer = DockKit.customDesktopRenderer {
-            for (index, view) in customDesktopViews.enumerated() {
+        if let renderer = DockKit.customStageRenderer {
+            for (index, view) in customStageViews.enumerated() {
                 if index < thumbnails.count {
                     renderer.setThumbnail(thumbnails[index], on: view)
                 }
@@ -376,37 +383,37 @@ public class DockDesktopHeaderView: NSView {
         }
     }
 
-    /// Set thumbnail for a specific desktop
+    /// Set thumbnail for a specific stage
     public func setThumbnail(_ thumbnail: NSImage?, at index: Int) {
         // Built-in buttons
-        if index >= 0 && index < desktopButtons.count {
-            desktopButtons[index].setThumbnail(thumbnail)
+        if index >= 0 && index < stageButtons.count {
+            stageButtons[index].setThumbnail(thumbnail)
         }
 
         // Custom views
-        if let renderer = DockKit.customDesktopRenderer,
-           index >= 0 && index < customDesktopViews.count {
-            renderer.setThumbnail(thumbnail, on: customDesktopViews[index])
+        if let renderer = DockKit.customStageRenderer,
+           index >= 0 && index < customStageViews.count {
+            renderer.setThumbnail(thumbnail, on: customStageViews[index])
         }
     }
 
     // MARK: - Private Methods
 
     private func clearAllViews() {
-        desktopButtons.forEach { $0.removeFromSuperview() }
-        desktopButtons.removeAll()
-        customDesktopViews.forEach { $0.removeFromSuperview() }
-        customDesktopViews.removeAll()
+        stageButtons.forEach { $0.removeFromSuperview() }
+        stageButtons.removeAll()
+        customStageViews.forEach { $0.removeFromSuperview() }
+        customStageViews.removeAll()
         // Keep the add button but remove it temporarily so it can be re-added at the end
-        addDesktopButton.removeFromSuperview()
+        addStageButton.removeFromSuperview()
     }
 
     private func rebuildButtons() {
         clearAllViews()
 
         // Determine effective mode
-        let effectiveMode: DesktopDisplayMode
-        if displayMode == .custom && DockKit.customDesktopRenderer != nil {
+        let effectiveMode: StageDisplayMode
+        if displayMode == .custom && DockKit.customStageRenderer != nil {
             effectiveMode = .custom
         } else if displayMode == .custom {
             effectiveMode = .tabs  // Fallback
@@ -426,25 +433,25 @@ public class DockDesktopHeaderView: NSView {
 
     private func rebuildBuiltInButtons() {
         // Create new buttons
-        for (index, desktop) in desktops.enumerated() {
-            let button = DockDesktopButton(desktop: desktop, index: index)
+        for (index, stage) in stages.enumerated() {
+            let button = DockStageButton(stage: stage, index: index)
             button.onSelect = { [weak self] idx in
-                self?.handleDesktopSelected(at: idx)
+                self?.handleStageSelected(at: idx)
             }
             button.onTabDrop = { [weak self] idx, tabInfo in
                 guard let self = self else { return }
-                self.delegate?.desktopHeader(self, didReceiveTab: tabInfo, onDesktopAt: idx)
+                self.delegate?.stageHeader(self, didReceiveTab: tabInfo, onStageAt: idx)
             }
             button.setThumbnailMode(isThumbnailMode)
-            desktopButtons.append(button)
+            stageButtons.append(button)
             stackView.addArrangedSubview(button)
         }
         // Re-add the (+) button at the end
-        stackView.addArrangedSubview(addDesktopButton)
+        stackView.addArrangedSubview(addStageButton)
     }
 
     private func rebuildCustomViews() {
-        guard let renderer = DockKit.customDesktopRenderer else {
+        guard let renderer = DockKit.customStageRenderer else {
             rebuildBuiltInButtons()
             return
         }
@@ -453,49 +460,49 @@ public class DockDesktopHeaderView: NSView {
         stackHeightConstraint.constant = renderer.headerHeight - 8  // Account for padding
 
         // Create custom views
-        for (index, desktop) in desktops.enumerated() {
-            let view = renderer.createDesktopView(for: desktop, index: index, isActive: index == activeIndex)
+        for (index, stage) in stages.enumerated() {
+            let view = renderer.createStageView(for: stage, index: index, isActive: index == activeIndex)
             view.onSelect = { [weak self] idx in
-                self?.handleDesktopSelected(at: idx)
+                self?.handleStageSelected(at: idx)
             }
-            view.desktopIndex = index
-            customDesktopViews.append(view)
+            view.stageIndex = index
+            customStageViews.append(view)
             stackView.addArrangedSubview(view)
         }
         // Re-add the (+) button at the end
-        stackView.addArrangedSubview(addDesktopButton)
+        stackView.addArrangedSubview(addStageButton)
     }
 
     private func updateButtonStates() {
         // Update built-in buttons
-        for (index, button) in desktopButtons.enumerated() {
+        for (index, button) in stageButtons.enumerated() {
             button.setActive(index == activeIndex)
         }
 
         // Update custom views
-        if let renderer = DockKit.customDesktopRenderer {
-            for (index, view) in customDesktopViews.enumerated() {
-                guard index < desktops.count else { continue }
-                renderer.updateDesktopView(view, for: desktops[index], index: index, isActive: index == activeIndex)
+        if let renderer = DockKit.customStageRenderer {
+            for (index, view) in customStageViews.enumerated() {
+                guard index < stages.count else { continue }
+                renderer.updateStageView(view, for: stages[index], index: index, isActive: index == activeIndex)
             }
         }
     }
 
-    private func handleDesktopSelected(at index: Int) {
+    private func handleStageSelected(at index: Int) {
         guard index != activeIndex else { return }
-        delegate?.desktopHeader(self, didSelectDesktopAt: index)
+        delegate?.stageHeader(self, didSelectStageAt: index)
     }
 }
 
-// MARK: - DockDesktopButton
+// MARK: - DockStageButton
 
-/// Individual desktop button in the header - supports icon+title or thumbnail mode
-public class DockDesktopButton: NSView, DockDesktopView {
+/// Individual stage button in the header - supports icon+title or thumbnail mode
+public class DockStageButton: NSView, DockStageView {
     public var onSelect: ((Int) -> Void)?
     public var onTabDrop: ((Int, DockTabDragInfo) -> Void)?
-    public var desktopIndex: Int
+    public var stageIndex: Int
 
-    private let desktop: Desktop
+    private let stage: Stage
     private var isDragTarget: Bool = false
 
     // Icon+Title mode views
@@ -529,9 +536,9 @@ public class DockDesktopButton: NSView, DockDesktopView {
     public static let thumbnailWidth: CGFloat = 120
     public static let thumbnailHeight: CGFloat = 80
 
-    public init(desktop: Desktop, index: Int) {
-        self.desktop = desktop
-        self.desktopIndex = index
+    public init(stage: Stage, index: Int) {
+        self.stage = stage
+        self.stageIndex = index
         super.init(frame: .zero)
         setupUI()
     }
@@ -563,9 +570,9 @@ public class DockDesktopButton: NSView, DockDesktopView {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentStack)
 
-        if let iconName = desktop.iconName {
+        if let iconName = stage.iconName {
             let icon = NSImageView()
-            if let image = NSImage(systemSymbolName: iconName, accessibilityDescription: desktop.title) {
+            if let image = NSImage(systemSymbolName: iconName, accessibilityDescription: stage.title) {
                 icon.image = image
             }
             icon.imageScaling = .scaleProportionallyDown
@@ -576,7 +583,7 @@ public class DockDesktopButton: NSView, DockDesktopView {
             iconView = icon
         }
 
-        let title = desktop.title ?? "Desktop \(desktopIndex + 1)"
+        let title = stage.title ?? "Stage \(stageIndex + 1)"
         let label = NSTextField(labelWithString: title)
         label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         label.textColor = .secondaryLabelColor
@@ -770,7 +777,7 @@ public class DockDesktopButton: NSView, DockDesktopView {
     public override func mouseUp(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         if bounds.contains(location) {
-            onSelect?(desktopIndex)
+            onSelect?(stageIndex)
         }
         updateAppearance()
     }
@@ -807,7 +814,7 @@ public class DockDesktopButton: NSView, DockDesktopView {
             return false
         }
 
-        onTabDrop?(desktopIndex, dragInfo)
+        onTabDrop?(stageIndex, dragInfo)
         return true
     }
 

@@ -4,21 +4,21 @@
       "type": "swift",
       "request": "launch",
       "args": [],
-      "cwd": "${workspaceFolder:swift-dockkit}/DockKitDesktopDemo",
-      "name": "Debug DockKitDesktopDemo (DockKitDesktopDemo)",
-      "target": "DockKitDesktopDemo",
+      "cwd": "${workspaceFolder:swift-dockkit}/DockKitStageDemo",
+      "name": "Debug DockKitStageDemo (DockKitStageDemo)",
+      "target": "DockKitStageDemo",
       "configuration": "debug",
-      "preLaunchTask": "swift: Build Debug DockKitDesktopDemo (DockKitDesktopDemo)"
+      "preLaunchTask": "swift: Build Debug DockKitStageDemo (DockKitStageDemo)"
     },
     {
       "type": "swift",
       "request": "launch",
       "args": [],
-      "cwd": "${workspaceFolder:swift-dockkit}/DockKitDesktopDemo",
-      "name": "Release DockKitDesktopDemo (DockKitDesktopDemo)",
-      "target": "DockKitDesktopDemo",
+      "cwd": "${workspaceFolder:swift-dockkit}/DockKitStageDemo",
+      "name": "Release DockKitStageDemo (DockKitStageDemo)",
+      "target": "DockKitStageDemo",
       "configuration": "release",
-      "preLaunchTask": "swift: Build Release DockKitDesktopDemo (DockKitDesktopDemo)"
+      "preLaunchTask": "swift: Build Release DockKitStageDemo (DockKitStageDemo)"
     },
     {
       "type": "swift",

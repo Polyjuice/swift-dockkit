@@ -62,7 +62,7 @@ public class DockSplitViewController: NSSplitViewController {
     /// Delegate for child tab groups - passed down from container
     public weak var tabGroupDelegate: DockTabGroupViewControllerDelegate?
 
-    /// Delegate for swipe gesture bubbling - passed down to nested desktop hosts (Version 3)
+    /// Delegate for swipe gesture bubbling - passed down to nested stage hosts (Version 3)
     public weak var swipeGestureDelegate: SwipeGestureDelegate?
 
     /// The split node this controller represents
@@ -181,7 +181,7 @@ public class DockSplitViewController: NSSplitViewController {
             let splitVC = DockSplitViewController(splitNode: splitNode)
             splitVC.dockDelegate = dockDelegate
             splitVC.tabGroupDelegate = tabGroupDelegate
-            // Pass swipe gesture delegate down for nested desktop hosts (Version 3)
+            // Pass swipe gesture delegate down for nested stage hosts (Version 3)
             splitVC.swipeGestureDelegate = swipeGestureDelegate
             return splitVC
 
@@ -190,17 +190,17 @@ public class DockSplitViewController: NSSplitViewController {
             tabGroupVC.delegate = tabGroupDelegate
             return tabGroupVC
 
-        case .desktopHost(let desktopHostNode):
-            // Create a nested desktop host view controller (Version 3 feature)
-            let layoutNode = DesktopHostLayoutNode(
-                id: desktopHostNode.id,
-                title: desktopHostNode.title,
-                iconName: desktopHostNode.iconName,
-                activeDesktopIndex: desktopHostNode.activeDesktopIndex,
-                desktops: desktopHostNode.desktops,
-                displayMode: desktopHostNode.displayMode
+        case .stageHost(let stageHostNode):
+            // Create a nested stage host view controller (Version 3 feature)
+            let layoutNode = StageHostLayoutNode(
+                id: stageHostNode.id,
+                title: stageHostNode.title,
+                iconName: stageHostNode.iconName,
+                activeStageIndex: stageHostNode.activeStageIndex,
+                stages: stageHostNode.stages,
+                displayMode: stageHostNode.displayMode
             )
-            let hostVC = DockDesktopHostViewController(
+            let hostVC = DockStageHostViewController(
                 layoutNode: layoutNode,
                 panelProvider: nil // Will be set by parent if needed
             )

@@ -2,12 +2,12 @@ import AppKit
 
 /// Recursive tree structure for dock layout
 /// Each node is either a split (container with children), a tab group (leaf with tabs),
-/// or a desktop host (nested desktops with swipe navigation - Version 3)
+/// or a stage host (nested stages with swipe navigation - Version 3)
 public indirect enum DockNode {
     case split(SplitNode)
     case tabGroup(TabGroupNode)
-    /// A nested desktop host (Version 3: nested desktops)
-    case desktopHost(DesktopHostNode)
+    /// A nested stage host (Version 3: nested stages)
+    case stageHost(StageHostNode)
 
     /// Generate a unique ID for this node
     public var nodeId: UUID {
@@ -16,7 +16,7 @@ public indirect enum DockNode {
             return node.id
         case .tabGroup(let node):
             return node.id
-        case .desktopHost(let node):
+        case .stageHost(let node):
             return node.id
         }
     }
@@ -125,50 +125,50 @@ public struct TabGroupNode: Identifiable {
     }
 }
 
-/// A runtime node representing a nested desktop host (Version 3: nested desktops)
-/// This allows desktop hosts to be embedded within other layouts, enabling
+/// A runtime node representing a nested stage host (Version 3: nested stages)
+/// This allows stage hosts to be embedded within other layouts, enabling
 /// recursive nesting of virtual workspaces with swipe gesture navigation.
-public struct DesktopHostNode: Identifiable {
+public struct StageHostNode: Identifiable {
     public let id: UUID
     public var title: String?
     public var iconName: String?
-    public var activeDesktopIndex: Int
-    public var desktops: [Desktop]
-    public var displayMode: DesktopDisplayMode
+    public var activeStageIndex: Int
+    public var stages: [Stage]
+    public var displayMode: StageDisplayMode
 
     public init(
         id: UUID = UUID(),
         title: String? = nil,
         iconName: String? = nil,
-        activeDesktopIndex: Int = 0,
-        desktops: [Desktop] = [],
-        displayMode: DesktopDisplayMode = .thumbnails
+        activeStageIndex: Int = 0,
+        stages: [Stage] = [],
+        displayMode: StageDisplayMode = .thumbnails
     ) {
         self.id = id
         self.title = title
         self.iconName = iconName
-        self.activeDesktopIndex = activeDesktopIndex
-        self.desktops = desktops
+        self.activeStageIndex = activeStageIndex
+        self.stages = stages
         self.displayMode = displayMode
     }
 
     /// Create from a layout node
-    public init(from layoutNode: DesktopHostLayoutNode) {
+    public init(from layoutNode: StageHostLayoutNode) {
         self.id = layoutNode.id
         self.title = layoutNode.title
         self.iconName = layoutNode.iconName
-        self.activeDesktopIndex = layoutNode.activeDesktopIndex
-        self.desktops = layoutNode.desktops
+        self.activeStageIndex = layoutNode.activeStageIndex
+        self.stages = layoutNode.stages
         self.displayMode = layoutNode.displayMode
     }
 
-    /// Convert to a DesktopHostWindowState for view creation
-    public func toDesktopHostWindowState(frame: CGRect = .zero) -> DesktopHostWindowState {
-        DesktopHostWindowState(
+    /// Convert to a StageHostWindowState for view creation
+    public func toStageHostWindowState(frame: CGRect = .zero) -> StageHostWindowState {
+        StageHostWindowState(
             id: id,
             frame: frame,
-            activeDesktopIndex: activeDesktopIndex,
-            desktops: desktops,
+            activeStageIndex: activeStageIndex,
+            stages: stages,
             displayMode: displayMode
         )
     }
@@ -244,9 +244,9 @@ public extension DockNode {
             }
         case .tabGroup:
             break
-        case .desktopHost(let desktopHostNode):
-            for desktop in desktopHostNode.desktops {
-                let node = DockNode.from(desktop.layout)
+        case .stageHost(let stageHostNode):
+            for stage in stageHostNode.stages {
+                let node = DockNode.from(stage.layout)
                 node.flattenNodes(into: &result)
             }
         }
@@ -268,9 +268,9 @@ public extension DockNode {
             return nil
         case .tabGroup:
             return nil
-        case .desktopHost(let desktopHostNode):
-            for desktop in desktopHostNode.desktops {
-                let node = DockNode.from(desktop.layout)
+        case .stageHost(let stageHostNode):
+            for stage in stageHostNode.stages {
+                let node = DockNode.from(stage.layout)
                 if let found = node.findNode(byId: id) {
                     return found
                 }
@@ -297,9 +297,9 @@ public extension DockNode {
             }
             return nil
 
-        case .desktopHost(let desktopHostNode):
-            for desktop in desktopHostNode.desktops {
-                let node = DockNode.from(desktop.layout)
+        case .stageHost(let stageHostNode):
+            for stage in stageHostNode.stages {
+                let node = DockNode.from(stage.layout)
                 if let found = node.findTabGroup(containingTabId: tabId) {
                     return found
                 }
@@ -323,9 +323,9 @@ public extension DockNode {
             for child in splitNode.children {
                 child.collectTabIds(into: &result)
             }
-        case .desktopHost(let desktopHostNode):
-            for desktop in desktopHostNode.desktops {
-                let node = DockNode.from(desktop.layout)
+        case .stageHost(let stageHostNode):
+            for stage in stageHostNode.stages {
+                let node = DockNode.from(stage.layout)
                 node.collectTabIds(into: &result)
             }
         }
@@ -346,9 +346,9 @@ public extension DockNode {
             for child in splitNode.children {
                 child.collectTabGroups(into: &result)
             }
-        case .desktopHost(let desktopHostNode):
-            for desktop in desktopHostNode.desktops {
-                let node = DockNode.from(desktop.layout)
+        case .stageHost(let stageHostNode):
+            for stage in stageHostNode.stages {
+                let node = DockNode.from(stage.layout)
                 node.collectTabGroups(into: &result)
             }
         }
@@ -361,9 +361,9 @@ public extension DockNode {
             return tabGroupNode.tabs.count
         case .split(let splitNode):
             return splitNode.children.reduce(0) { $0 + $1.totalTabCount }
-        case .desktopHost(let desktopHostNode):
-            return desktopHostNode.desktops.reduce(0) { total, desktop in
-                let node = DockNode.from(desktop.layout)
+        case .stageHost(let stageHostNode):
+            return stageHostNode.stages.reduce(0) { total, stage in
+                let node = DockNode.from(stage.layout)
                 return total + node.totalTabCount
             }
         }
@@ -389,7 +389,7 @@ public extension DockLayoutNode {
         switch self {
         case .split(let node): return node.id
         case .tabGroup(let node): return node.id
-        case .desktopHost(let node): return node.id
+        case .stageHost(let node): return node.id
         }
     }
 
@@ -403,10 +403,10 @@ public extension DockLayoutNode {
             }
         case .tabGroup:
             break
-        case .desktopHost(let desktopHostNode):
-            // Flatten all desktops
-            for desktop in desktopHostNode.desktops {
-                desktop.layout.flattenNodes(into: &result)
+        case .stageHost(let stageHostNode):
+            // Flatten all stages
+            for stage in stageHostNode.stages {
+                stage.layout.flattenNodes(into: &result)
             }
         }
     }
@@ -427,9 +427,9 @@ public extension DockLayoutNode {
             return nil
         case .tabGroup:
             return nil
-        case .desktopHost(let desktopHostNode):
-            for desktop in desktopHostNode.desktops {
-                if let found = desktop.layout.findNode(byId: id) {
+        case .stageHost(let stageHostNode):
+            for stage in stageHostNode.stages {
+                if let found = stage.layout.findNode(byId: id) {
                     return found
                 }
             }
@@ -454,9 +454,9 @@ public extension DockLayoutNode {
             }
             return nil
 
-        case .desktopHost(let desktopHostNode):
-            for desktop in desktopHostNode.desktops {
-                if let found = desktop.layout.findTabGroup(containingTabId: tabId) {
+        case .stageHost(let stageHostNode):
+            for stage in stageHostNode.stages {
+                if let found = stage.layout.findTabGroup(containingTabId: tabId) {
                     return found
                 }
             }
@@ -479,11 +479,11 @@ public extension DockLayoutNode {
             for child in splitNode.children {
                 child.collectTabIds(into: &result)
             }
-        case .desktopHost(let desktopHostNode):
-            // Collect from all desktops in the nested host
-            for desktop in desktopHostNode.desktops {
+        case .stageHost(let stageHostNode):
+            // Collect from all stages in the nested host
+            for stage in stageHostNode.stages {
                 // Convert layout to DockNode and collect recursively
-                let node = DockNode.from(desktop.layout)
+                let node = DockNode.from(stage.layout)
                 node.collectTabIds(into: &result)
             }
         }
@@ -520,8 +520,8 @@ extension DockNode {
                 activeTabIndex: tabGroupLayoutNode.activeTabIndex,
                 displayMode: tabGroupLayoutNode.displayMode
             ))
-        case .desktopHost(let desktopHostLayoutNode):
-            return .desktopHost(DesktopHostNode(from: desktopHostLayoutNode))
+        case .stageHost(let stageHostLayoutNode):
+            return .stageHost(StageHostNode(from: stageHostLayoutNode))
         }
     }
 }

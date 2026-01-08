@@ -43,7 +43,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
     public var groupId: UUID = UUID()
 
     /// Display mode - tabs, thumbnails, or custom
-    public var displayMode: DesktopDisplayMode = .tabs {
+    public var displayMode: StageDisplayMode = .tabs {
         didSet {
             if displayMode != oldValue {
                 rebuildForDisplayMode()
@@ -137,7 +137,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // MARK: - Public API
 
-    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: DesktopDisplayMode = .tabs) {
+    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: StageDisplayMode = .tabs) {
         self.tabs = newTabs
         self.selectedIndex = max(0, min(selectedIndex, newTabs.count - 1))
         self.displayMode = displayMode
@@ -146,14 +146,14 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     /// Convenience method for backward compatibility with TabGroupDisplayMode
     public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: TabGroupDisplayMode) {
-        let newMode: DesktopDisplayMode = displayMode == .thumbnails ? .thumbnails : .tabs
+        let newMode: StageDisplayMode = displayMode == .thumbnails ? .thumbnails : .tabs
         setTabs(newTabs, selectedIndex: selectedIndex, displayMode: newMode)
     }
 
     /// Rebuild the view based on current display mode
     private func rebuildForDisplayMode() {
         // Determine effective mode - fall back to tabs if custom renderer not registered
-        let effectiveMode: DesktopDisplayMode
+        let effectiveMode: StageDisplayMode
         if displayMode == .custom && DockKit.customTabRenderer != nil {
             effectiveMode = .custom
         } else if displayMode == .custom {

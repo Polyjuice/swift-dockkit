@@ -1,14 +1,14 @@
-# Swipe Gesture Physics: Inertia-Based Desktop Switching
+# Swipe Gesture Physics: Inertia-Based Stage Switching
 
 ## The Problem
 
-Our current implementation uses a **position-based threshold** to determine when to switch desktops:
-- The desktop switches when the user drags past 15% of the screen width
+Our current implementation uses a **position-based threshold** to determine when to switch stages:
+- The stage switches when the user drags past 15% of the screen width
 - This ignores the **velocity** of the gesture
 - A fast flick and a slow drag are treated identically
 
 macOS uses an **inertia-based** (momentum) system:
-- A small, fast gesture can "throw" the desktop beyond the threshold
+- A small, fast gesture can "throw" the stage beyond the threshold
 - The physics simulation predicts where the content will land based on velocity
 - This feels more natural and responsive
 
@@ -50,7 +50,7 @@ The momentum phase is **system-generated** based on the velocity at the moment t
 
 ```
 if abs(offset / screenWidth) > 0.15:
-    switch to new desktop
+    switch to new stage
 else:
     bounce back
 ```
@@ -68,7 +68,7 @@ The decision should be based on **where the content would land** if released:
 predicted_position = current_position + velocity * decay_time
 
 if predicted_position crosses threshold:
-    switch to new desktop
+    switch to new stage
 else:
     bounce back
 ```
@@ -82,9 +82,9 @@ When the user releases:
    final_position = position + velocity / friction
    ```
 
-2. **Determine target desktop** based on final position:
-   - If `final_position` crosses the threshold → animate to new desktop
-   - Otherwise → spring back to current desktop
+2. **Determine target stage** based on final position:
+   - If `final_position` crosses the threshold → animate to new stage
+   - Otherwise → spring back to current stage
 
 3. **Animate with spring physics**:
    ```
@@ -128,7 +128,7 @@ override func scrollWheel(with event: NSEvent) {
     if event.momentumPhase == .ended ||
        (event.phase == .ended && event.momentumPhase == .none) {
         // Gesture fully complete, determine final target
-        finalizeDesktopSwitch()
+        finalizeStageSwitch()
     }
 }
 ```
@@ -162,8 +162,8 @@ override func scrollWheel(with event: NSEvent) {
         let predictedFinalOffset = offset + velocity * friction / (1 - friction)
 
         // Use predicted position to determine target
-        targetDesktop = calculateTarget(from: predictedFinalOffset)
-        animateToDesktop(targetDesktop)
+        targetStage = calculateTarget(from: predictedFinalOffset)
+        animateToStage(targetStage)
     }
 }
 ```

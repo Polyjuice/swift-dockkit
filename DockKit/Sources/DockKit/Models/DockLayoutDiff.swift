@@ -417,7 +417,7 @@ public extension DockLayoutDiff {
         switch node {
         case .split(let n): return n.id
         case .tabGroup(let n): return n.id
-        case .desktopHost(let n): return n.id
+        case .stageHost(let n): return n.id
         }
     }
 
@@ -489,9 +489,9 @@ public extension DockLayoutDiff {
                 collectTabLocations(node: child, windowId: windowId, into: &locations)
             }
 
-        case .desktopHost(let desktopHost):
-            for desktop in desktopHost.desktops {
-                collectTabLocations(node: desktop.layout, windowId: windowId, into: &locations)
+        case .stageHost(let stageHost):
+            for stage in stageHost.stages {
+                collectTabLocations(node: stage.layout, windowId: windowId, into: &locations)
             }
         }
     }

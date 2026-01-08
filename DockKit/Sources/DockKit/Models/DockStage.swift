@@ -1,10 +1,10 @@
 import Foundation
 
-// MARK: - Desktop Types for DesktopHostWindow
+// MARK: - Stage Types for StageHostWindow
 
-/// A virtual workspace within a DesktopHostWindow
-/// Each desktop has its own independent layout tree
-public struct Desktop: Codable, Identifiable {
+/// A virtual workspace within a StageHostWindow
+/// Each stage has its own independent layout tree
+public struct Stage: Codable, Identifiable {
     public let id: UUID
     public var title: String?
     public var iconName: String?
@@ -23,35 +23,35 @@ public struct Desktop: Codable, Identifiable {
     }
 }
 
-/// State for a desktop host window containing multiple desktops
-public struct DesktopHostWindowState: Codable, Identifiable {
+/// State for a stage host window containing multiple stages
+public struct StageHostWindowState: Codable, Identifiable {
     public let id: UUID
     public var frame: CGRect
     public var isFullScreen: Bool
-    public var activeDesktopIndex: Int
-    public var desktops: [Desktop]
+    public var activeStageIndex: Int
+    public var stages: [Stage]
 
-    /// Display mode for tabs and desktop indicators
+    /// Display mode for tabs and stage indicators
     /// Controls whether to use tabs, thumbnails, or custom renderer
-    public var displayMode: DesktopDisplayMode
+    public var displayMode: StageDisplayMode
 
     private enum CodingKeys: String, CodingKey {
-        case id, frame, isFullScreen, activeDesktopIndex, desktops, displayMode
+        case id, frame, isFullScreen, activeStageIndex, stages, displayMode
     }
 
     public init(
         id: UUID = UUID(),
         frame: CGRect,
         isFullScreen: Bool = false,
-        activeDesktopIndex: Int = 0,
-        desktops: [Desktop],
-        displayMode: DesktopDisplayMode = .thumbnails
+        activeStageIndex: Int = 0,
+        stages: [Stage],
+        displayMode: StageDisplayMode = .thumbnails
     ) {
         self.id = id
         self.frame = frame
         self.isFullScreen = isFullScreen
-        self.activeDesktopIndex = activeDesktopIndex
-        self.desktops = desktops
+        self.activeStageIndex = activeStageIndex
+        self.stages = stages
         self.displayMode = displayMode
     }
 
@@ -60,22 +60,22 @@ public struct DesktopHostWindowState: Codable, Identifiable {
         id = try container.decode(UUID.self, forKey: .id)
         frame = try container.decode(CGRect.self, forKey: .frame)
         isFullScreen = try container.decode(Bool.self, forKey: .isFullScreen)
-        activeDesktopIndex = try container.decode(Int.self, forKey: .activeDesktopIndex)
-        desktops = try container.decode([Desktop].self, forKey: .desktops)
+        activeStageIndex = try container.decode(Int.self, forKey: .activeStageIndex)
+        stages = try container.decode([Stage].self, forKey: .stages)
         // Default to .tabs for backward compatibility
-        displayMode = try container.decodeIfPresent(DesktopDisplayMode.self, forKey: .displayMode) ?? .tabs
+        displayMode = try container.decodeIfPresent(StageDisplayMode.self, forKey: .displayMode) ?? .tabs
     }
 
-    /// Get the active desktop's layout
+    /// Get the active stage's layout
     public var activeLayout: DockLayoutNode {
-        guard activeDesktopIndex >= 0 && activeDesktopIndex < desktops.count else {
+        guard activeStageIndex >= 0 && activeStageIndex < stages.count else {
             return .tabGroup(TabGroupLayoutNode())
         }
-        return desktops[activeDesktopIndex].layout
+        return stages[activeStageIndex].layout
     }
 }
 
-// MARK: - DockLayoutNode Helpers for Desktops
+// MARK: - DockLayoutNode Helpers for Stages
 
 public extension DockLayoutNode {
     /// Get the node ID
@@ -83,7 +83,7 @@ public extension DockLayoutNode {
         switch self {
         case .split(let node): return node.id
         case .tabGroup(let node): return node.id
-        case .desktopHost(let node): return node.id
+        case .stageHost(let node): return node.id
         }
     }
 }

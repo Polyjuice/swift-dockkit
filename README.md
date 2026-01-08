@@ -8,7 +8,7 @@ A Swift framework for building VS Code-style dockable panel interfaces in macOS 
 - **Drag & Drop**: Drag tabs between groups and windows
 - **Split Views**: Create horizontal and vertical splits by dropping tabs on edges
 - **Floating Windows**: Tear off tabs into floating windows
-- **Desktop Hosts**: Multiple virtual workspaces in a single window with swipe navigation
+- **Stage Hosts**: Multiple virtual workspaces in a single window with swipe navigation
 - **Layout Persistence**: JSON-serializable layout state for save/restore
 - **Automatic Reconciliation**: Efficient diffing and reconciliation of layout changes
 
@@ -140,30 +140,30 @@ let newLayout = layout.removingTab(tabId)
 
 See [Panel Operations](docs/PANEL_OPERATIONS.md) for complete documentation.
 
-## Desktop Hosts
+## Stage Hosts
 
-Desktop hosts provide multiple virtual workspaces in a single window with swipe gesture navigation:
+Stage hosts provide multiple virtual workspaces in a single window with swipe gesture navigation:
 
 ```swift
-let codingDesktop = Desktop(title: "Coding", iconName: "chevron.left.forwardslash.chevron.right", layout: codingLayout)
-let designDesktop = Desktop(title: "Design", iconName: "paintbrush.fill", layout: designLayout)
+let codingStage = Stage(title: "Coding", iconName: "chevron.left.forwardslash.chevron.right", layout: codingLayout)
+let designStage = Stage(title: "Design", iconName: "paintbrush.fill", layout: designLayout)
 
-let state = DesktopHostWindowState(
+let state = StageHostWindowState(
     frame: NSRect(x: 100, y: 100, width: 1200, height: 800),
-    desktops: [codingDesktop, designDesktop]
+    stages: [codingStage, designStage]
 )
 
-let window = DockDesktopHostWindow(desktopHostState: state, frame: state.frame)
+let window = DockStageHostWindow(stageHostState: state, frame: state.frame)
 window.panelProvider = { id in panelRegistry[id] }
 ```
 
 Features:
-- Swipe left/right to switch desktops
-- Header UI with desktop icons and titles
+- Swipe left/right to switch stages
+- Header UI with stage icons and titles
 - Apple-style spring physics and rubber band effect
-- Independent layout tree per desktop
+- Independent layout tree per stage
 
-See [Desktop Hosts](docs/DESKTOP_HOSTS.md) for complete documentation.
+See [Stage Hosts](docs/DESKTOP_HOSTS.md) for complete documentation.
 
 ## Architecture
 
@@ -179,7 +179,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system overview.
 ## Documentation
 
 - [Panel Operations](docs/PANEL_OPERATIONS.md) - Dock, split, and tear panels
-- [Desktop Hosts](docs/DESKTOP_HOSTS.md) - Multiple virtual workspaces
+- [Stage Hosts](docs/DESKTOP_HOSTS.md) - Multiple virtual workspaces
 - [Layout Schema](DockKit/layout-schema.md) - JSON structure reference
 - [Swipe Physics](docs/SWIPE_PHYSICS.md) - Gesture handling details
 - [Architecture](ARCHITECTURE.md) - System overview

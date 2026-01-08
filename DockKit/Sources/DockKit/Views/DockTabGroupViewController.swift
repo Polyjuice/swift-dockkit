@@ -391,11 +391,11 @@ public class DockTabGroupViewController: NSViewController {
         updateTabBar()
     }
 
-    /// Update the display mode using DesktopDisplayMode
-    public func setDisplayMode(_ mode: DesktopDisplayMode) {
+    /// Update the display mode using StageDisplayMode
+    public func setDisplayMode(_ mode: StageDisplayMode) {
         // Convert to tab bar display mode
         tabBar.displayMode = mode
-        updateTabBarForDesktopMode(mode)
+        updateTabBarForStageMode(mode)
     }
 
     // MARK: - Private
@@ -411,11 +411,11 @@ public class DockTabGroupViewController: NSViewController {
         }
     }
 
-    private func updateTabBarForDesktopMode(_ mode: DesktopDisplayMode) {
+    private func updateTabBarForStageMode(_ mode: StageDisplayMode) {
         tabBar.setTabs(tabGroupNode.tabs, selectedIndex: tabGroupNode.activeTabIndex, displayMode: mode)
 
         // Update height for display mode
-        let newHeight = heightForDesktopDisplayMode(mode)
+        let newHeight = heightForStageDisplayMode(mode)
         if tabBarHeightConstraint.constant != newHeight {
             tabBarHeightConstraint.constant = newHeight
             view.layoutSubtreeIfNeeded()
@@ -431,7 +431,7 @@ public class DockTabGroupViewController: NSViewController {
         }
     }
 
-    private func heightForDesktopDisplayMode(_ mode: DesktopDisplayMode) -> CGFloat {
+    private func heightForStageDisplayMode(_ mode: StageDisplayMode) -> CGFloat {
         switch mode {
         case .tabs:
             return 28
@@ -461,7 +461,7 @@ public class DockTabGroupViewController: NSViewController {
         // Add new panel before removing old one to avoid empty state
         if let panelVC = newPanelVC {
             // IMPORTANT: Remove from any existing parent first
-            // This can happen when desktops are rebuilt - the panel's view controller
+            // This can happen when stages are rebuilt - the panel's view controller
             // might still have a parent reference to a deallocated tab group controller
             if panelVC.parent != nil {
                 panelVC.view.removeFromSuperview()

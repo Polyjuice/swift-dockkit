@@ -9,11 +9,11 @@ import AppKit
 /// ```swift
 /// // Register custom renderers globally
 /// DockKit.customTabRenderer = MyTabRenderer()
-/// DockKit.customDesktopRenderer = MyDesktopRenderer()
+/// DockKit.customStageRenderer = MyStageRenderer()
 /// DockKit.customDropZoneRenderer = MyDropZoneRenderer()
 ///
-/// // Then set display mode to .custom on desktop host windows
-/// desktopHostWindow.displayMode = .custom
+/// // Then set display mode to .custom on stage host windows
+/// stageHostWindow.displayMode = .custom
 /// ```
 public enum DockKit {
     /// Custom tab renderer for tab bars
@@ -21,10 +21,10 @@ public enum DockKit {
     /// If nil and `.custom` mode is selected, falls back to `.tabs` mode.
     public static var customTabRenderer: DockTabRenderer?
 
-    /// Custom desktop indicator renderer for desktop host window headers
-    /// When set, windows with `.custom` display mode will use this renderer for desktop indicators.
+    /// Custom stage indicator renderer for stage host window headers
+    /// When set, windows with `.custom` display mode will use this renderer for stage indicators.
     /// If nil and `.custom` mode is selected, falls back to `.tabs` mode.
-    public static var customDesktopRenderer: DockDesktopRenderer?
+    public static var customStageRenderer: DockStageRenderer?
 
     /// Custom drop zone renderer for drag-and-drop overlays
     /// When set, all drop overlays will use this renderer for styling.
@@ -32,9 +32,9 @@ public enum DockKit {
     public static var customDropZoneRenderer: DockDropZoneRenderer?
 }
 
-/// Display mode for desktop host windows
-/// Controls how tabs and desktop indicators are rendered
-public enum DesktopDisplayMode: String, Codable, CaseIterable {
+/// Display mode for stage host windows
+/// Controls how tabs and stage indicators are rendered
+public enum StageDisplayMode: String, Codable, CaseIterable {
     /// Standard tab bar style (icon + title)
     case tabs
 

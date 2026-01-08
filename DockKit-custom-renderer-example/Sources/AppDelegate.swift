@@ -10,20 +10,20 @@ enum CustomRendererStyle: Int {
 class AppDelegate: NSObject, NSApplicationDelegate {
 
     var mainWindow: NSWindow?
-    var dockWindow: DockDesktopHostWindow?
+    var dockWindow: DockStageHostWindow?
     var panels: [UUID: DemoPanel] = [:]
     var controlBar: ModeControlBar?
 
     // Store both renderer sets
     let wireframeTabRenderer = WireframeTabRenderer()
-    let wireframeDesktopRenderer = WireframeDesktopRenderer()
+    let wireframeStageRenderer = WireframeStageRenderer()
     let polishedTabRenderer = PolishedTabRenderer()
-    let polishedDesktopRenderer = ModernDesktopRenderer()
+    let polishedStageRenderer = ModernStageRenderer()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register custom renderers globally (start with wireframe)
         DockKit.customTabRenderer = wireframeTabRenderer
-        DockKit.customDesktopRenderer = wireframeDesktopRenderer
+        DockKit.customStageRenderer = wireframeStageRenderer
         DockKit.customDropZoneRenderer = ModernDropZoneRenderer()
 
         // Create demo panels
@@ -31,8 +31,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let panel2 = createPanel(title: "Terminal", color: .systemGreen)
         let panel3 = createPanel(title: "Preview", color: .systemPurple)
 
-        // Create desktops
-        let desktop1 = Desktop(
+        // Create stages
+        let stage1 = Stage(
             title: "Code",
             iconName: "doc.text",
             layout: .tabGroup(TabGroupLayoutNode(
@@ -44,7 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ))
         )
 
-        let desktop2 = Desktop(
+        let stage2 = Stage(
             title: "Design",
             iconName: "paintbrush",
             layout: .tabGroup(TabGroupLayoutNode(
@@ -54,16 +54,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         // Create window state with custom display mode
-        let state = DesktopHostWindowState(
+        let state = StageHostWindowState(
             frame: CGRect(x: 200, y: 200, width: 800, height: 600),
-            activeDesktopIndex: 0,
-            desktops: [desktop1, desktop2],
+            activeStageIndex: 0,
+            stages: [stage1, stage2],
             displayMode: .custom
         )
 
         // Create dock window
-        dockWindow = DockDesktopHostWindow(
-            desktopHostState: state,
+        dockWindow = DockStageHostWindow(
+            stageHostState: state,
             frame: state.frame,
             panelProvider: { [weak self] id in
                 self?.panels[id]
@@ -106,10 +106,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             switch style {
             case .wireframe:
                 DockKit.customTabRenderer = self.wireframeTabRenderer
-                DockKit.customDesktopRenderer = self.wireframeDesktopRenderer
+                DockKit.customStageRenderer = self.wireframeStageRenderer
             case .polished:
                 DockKit.customTabRenderer = self.polishedTabRenderer
-                DockKit.customDesktopRenderer = self.polishedDesktopRenderer
+                DockKit.customStageRenderer = self.polishedStageRenderer
             }
             // Force refresh if already in custom mode
             if self.dockWindow?.displayMode == .custom {
@@ -170,7 +170,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 class ModeControlBar: NSView {
 
-    var onDisplayModeChanged: ((DesktopDisplayMode) -> Void)?
+    var onDisplayModeChanged: ((StageDisplayMode) -> Void)?
     var onRendererStyleChanged: ((CustomRendererStyle) -> Void)?
 
     private var displayModeControl: NSSegmentedControl!
@@ -206,7 +206,7 @@ class ModeControlBar: NSView {
         displayModeLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayModeLabel)
 
-        // Display mode segmented control (Standard or Custom tabs only - thumbnails are for desktop switching)
+        // Display mode segmented control (Standard or Custom tabs only - thumbnails are for stage switching)
         displayModeControl = NSSegmentedControl(labels: ["Standard", "Custom"], trackingMode: .selectOne, target: self, action: #selector(displayModeChanged(_:)))
         displayModeControl.segmentStyle = .rounded
         displayModeControl.selectedSegment = 1  // Custom by default
@@ -259,7 +259,7 @@ class ModeControlBar: NSView {
     }
 
     @objc private func displayModeChanged(_ sender: NSSegmentedControl) {
-        let mode: DesktopDisplayMode
+        let mode: StageDisplayMode
         switch sender.selectedSegment {
         case 0: mode = .tabs      // Standard tabs
         case 1: mode = .custom    // Custom renderer

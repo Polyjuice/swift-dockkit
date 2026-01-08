@@ -22,7 +22,7 @@ DockKit uses a JSON object as the single source of truth for all panels and thei
 The layout tree uses a discriminated union pattern. Nodes are identified by their `type` field.
 
 ```typescript
-type DockLayoutNode = SplitLayoutNode | TabGroupLayoutNode | DesktopHostLayoutNode
+type DockLayoutNode = SplitLayoutNode | TabGroupLayoutNode | StageHostLayoutNode
 
 interface SplitLayoutNode {
   type: "split"
@@ -39,13 +39,13 @@ interface TabGroupLayoutNode {
   activeTabIndex: number
 }
 
-interface DesktopHostLayoutNode {
-  type: "desktopHost"
+interface StageHostLayoutNode {
+  type: "stageHost"
   id: string
   title?: string
   iconName?: string
-  activeDesktopIndex: number
-  desktops: Desktop[]
+  activeStageIndex: number
+  stages: Stage[]
   displayMode?: "tabs" | "thumbnails"
 }
 
@@ -108,19 +108,19 @@ The `proportions` array must have the same length as `children` and sum to 1.0.
 
 Tab groups are the leaf nodes containing actual panel tabs. The `activeTabIndex` determines which tab is visible.
 
-## Nested Desktop Host Node (Version 3)
+## Nested Stage Host Node (Version 3)
 
-Desktop hosts can be nested within layouts using the `desktopHost` type. This enables recursive virtual workspaces - for example, a "Coding" desktop containing a nested "Projects" desktop host with Project A, B, C workspaces.
+Stage hosts can be nested within layouts using the `stageHost` type. This enables recursive virtual workspaces - for example, a "Coding" stage containing a nested "Projects" stage host with Project A, B, C workspaces.
 
 ```json
 {
-  "type": "desktopHost",
+  "type": "stageHost",
   "id": "nested-projects",
   "title": "Projects",
   "iconName": "folder.fill.badge.gearshape",
-  "activeDesktopIndex": 0,
+  "activeStageIndex": 0,
   "displayMode": "thumbnails",
-  "desktops": [
+  "stages": [
     { "id": "project-a", "title": "Project A", "layout": { ... } },
     { "id": "project-b", "title": "Project B", "layout": { ... } },
     { "id": "project-c", "title": "Project C", "layout": { ... } }
@@ -129,7 +129,7 @@ Desktop hosts can be nested within layouts using the `desktopHost` type. This en
 ```
 
 **Gesture Bubbling:**
-When a user swipes to switch desktops, gestures are handled by the innermost desktop host first. When that container reaches its edge (first or last desktop), the gesture automatically "bubbles up" to the parent desktop host. This creates an intuitive experience where inner workspaces are navigated first, then outer workspaces.
+When a user swipes to switch stages, gestures are handled by the innermost stage host first. When that container reaches its edge (first or last stage), the gesture automatically "bubbles up" to the parent stage host. This creates an intuitive experience where inner workspaces are navigated first, then outer workspaces.
 
 ```json
 {
@@ -377,7 +377,7 @@ type CGRect = {
   height: number
 }
 
-type DockLayoutNode = SplitLayoutNode | TabGroupLayoutNode | DesktopHostLayoutNode
+type DockLayoutNode = SplitLayoutNode | TabGroupLayoutNode | StageHostLayoutNode
 
 type SplitLayoutNode = {
   type: "split"
@@ -394,13 +394,13 @@ type TabGroupLayoutNode = {
   activeTabIndex: number
 }
 
-type DesktopHostLayoutNode = {
-  type: "desktopHost"
+type StageHostLayoutNode = {
+  type: "stageHost"
   id: string
   title?: string
   iconName?: string
-  activeDesktopIndex: number
-  desktops: Desktop[]
+  activeStageIndex: number
+  stages: Stage[]
   displayMode?: "tabs" | "thumbnails"
 }
 
@@ -414,18 +414,18 @@ type TabLayoutState = {
 
 ---
 
-## Desktop Host Layouts
+## Stage Host Layouts
 
-Desktop hosts provide multiple virtual workspaces within a single window. See [Desktop Hosts](../docs/DESKTOP_HOSTS.md) for usage details.
+Stage hosts provide multiple virtual workspaces within a single window. See [Stage Hosts](../docs/DESKTOP_HOSTS.md) for usage details.
 
-**Nesting (Version 3):** Desktop hosts can be nested within layouts using the `desktopHost` node type. When nested, gesture bubbling ensures the innermost desktop host handles swipes first, then passes gestures up the hierarchy when at the edge.
+**Nesting (Version 3):** Stage hosts can be nested within layouts using the `stageHost` node type. When nested, gesture bubbling ensures the innermost stage host handles swipes first, then passes gestures up the hierarchy when at the edge.
 
-### Desktop
+### Stage
 
 A single virtual workspace with its own layout tree:
 
 ```typescript
-type Desktop = {
+type Stage = {
   id: string
   title?: string      // Display name in header
   iconName?: string   // SF Symbol name for header
@@ -433,31 +433,31 @@ type Desktop = {
 }
 ```
 
-### DesktopHostWindowState
+### StageHostWindowState
 
-State for a window containing multiple desktops:
+State for a window containing multiple stages:
 
 ```typescript
-type DesktopHostWindowState = {
+type StageHostWindowState = {
   id: string
   frame: CGRect
   isFullScreen: boolean
-  activeDesktopIndex: number
-  desktops: Desktop[]
+  activeStageIndex: number
+  stages: Stage[]
 }
 ```
 
-### Example: Multi-Desktop Layout
+### Example: Multi-Stage Layout
 
 ```json
 {
-  "id": "desktop-host-window",
+  "id": "stage-host-window",
   "frame": { "x": 100, "y": 100, "width": 1200, "height": 800 },
   "isFullScreen": false,
-  "activeDesktopIndex": 0,
-  "desktops": [
+  "activeStageIndex": 0,
+  "stages": [
     {
-      "id": "coding-desktop",
+      "id": "coding-stage",
       "title": "Coding",
       "iconName": "chevron.left.forwardslash.chevron.right",
       "layout": {
@@ -502,7 +502,7 @@ type DesktopHostWindowState = {
       }
     },
     {
-      "id": "design-desktop",
+      "id": "design-stage",
       "title": "Design",
       "iconName": "paintbrush.fill",
       "layout": {
@@ -534,34 +534,34 @@ type DesktopHostWindowState = {
 }
 ```
 
-### Complete TypeScript Schema (with Desktops)
+### Complete TypeScript Schema (with Stages)
 
 ```typescript
-// Desktop Host types
-type Desktop = {
+// Stage Host types
+type Stage = {
   id: string
   title?: string
   iconName?: string
   layout: DockLayoutNode
 }
 
-type DesktopHostWindowState = {
+type StageHostWindowState = {
   id: string
   frame: CGRect
   isFullScreen: boolean
-  activeDesktopIndex: number
-  desktops: Desktop[]
+  activeStageIndex: number
+  stages: Stage[]
 }
 
-// Nested Desktop Host (Version 3)
-// Can be used as a DockLayoutNode within splits/desktops
-type DesktopHostLayoutNode = {
-  type: "desktopHost"
+// Nested Stage Host (Version 3)
+// Can be used as a DockLayoutNode within splits/stages
+type StageHostLayoutNode = {
+  type: "stageHost"
   id: string
   title?: string
   iconName?: string
-  activeDesktopIndex: number
-  desktops: Desktop[]
+  activeStageIndex: number
+  stages: Stage[]
   displayMode?: "tabs" | "thumbnails"
 }
 ```

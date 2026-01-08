@@ -1,22 +1,22 @@
 import AppKit
 
-/// A view controller that hosts a nested desktop host within a layout tree.
-/// This is used when a desktop host is embedded as a node in another layout,
+/// A view controller that hosts a nested stage host within a layout tree.
+/// This is used when a stage host is embedded as a node in another layout,
 /// enabling recursive nesting of virtual workspaces (Version 3 feature).
-public class DockDesktopHostViewController: NSViewController, DockDesktopHostViewDelegate {
+public class DockStageHostViewController: NSViewController, DockStageHostViewDelegate {
 
     // MARK: - Properties
 
-    /// The desktop host view this controller manages
-    public let hostView: DockDesktopHostView
+    /// The stage host view this controller manages
+    public let hostView: DockStageHostView
 
     /// The layout node configuration
-    public let layoutNode: DesktopHostLayoutNode
+    public let layoutNode: StageHostLayoutNode
 
     /// Panel provider for looking up panels by ID
     public var panelProvider: ((UUID) -> (any DockablePanel)?)?
 
-    /// Delegate for bubbling swipe gestures to parent desktop host
+    /// Delegate for bubbling swipe gestures to parent stage host
     public weak var swipeGestureDelegate: SwipeGestureDelegate? {
         didSet {
             hostView.swipeGestureDelegate = swipeGestureDelegate
@@ -25,17 +25,17 @@ public class DockDesktopHostViewController: NSViewController, DockDesktopHostVie
 
     // MARK: - Initialization
 
-    public init(layoutNode: DesktopHostLayoutNode, panelProvider: ((UUID) -> (any DockablePanel)?)? = nil) {
+    public init(layoutNode: StageHostLayoutNode, panelProvider: ((UUID) -> (any DockablePanel)?)? = nil) {
         self.layoutNode = layoutNode
         self.panelProvider = panelProvider
 
-        // Create the desktop host state from the layout node
-        let state = layoutNode.toDesktopHostWindowState()
+        // Create the stage host state from the layout node
+        let state = layoutNode.toStageHostWindowState()
 
         // Create the host view
-        self.hostView = DockDesktopHostView(
+        self.hostView = DockStageHostView(
             id: layoutNode.id,
-            desktopHostState: state,
+            stageHostState: state,
             panelProvider: panelProvider
         )
 
@@ -67,26 +67,26 @@ public class DockDesktopHostViewController: NSViewController, DockDesktopHostVie
         self.view = container
     }
 
-    // MARK: - DockDesktopHostViewDelegate
+    // MARK: - DockStageHostViewDelegate
 
-    public func desktopHostView(_ view: DockDesktopHostView, didSwitchToDesktopAt index: Int) {
+    public func stageHostView(_ view: DockStageHostView, didSwitchToStageAt index: Int) {
         // Could notify parent if needed
     }
 
-    public func desktopHostView(_ view: DockDesktopHostView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
+    public func stageHostView(_ view: DockStageHostView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
         // Could forward to parent if needed
     }
 
-    public func desktopHostView(_ view: DockDesktopHostView, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool {
+    public func stageHostView(_ view: DockStageHostView, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool {
         // Default: allow tearing
         return true
     }
 
-    public func desktopHostView(_ view: DockDesktopHostView, didTearPanel panel: any DockablePanel, to newWindow: DockDesktopHostWindow) {
+    public func stageHostView(_ view: DockStageHostView, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow) {
         // Could notify parent if needed
     }
 
-    public func desktopHostView(_ view: DockDesktopHostView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
+    public func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
         // Could forward to parent if needed
     }
 }

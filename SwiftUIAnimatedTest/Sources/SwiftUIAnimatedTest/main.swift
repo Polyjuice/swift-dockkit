@@ -52,7 +52,7 @@ class TestWindow: NSWindow {
             backing: .buffered,
             defer: false
         )
-        title = "Desktop Slide Test"
+        title = "Stage Slide Test"
         setupViews()
     }
 
@@ -102,7 +102,7 @@ class TestWindow: NSWindow {
     // MARK: - Test Runner
 
     func runAllTests() {
-        testResults = ["Desktop Slide Test Results", "=" * 40, ""]
+        testResults = ["Stage Slide Test Results", "=" * 40, ""]
 
         // Clear old screenshots
         let dir = projectPath + "/screenshots"
