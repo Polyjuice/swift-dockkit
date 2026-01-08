@@ -19,6 +19,10 @@ public class DockLayoutManager: DockWindowDelegate {
     /// Enable verbose JSON logging for debugging
     public var verboseLogging: Bool = false
 
+    /// When true (default), empty splits are automatically collapsed when panels close.
+    /// When false, empty space remains and the user must manually rearrange panels.
+    public var reclaimEmptySpace: Bool = true
+
     /// The reconciler for applying layout changes
     private lazy var reconciler: DockLayoutReconciler = {
         let r = DockLayoutReconciler()

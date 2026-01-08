@@ -48,8 +48,8 @@ public class DockStageHostWindow: NSWindow {
     /// Window ID for tracking
     public let windowId: UUID
 
-    /// The stage host state
-    public private(set) var stageHostState: StageHostWindowState
+    /// Controller that manages state and operations
+    public let controller: StageHostController
 
     /// Reference to the layout manager
     public weak var layoutManager: DockLayoutManager?
@@ -57,22 +57,32 @@ public class DockStageHostWindow: NSWindow {
     /// Delegate for window events
     public weak var stageDelegate: DockStageHostWindowDelegate?
 
-    /// Panel provider for looking up panels by ID
-    public var panelProvider: ((UUID) -> (any DockablePanel)?)?
-
     /// Flag to suppress auto-close during reconciliation
     internal var suppressAutoClose: Bool = false
 
+    // MARK: - Forwarding Properties
+
+    /// The stage host state (forwarded from controller)
+    public var stageHostState: StageHostWindowState { controller.state }
+
+    /// Panel provider for looking up panels by ID (forwarded to controller)
+    public var panelProvider: ((UUID) -> (any DockablePanel)?)? {
+        get { controller.panelProvider }
+        set { controller.panelProvider = newValue }
+    }
+
     /// Display mode for tabs and stage indicators
     public var displayMode: StageDisplayMode {
-        get { stageHostState.displayMode }
+        get { controller.displayMode }
         set {
-            stageHostState.displayMode = newValue
+            controller.displayMode = newValue
             headerView?.displayMode = newValue
-            // Update tab bars in container if needed
             containerView?.displayMode = newValue
         }
     }
+
+    /// Check if window is empty (all stages have no panels)
+    public var isEmpty: Bool { controller.isEmpty }
 
     // MARK: - Child Window Tracking
 
@@ -106,9 +116,8 @@ public class DockStageHostWindow: NSWindow {
         panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
     ) {
         self.windowId = id
-        self.stageHostState = stageHostState
+        self.controller = StageHostController(state: stageHostState)
         self.layoutManager = layoutManager
-        self.panelProvider = panelProvider
 
         super.init(
             contentRect: frame,
@@ -116,6 +125,9 @@ public class DockStageHostWindow: NSWindow {
             backing: .buffered,
             defer: false
         )
+
+        controller.panelProvider = panelProvider
+        controller.delegate = self
 
         setupWindow()
         setupViews()
@@ -224,8 +236,8 @@ public class DockStageHostWindow: NSWindow {
     }
 
     private func loadStages() {
-        headerView.setStages(stageHostState.stages, activeIndex: stageHostState.activeStageIndex)
-        containerView.setStages(stageHostState.stages, activeIndex: stageHostState.activeStageIndex)
+        headerView.setStages(controller.stages, activeIndex: controller.activeStageIndex)
+        containerView.setStages(controller.stages, activeIndex: controller.activeStageIndex)
 
         // Capture thumbnails after a brief delay (for initial thumbnail mode)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -239,23 +251,18 @@ public class DockStageHostWindow: NSWindow {
 
     /// Get the active stage's root node
     public var activeStageRootNode: DockNode? {
-        guard stageHostState.activeStageIndex >= 0 &&
-              stageHostState.activeStageIndex < stageHostState.stages.count else {
+        guard controller.activeStageIndex >= 0 &&
+              controller.activeStageIndex < controller.stages.count else {
             return nil
         }
 
-        let layout = stageHostState.stages[stageHostState.activeStageIndex].layout
+        let layout = controller.stages[controller.activeStageIndex].layout
         return convertLayoutNodeToDockNode(layout)
     }
 
     /// Switch to a specific stage
-    /// Note: This is a local view state change, not a layout mutation.
-    /// We update the state directly since switching doesn't add/remove panels.
     public func switchToStage(at index: Int, animated: Bool = true) {
-        guard index >= 0 && index < stageHostState.stages.count else { return }
-        guard index != stageHostState.activeStageIndex else { return }
-
-        stageHostState.activeStageIndex = index
+        controller.switchToStage(at: index)
         containerView.switchToStage(at: index, animated: animated)
         headerView.setActiveIndex(index)
         updateTitle()
@@ -263,18 +270,9 @@ public class DockStageHostWindow: NSWindow {
 
     /// Update the stage state (for reconciliation)
     public func updateStageHostState(_ state: StageHostWindowState) {
-        let activeIndexChanged = stageHostState.activeStageIndex != state.activeStageIndex
-        let stageCountChanged = stageHostState.stages.count != state.stages.count
+        let stageCountChanged = controller.stages.count != state.stages.count
+        controller.updateState(state)
 
-        stageHostState = state
-        headerView.setStages(state.stages, activeIndex: state.activeStageIndex)
-        containerView.setStages(state.stages, activeIndex: state.activeStageIndex)
-
-        if activeIndexChanged || stageCountChanged {
-            updateTitle()
-        }
-
-        // Recapture thumbnails after views are rebuilt (if in thumbnail mode)
         if stageCountChanged && state.displayMode == .thumbnails {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
@@ -286,55 +284,29 @@ public class DockStageHostWindow: NSWindow {
 
     /// Check if window contains a specific panel
     public func containsPanel(_ panelId: UUID) -> Bool {
-        for stage in stageHostState.stages {
-            if containsPanel(panelId, in: stage.layout) {
-                return true
-            }
-        }
-        return false
-    }
-
-    /// Check if window is empty (all stages have no panels)
-    public var isEmpty: Bool {
-        return stageHostState.stages.allSatisfy { $0.layout.isEmpty }
+        controller.containsPanel(panelId)
     }
 
     /// Add a new empty stage
-    /// This creates a new state and sends it through the reconciler
     @discardableResult
     public func addNewStage(title: String? = nil, iconName: String? = nil) -> Stage {
-        let stageNumber = stageHostState.stages.count + 1
-        let stage = Stage(
-            title: title ?? "Stage \(stageNumber)",
-            iconName: iconName,
-            layout: .tabGroup(TabGroupLayoutNode())  // Empty tab group
-        )
-
-        // Create new state (immutable update pattern)
-        var newState = stageHostState
-        newState.stages.append(stage)
-        newState.activeStageIndex = newState.stages.count - 1
-
-        // Send through reconciler
-        updateStageHostState(newState)
-
-        return stage
+        controller.addNewStage(title: title, iconName: iconName)
     }
 
     // MARK: - Title
 
     public func updateTitle() {
-        guard stageHostState.activeStageIndex >= 0 &&
-              stageHostState.activeStageIndex < stageHostState.stages.count else {
+        guard controller.activeStageIndex >= 0 &&
+              controller.activeStageIndex < controller.stages.count else {
             title = "Stage"
             return
         }
 
-        let stage = stageHostState.stages[stageHostState.activeStageIndex]
+        let stage = controller.stages[controller.activeStageIndex]
         if let stageTitle = stage.title {
             title = stageTitle
         } else {
-            title = "Stage \(stageHostState.activeStageIndex + 1)"
+            title = "Stage \(controller.activeStageIndex + 1)"
         }
     }
 
@@ -343,33 +315,7 @@ public class DockStageHostWindow: NSWindow {
     /// Remove a panel from any stage in this window
     @discardableResult
     public func removePanel(_ panelId: UUID) -> Bool {
-        for i in 0..<stageHostState.stages.count {
-            var stage = stageHostState.stages[i]
-            var modified = false
-            stage.layout = stage.layout.removingTab(panelId, modified: &modified)
-            if modified {
-                stageHostState.stages[i] = stage
-                if i == stageHostState.activeStageIndex {
-                    containerView.updateStageLayout(stage.layout, forStageAt: i)
-                }
-                return true
-            }
-        }
-        return false
-    }
-
-    /// Remove a tab from the currently active stage
-    private func removeTabFromCurrentStage(_ tabId: UUID) {
-        guard stageHostState.activeStageIndex < stageHostState.stages.count else { return }
-
-        var stage = stageHostState.stages[stageHostState.activeStageIndex]
-        var modified = false
-        stage.layout = stage.layout.removingTab(tabId, modified: &modified)
-
-        if modified {
-            stageHostState.stages[stageHostState.activeStageIndex] = stage
-            containerView.updateStageLayout(stage.layout, forStageAt: stageHostState.activeStageIndex)
-        }
+        controller.removePanel(panelId)
     }
 
     // MARK: - Child Window Management
@@ -419,17 +365,6 @@ public class DockStageHostWindow: NSWindow {
     }
 
     // MARK: - Private Helpers
-
-    private func containsPanel(_ panelId: UUID, in node: DockLayoutNode) -> Bool {
-        switch node {
-        case .tabGroup(let tabGroup):
-            return tabGroup.tabs.contains { $0.id == panelId }
-        case .split(let split):
-            return split.children.contains { containsPanel(panelId, in: $0) }
-        case .stageHost(let stageHost):
-            return stageHost.stages.contains { containsPanel(panelId, in: $0.layout) }
-        }
-    }
 
     private func convertLayoutNodeToDockNode(_ layoutNode: DockLayoutNode) -> DockNode {
         switch layoutNode {
@@ -505,121 +440,27 @@ extension DockStageHostWindow: DockStageHeaderViewDelegate {
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt targetIndex: Int) {
-        // Find which stage contains the source tab
-        var sourceStageIndex: Int? = nil
-        for (index, stage) in stageHostState.stages.enumerated() {
-            if containsTab(tabInfo.tabId, in: stage.layout) {
-                sourceStageIndex = index
-                break
-            }
-        }
-
-        guard let srcIndex = sourceStageIndex else {
-            return
-        }
-
-        // Don't drop on the same stage
-        guard srcIndex != targetIndex else {
-            return
-        }
-
-        // Create new state with tab moved
-        var newState = stageHostState
-
-        // Remove tab from source stage
-        guard let (tabState, newSourceLayout) = removeTab(tabInfo.tabId, from: newState.stages[srcIndex].layout) else {
-            return
-        }
-        newState.stages[srcIndex].layout = newSourceLayout
-
-        // Add tab to target stage
-        newState.stages[targetIndex].layout = addTab(tabState, to: newState.stages[targetIndex].layout)
-
-        // Switch to target stage
-        newState.activeStageIndex = targetIndex
-
-        // Update through reconciler
-        updateStageHostState(newState)
-    }
-
-    // MARK: - Layout Helpers
-
-    private func containsTab(_ tabId: UUID, in layout: DockLayoutNode) -> Bool {
-        switch layout {
-        case .tabGroup(let tabGroup):
-            return tabGroup.tabs.contains { $0.id == tabId }
-        case .split(let split):
-            return split.children.contains { containsTab(tabId, in: $0) }
-        case .stageHost(let stageHost):
-            return stageHost.stages.contains { containsTab(tabId, in: $0.layout) }
-        }
-    }
-
-    private func removeTab(_ tabId: UUID, from layout: DockLayoutNode) -> (TabLayoutState, DockLayoutNode)? {
-        switch layout {
-        case .tabGroup(var tabGroup):
-            if let index = tabGroup.tabs.firstIndex(where: { $0.id == tabId }) {
-                let tab = tabGroup.tabs.remove(at: index)
-                // Adjust active tab index if needed
-                if tabGroup.activeTabIndex >= tabGroup.tabs.count {
-                    tabGroup.activeTabIndex = max(0, tabGroup.tabs.count - 1)
-                }
-                return (tab, .tabGroup(tabGroup))
-            }
-            return nil
-        case .split(var split):
-            for (i, child) in split.children.enumerated() {
-                if let (tab, newChild) = removeTab(tabId, from: child) {
-                    split.children[i] = newChild
-                    return (tab, .split(split))
-                }
-            }
-            return nil
-        case .stageHost(var stageHost):
-            for (i, stage) in stageHost.stages.enumerated() {
-                if let (tab, newLayout) = removeTab(tabId, from: stage.layout) {
-                    stageHost.stages[i].layout = newLayout
-                    return (tab, .stageHost(stageHost))
-                }
-            }
-            return nil
-        }
-    }
-
-    private func addTab(_ tab: TabLayoutState, to layout: DockLayoutNode) -> DockLayoutNode {
-        switch layout {
-        case .tabGroup(var tabGroup):
-            tabGroup.tabs.append(tab)
-            tabGroup.activeTabIndex = tabGroup.tabs.count - 1
-            return .tabGroup(tabGroup)
-        case .split(var split):
-            // Add to first tab group found
-            if !split.children.isEmpty {
-                split.children[0] = addTab(tab, to: split.children[0])
-            }
-            return .split(split)
-        case .stageHost(var stageHost):
-            // Add to the active stage
-            if !stageHost.stages.isEmpty {
-                let activeIndex = min(stageHost.activeStageIndex, stageHost.stages.count - 1)
-                stageHost.stages[activeIndex].layout = addTab(tab, to: stageHost.stages[activeIndex].layout)
-            }
-            return .stageHost(stageHost)
-        }
+        controller.handleTabMovedToStage(tabInfo.tabId, targetStageIndex: targetIndex)
     }
 }
 
 // MARK: - DockStageContainerViewDelegate
 
 extension DockStageHostWindow: DockStageContainerViewDelegate {
+    public func stageContainerDidBeginSwipeGesture(_ container: DockStageContainerView) {
+        // Optional: notify delegate
+    }
+
+    public func stageContainerDidEndSwipeGesture(_ container: DockStageContainerView) {
+        // Optional: notify delegate
+    }
+
     public func stageContainer(_ container: DockStageContainerView, didBeginSwipingTo index: Int) {
         headerView.highlightStage(at: index)
     }
 
     public func stageContainer(_ container: DockStageContainerView, didSwitchTo index: Int) {
-        // This is a user gesture completing - update state to reflect the new active stage.
-        // This is a view state sync, not a layout mutation requiring reconciliation.
-        stageHostState.activeStageIndex = index
+        controller.completeStageSwitch(to: index)
         headerView.clearSwipeHighlight()
         headerView.setActiveIndex(index)
         updateTitle()
@@ -627,39 +468,58 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
     }
 
     public func stageContainer(_ container: DockStageContainerView, panelForId id: UUID) -> (any DockablePanel)? {
-        return panelProvider?(id)
+        panelProvider?(id)
     }
 
     public func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
-        // Get the current stage's layout
-        guard stageHostState.activeStageIndex < stageHostState.stages.count else { return }
-
-        var stage = stageHostState.stages[stageHostState.activeStageIndex]
-        let targetGroupId = tabGroup.tabGroupNode.id
-
-        // Use layout mutation to move the tab
-        let newLayout = stage.layout.movingTab(tabInfo.tabId, toGroupId: targetGroupId, at: index)
-        stage.layout = newLayout
-        stageHostState.stages[stageHostState.activeStageIndex] = stage
-
-        // Rebuild the stage view
-        containerView.updateStageLayout(newLayout, forStageAt: stageHostState.activeStageIndex)
+        controller.handleTabReceived(tabInfo.tabId, in: tabGroup.tabGroupNode.id, at: index)
     }
 
     public func stageContainer(_ container: DockStageContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {
-        // Get the panel
         guard let panel = tab.panel ?? panelProvider?(tab.id) else { return }
 
-        // Check if delegate allows tearing (default: yes)
         let allowTear = stageDelegate?.stageHostWindow(self, willTearPanel: panel, at: screenPoint) ?? true
         guard allowTear else { return }
 
-        // Notify panel it's about to detach
-        panel.panelWillDetach()
+        // Use controller's handleDetach which removes the tab from layout
+        controller.handleDetach(tab: tab, at: screenPoint)
+    }
 
-        // Remove from current stage
-        removeTabFromCurrentStage(tab.id)
+    public func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
+        controller.handleSplit(groupId: tabGroup.tabGroupNode.id, direction: direction, withTab: tab)
+    }
 
+    public func stageContainer(_ container: DockStageContainerView, didCloseTab tabId: UUID) {
+        controller.handleTabClosed(tabId)
+    }
+}
+
+// MARK: - StageHostControllerDelegate
+
+extension DockStageHostWindow: StageHostControllerDelegate {
+    public func controller(_ controller: StageHostController, didUpdateLayout layout: DockLayoutNode, forStageAt index: Int) {
+        containerView.updateStageLayout(layout, forStageAt: index)
+    }
+
+    public func controller(_ controller: StageHostController, didUpdateStages stages: [Stage], activeIndex: Int) {
+        headerView.setStages(stages, activeIndex: activeIndex)
+        containerView.setStages(stages, activeIndex: activeIndex)
+        updateTitle()
+
+        if controller.displayMode == .thumbnails {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self = self else { return }
+                let thumbnails = self.containerView.captureStageThumbnails()
+                self.headerView.setThumbnails(thumbnails)
+            }
+        }
+    }
+
+    public func controller(_ controller: StageHostController, didSwitchToStage index: Int) {
+        stageDelegate?.stageHostWindow(self, didSwitchToStageAt: index)
+    }
+
+    public func controller(_ controller: StageHostController, didDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {
         // Create new stage host window with the panel
         let childWindow = DockStageHostWindow(
             singlePanel: panel,
@@ -678,33 +538,5 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
 
         // Notify delegate
         stageDelegate?.stageHostWindow(self, didTearPanel: panel, to: childWindow)
-    }
-
-    public func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
-        // Get the current stage's layout
-        guard stageHostState.activeStageIndex < stageHostState.stages.count else { return }
-
-        var stage = stageHostState.stages[stageHostState.activeStageIndex]
-        let targetGroupId = tabGroup.tabGroupNode.id
-
-        // Create tab state from DockTab
-        let tabState = TabLayoutState(
-            id: tab.id,
-            title: tab.title,
-            iconName: tab.iconName,
-            cargo: tab.cargo
-        )
-
-        // Use layout mutation to perform the split
-        let newLayout = stage.layout.splitting(
-            groupId: targetGroupId,
-            direction: direction,
-            withTab: tabState
-        )
-        stage.layout = newLayout
-        stageHostState.stages[stageHostState.activeStageIndex] = stage
-
-        // Rebuild the stage view
-        containerView.updateStageLayout(newLayout, forStageAt: stageHostState.activeStageIndex)
     }
 }

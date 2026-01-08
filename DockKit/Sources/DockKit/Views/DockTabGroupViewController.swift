@@ -4,6 +4,7 @@ import AppKit
 public protocol DockTabGroupViewControllerDelegate: AnyObject {
     func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachTab tab: DockTab, at screenPoint: NSPoint)
     func tabGroup(_ tabGroup: DockTabGroupViewController, didReceiveTab tabInfo: DockTabDragInfo, at index: Int)
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseTab tabId: UUID)
     func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastTab: Bool)
     func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab)
     func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController)
@@ -11,6 +12,7 @@ public protocol DockTabGroupViewControllerDelegate: AnyObject {
 
 /// Optional delegate methods
 public extension DockTabGroupViewControllerDelegate {
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseTab tabId: UUID) {}
     func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {}
 }
 
@@ -264,6 +266,9 @@ public class DockTabGroupViewController: NSViewController {
     @discardableResult
     public func removeTab(at index: Int) -> DockTab? {
         guard let tab = tabGroupNode.removeTab(at: index) else { return nil }
+
+        // Notify delegate about tab closure (for layout model updates)
+        delegate?.tabGroup(self, didCloseTab: tab.id)
 
         // Notify panel
         tab.panel?.panelDidResignActive()

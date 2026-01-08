@@ -44,6 +44,9 @@ public protocol DockStageContainerViewDelegate: AnyObject {
 
     /// Called when a split is requested
     func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
+
+    /// Called when a tab is closed via X button
+    func stageContainer(_ container: DockStageContainerView, didCloseTab tabId: UUID)
 }
 
 /// Default implementations
@@ -54,6 +57,7 @@ public extension DockStageContainerViewDelegate {
     func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
     func stageContainer(_ container: DockStageContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
     func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
+    func stageContainer(_ container: DockStageContainerView, didCloseTab tabId: UUID) {}
 }
 
 /// A container view that hosts multiple stages with swipe gesture navigation
@@ -987,8 +991,12 @@ extension DockStageContainerView: DockTabGroupViewControllerDelegate {
         delegate?.stageContainer(self, wantsToSplit: direction, withTab: tab, in: tabGroup)
     }
 
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseTab tabId: UUID) {
+        delegate?.stageContainer(self, didCloseTab: tabId)
+    }
+
     public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastTab: Bool) {
-        // Handle last tab closure - could remove the tab group from layout
+        // Handled by didCloseTab - this is kept for compatibility
     }
 
     public func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {

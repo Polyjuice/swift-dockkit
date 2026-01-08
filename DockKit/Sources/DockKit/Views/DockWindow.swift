@@ -179,7 +179,9 @@ public class DockWindow: NSWindow {
     @discardableResult
     public func removePanel(_ panelId: UUID) -> Bool {
         if removeTab(withId: panelId, from: &rootNode) {
-            cleanupEmptyNodes(&rootNode)
+            if layoutManager?.reclaimEmptySpace ?? true {
+                cleanupEmptyNodes(&rootNode)
+            }
             rebuildLayout()
             return true
         }
@@ -340,12 +342,9 @@ public class DockWindow: NSWindow {
                 cleanupEmptyNodes(&splitNode.children[i])
             }
 
-            // Remove empty tab groups
+            // Remove empty nodes (empty tab groups OR empty splits)
             splitNode.children.removeAll { child in
-                if case .tabGroup(let tg) = child, tg.tabs.isEmpty {
-                    return true
-                }
-                return false
+                child.isEmpty
             }
 
             // Simplify if only one child remains
@@ -414,7 +413,9 @@ extension DockWindow: DockTabGroupViewControllerDelegate {
         }
 
         updateRootNodeFromController()
-        cleanupEmptyNodes(&rootNode)
+        if layoutManager?.reclaimEmptySpace ?? true {
+            cleanupEmptyNodes(&rootNode)
+        }
 
         if isEmpty {
             close()
@@ -452,7 +453,9 @@ extension DockWindow: DockSplitViewControllerDelegate {
         }
 
         updateRootNodeFromController()
-        cleanupEmptyNodes(&rootNode)
+        if layoutManager?.reclaimEmptySpace ?? true {
+            cleanupEmptyNodes(&rootNode)
+        }
         rebuildLayout()
     }
 }
