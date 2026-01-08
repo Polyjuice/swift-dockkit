@@ -72,6 +72,12 @@ public class DockStageHeaderView: NSView {
         }
     }
 
+    /// Trailing items stack (for custom buttons/controls)
+    private var trailingItemsStack: NSStackView!
+
+    /// Debug controls container (Thumbs/Slow toggles)
+    private var debugControlsStack: NSStackView!
+
     /// Slow motion toggle switch
     private var slowMotionSwitch: NSSwitch!
     private var slowMotionLabel: NSTextField!
@@ -79,6 +85,13 @@ public class DockStageHeaderView: NSView {
     /// Thumbnail mode toggle switch
     private var thumbnailSwitch: NSSwitch!
     private var thumbnailLabel: NSTextField!
+
+    /// Whether to show debug controls (Thumbs/Slow toggles)
+    public var showDebugControls: Bool = true {
+        didSet {
+            debugControlsStack?.isHidden = !showDebugControls
+        }
+    }
 
     /// Height of the header (normal mode)
     public static let headerHeight: CGFloat = 36
@@ -121,6 +134,8 @@ public class DockStageHeaderView: NSView {
         stackView.spacing = 8
         stackView.distribution = .fillEqually
         stackView.alignment = .centerY
+        stackView.wantsLayer = true
+        stackView.layer?.masksToBounds = false  // Allow close buttons to extend outside
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
@@ -153,26 +168,26 @@ public class DockStageHeaderView: NSView {
             addStageButton.heightAnchor.constraint(equalToConstant: 44)
         ])
 
-        // Slow motion toggle on the right
-        slowMotionLabel = NSTextField(labelWithString: "Slow")
-        slowMotionLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        slowMotionLabel.textColor = .tertiaryLabelColor
-        slowMotionLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(slowMotionLabel)
+        // Trailing items stack on the right side (contains custom items + debug controls)
+        trailingItemsStack = NSStackView()
+        trailingItemsStack.orientation = .horizontal
+        trailingItemsStack.spacing = 8
+        trailingItemsStack.alignment = .centerY
+        trailingItemsStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(trailingItemsStack)
 
-        slowMotionSwitch = NSSwitch()
-        slowMotionSwitch.controlSize = .mini
-        slowMotionSwitch.target = self
-        slowMotionSwitch.action = #selector(slowMotionToggled(_:))
-        slowMotionSwitch.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(slowMotionSwitch)
+        // Debug controls stack (Thumbs/Slow toggles)
+        debugControlsStack = NSStackView()
+        debugControlsStack.orientation = .horizontal
+        debugControlsStack.spacing = 4
+        debugControlsStack.alignment = .centerY
+        debugControlsStack.translatesAutoresizingMaskIntoConstraints = false
 
-        // Thumbnail mode toggle (left of slow motion)
+        // Thumbnail mode toggle
         thumbnailLabel = NSTextField(labelWithString: "Thumbs")
         thumbnailLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
         thumbnailLabel.textColor = .tertiaryLabelColor
         thumbnailLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(thumbnailLabel)
 
         thumbnailSwitch = NSSwitch()
         thumbnailSwitch.controlSize = .mini
@@ -180,20 +195,33 @@ public class DockStageHeaderView: NSView {
         thumbnailSwitch.target = self
         thumbnailSwitch.action = #selector(thumbnailToggled(_:))
         thumbnailSwitch.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(thumbnailSwitch)
+
+        // Slow motion toggle
+        slowMotionLabel = NSTextField(labelWithString: "Slow")
+        slowMotionLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        slowMotionLabel.textColor = .tertiaryLabelColor
+        slowMotionLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        slowMotionSwitch = NSSwitch()
+        slowMotionSwitch.controlSize = .mini
+        slowMotionSwitch.target = self
+        slowMotionSwitch.action = #selector(slowMotionToggled(_:))
+        slowMotionSwitch.translatesAutoresizingMaskIntoConstraints = false
+
+        // Add to debug controls stack
+        debugControlsStack.addArrangedSubview(thumbnailLabel)
+        debugControlsStack.addArrangedSubview(thumbnailSwitch)
+        debugControlsStack.addArrangedSubview(slowMotionLabel)
+        debugControlsStack.addArrangedSubview(slowMotionSwitch)
+
+        // Add debug controls to trailing items (at the end)
+        trailingItemsStack.addArrangedSubview(debugControlsStack)
 
         NSLayoutConstraint.activate([
-            // Slow motion on far right
-            slowMotionSwitch.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            slowMotionSwitch.centerYAnchor.constraint(equalTo: centerYAnchor),
-            slowMotionLabel.trailingAnchor.constraint(equalTo: slowMotionSwitch.leadingAnchor, constant: -4),
-            slowMotionLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            // Thumbnail toggle to the left of slow motion
-            thumbnailSwitch.trailingAnchor.constraint(equalTo: slowMotionLabel.leadingAnchor, constant: -16),
-            thumbnailSwitch.centerYAnchor.constraint(equalTo: centerYAnchor),
-            thumbnailLabel.trailingAnchor.constraint(equalTo: thumbnailSwitch.leadingAnchor, constant: -4),
-            thumbnailLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+            trailingItemsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            trailingItemsStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // Ensure trailing items don't overlap the center stage stack
+            trailingItemsStack.leadingAnchor.constraint(greaterThanOrEqualTo: stackView.trailingAnchor, constant: 16)
         ])
     }
 
@@ -311,6 +339,38 @@ public class DockStageHeaderView: NSView {
     }
 
     // MARK: - Public API
+
+    /// Set custom trailing items (buttons/controls) to display in the header
+    /// These appear to the right of the stage thumbnails/tabs and before debug controls
+    /// - Parameter views: Array of NSViews to add as trailing items
+    public func setTrailingItems(_ views: [NSView]) {
+        // Remove existing custom items (keep debug controls)
+        for view in trailingItemsStack.arrangedSubviews where view !== debugControlsStack {
+            trailingItemsStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        // Insert new custom items before debug controls
+        for (index, view) in views.enumerated() {
+            trailingItemsStack.insertArrangedSubview(view, at: index)
+        }
+    }
+
+    /// Add a single trailing item before the debug controls
+    /// - Parameter view: The view to add
+    public func addTrailingItem(_ view: NSView) {
+        // Insert before debug controls (which is at the end)
+        let insertIndex = max(0, trailingItemsStack.arrangedSubviews.count - 1)
+        trailingItemsStack.insertArrangedSubview(view, at: insertIndex)
+    }
+
+    /// Remove all custom trailing items (keeps debug controls)
+    public func clearTrailingItems() {
+        for view in trailingItemsStack.arrangedSubviews where view !== debugControlsStack {
+            trailingItemsStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+    }
 
     /// Set the stages to display
     public func setStages(_ newStages: [Stage], activeIndex: Int) {
@@ -566,6 +626,7 @@ public class DockStageButton: NSView, DockStageView {
     private func setupUI() {
         wantsLayer = true
         layer?.cornerRadius = 6
+        layer?.masksToBounds = false  // Allow close button to extend outside bounds
         translatesAutoresizingMaskIntoConstraints = false
 
         // Selection border (for thumbnail mode)
@@ -639,15 +700,20 @@ public class DockStageButton: NSView, DockStageView {
         indicatorView.isHidden = true
         addSubview(indicatorView)
 
-        // Close button
-        closeButton = NSButton(
-            image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Stage")!,
-            target: self,
-            action: #selector(closeClicked)
-        )
-        closeButton.bezelStyle = .accessoryBarAction
+        // Close button - Mission Control style (round dark circle with white X)
+        closeButton = NSButton(frame: .zero)
+        closeButton.bezelStyle = .regularSquare
         closeButton.isBordered = false
-        closeButton.alphaValue = 0  // Hidden by default, shown on hover
+        closeButton.title = ""
+        // Use xmark.circle.fill for Mission Control style
+        if let image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Close Stage") {
+            let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+            closeButton.image = image.withSymbolConfiguration(config)
+        }
+        closeButton.contentTintColor = .white
+        closeButton.target = self
+        closeButton.action = #selector(closeClicked)
+        closeButton.alphaValue = 0  // Hidden by default, shown on hover only
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(closeButton)
 
@@ -696,11 +762,11 @@ public class DockStageButton: NSView, DockStageView {
             indicatorView.widthAnchor.constraint(equalToConstant: 4),
             indicatorView.heightAnchor.constraint(equalToConstant: 4),
 
-            // Close button (positioned at top-right, works for both modes)
-            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            closeButton.widthAnchor.constraint(equalToConstant: 16),
-            closeButton.heightAnchor.constraint(equalToConstant: 16),
+            // Close button - Mission Control style at top-left corner
+            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: -4),
+            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -4),
+            closeButton.widthAnchor.constraint(equalToConstant: 20),
+            closeButton.heightAnchor.constraint(equalToConstant: 20),
 
             // Size
             normalWidthConstraint,
@@ -792,8 +858,8 @@ public class DockStageButton: NSView, DockStageView {
             }
             indicatorView.animator().isHidden = !showIndicator
 
-            // Show close button on hover or when active
-            closeButton.animator().alphaValue = (isHovering || isActive) ? 1.0 : 0.0
+            // Show close button only on hover (Mission Control style)
+            closeButton.animator().alphaValue = isHovering ? 1.0 : 0.0
         }
     }
 

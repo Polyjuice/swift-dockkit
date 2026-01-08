@@ -230,6 +230,28 @@ public class DockStageHostView: NSView {
         set { containerView.displayMode = newValue ? .thumbnails : .tabs }
     }
 
+    /// Whether to show debug controls (Thumbs/Slow toggles) in the header
+    public var showDebugControls: Bool {
+        get { headerView?.showDebugControls ?? true }
+        set { headerView?.showDebugControls = newValue }
+    }
+
+    /// Set custom trailing items (buttons/controls) in the stage header
+    /// These appear to the right of the stage thumbnails/tabs
+    public func setHeaderTrailingItems(_ views: [NSView]) {
+        headerView?.setTrailingItems(views)
+    }
+
+    /// Add a single trailing item to the stage header
+    public func addHeaderTrailingItem(_ view: NSView) {
+        headerView?.addTrailingItem(view)
+    }
+
+    /// Remove all custom trailing items from the stage header
+    public func clearHeaderTrailingItems() {
+        headerView?.clearTrailingItems()
+    }
+
     // MARK: - Private Helpers
 
     private func convertLayoutNodeToDockNode(_ layoutNode: DockLayoutNode) -> DockNode {
