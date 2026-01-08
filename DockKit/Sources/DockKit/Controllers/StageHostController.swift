@@ -166,6 +166,24 @@ public class StageHostController {
         return stage
     }
 
+    /// Remove a stage at the specified index
+    public func removeStage(at index: Int) {
+        guard index >= 0 && index < state.stages.count else { return }
+
+        state.stages.remove(at: index)
+
+        // Adjust activeStageIndex
+        if state.stages.isEmpty {
+            state.activeStageIndex = 0
+        } else if state.activeStageIndex >= state.stages.count {
+            state.activeStageIndex = state.stages.count - 1
+        } else if state.activeStageIndex > index {
+            state.activeStageIndex -= 1
+        }
+
+        delegate?.controller(self, didUpdateStages: state.stages, activeIndex: state.activeStageIndex)
+    }
+
     /// Update the entire state (for reconciliation or external updates)
     public func updateState(_ newState: StageHostWindowState) {
         state = newState

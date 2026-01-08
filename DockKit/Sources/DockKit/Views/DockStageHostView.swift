@@ -349,6 +349,10 @@ extension DockStageHostView: DockStageHeaderViewDelegate {
     public func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt targetIndex: Int) {
         controller.handleTabMovedToStage(tabInfo.tabId, targetStageIndex: targetIndex)
     }
+
+    public func stageHeader(_ header: DockStageHeaderView, didCloseStageAt index: Int) {
+        controller.removeStage(at: index)
+    }
 }
 
 // MARK: - DockStageContainerViewDelegate

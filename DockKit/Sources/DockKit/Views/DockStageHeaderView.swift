@@ -19,6 +19,12 @@ public protocol DockStageHeaderViewDelegate: AnyObject {
 
     /// Called when a tab is dropped on a stage thumbnail
     func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt index: Int)
+
+    /// Called when user clicks close button on a stage. Return false to prevent closure.
+    func stageHeader(_ header: DockStageHeaderView, shouldCloseStageAt index: Int) -> Bool
+
+    /// Called after user requests to close a stage
+    func stageHeader(_ header: DockStageHeaderView, didCloseStageAt index: Int)
 }
 
 /// Default implementations
@@ -28,6 +34,8 @@ public extension DockStageHeaderViewDelegate {
     func stageHeader(_ header: DockStageHeaderView, didToggleThumbnailMode enabled: Bool) {}
     func stageHeaderDidRequestNewStage(_ header: DockStageHeaderView) {}
     func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt index: Int) {}
+    func stageHeader(_ header: DockStageHeaderView, shouldCloseStageAt index: Int) -> Bool { true }
+    func stageHeader(_ header: DockStageHeaderView, didCloseStageAt index: Int) {}
 }
 
 /// A header view showing stage icons/titles for selection
@@ -442,6 +450,12 @@ public class DockStageHeaderView: NSView {
                 guard let self = self else { return }
                 self.delegate?.stageHeader(self, didReceiveTab: tabInfo, onStageAt: idx)
             }
+            button.onClose = { [weak self] in
+                guard let self = self else { return }
+                if self.delegate?.stageHeader(self, shouldCloseStageAt: index) ?? true {
+                    self.delegate?.stageHeader(self, didCloseStageAt: index)
+                }
+            }
             button.setThumbnailMode(isThumbnailMode)
             stageButtons.append(button)
             stackView.addArrangedSubview(button)
@@ -500,6 +514,7 @@ public class DockStageHeaderView: NSView {
 public class DockStageButton: NSView, DockStageView {
     public var onSelect: ((Int) -> Void)?
     public var onTabDrop: ((Int, DockTabDragInfo) -> Void)?
+    public var onClose: (() -> Void)?
     public var stageIndex: Int
 
     private let stage: Stage
@@ -518,6 +533,7 @@ public class DockStageButton: NSView, DockStageView {
     // Shared views
     private var indicatorView: NSView!
     private var selectionBorder: NSView!
+    private var closeButton: NSButton!
 
     // State
     private var isActive: Bool = false
@@ -623,6 +639,18 @@ public class DockStageButton: NSView, DockStageView {
         indicatorView.isHidden = true
         addSubview(indicatorView)
 
+        // Close button
+        closeButton = NSButton(
+            image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Stage")!,
+            target: self,
+            action: #selector(closeClicked)
+        )
+        closeButton.bezelStyle = .accessoryBarAction
+        closeButton.isBordered = false
+        closeButton.alphaValue = 0  // Hidden by default, shown on hover
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(closeButton)
+
         // Size constraints for different modes
         normalWidthConstraint = widthAnchor.constraint(greaterThanOrEqualToConstant: 60)
         thumbnailWidthConstraint = widthAnchor.constraint(equalToConstant: Self.thumbnailWidth)
@@ -667,6 +695,12 @@ public class DockStageButton: NSView, DockStageView {
             indicatorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
             indicatorView.widthAnchor.constraint(equalToConstant: 4),
             indicatorView.heightAnchor.constraint(equalToConstant: 4),
+
+            // Close button (positioned at top-right, works for both modes)
+            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            closeButton.widthAnchor.constraint(equalToConstant: 16),
+            closeButton.heightAnchor.constraint(equalToConstant: 16),
 
             // Size
             normalWidthConstraint,
@@ -757,6 +791,9 @@ public class DockStageButton: NSView, DockStageView {
                 showIndicator = isActive
             }
             indicatorView.animator().isHidden = !showIndicator
+
+            // Show close button on hover or when active
+            closeButton.animator().alphaValue = (isHovering || isActive) ? 1.0 : 0.0
         }
     }
 
@@ -780,6 +817,10 @@ public class DockStageButton: NSView, DockStageView {
             onSelect?(stageIndex)
         }
         updateAppearance()
+    }
+
+    @objc private func closeClicked() {
+        onClose?()
     }
 
     // MARK: - NSDraggingDestination
