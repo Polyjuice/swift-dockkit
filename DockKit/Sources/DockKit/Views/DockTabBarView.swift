@@ -42,16 +42,16 @@ public class DockTabBarView: NSView, NSDraggingSource {
     /// Identifier of the tab group this bar belongs to
     public var groupId: UUID = UUID()
 
-    /// Display mode - tabs, thumbnails, or custom
-    public var displayMode: StageDisplayMode = .tabs {
+    /// Group style - tabs, thumbnails, or custom
+    public var groupStyle: PanelGroupStyle = .tabs {
         didSet {
-            if displayMode != oldValue {
-                rebuildForDisplayMode()
+            if groupStyle != oldValue {
+                rebuildForGroupStyle()
             }
         }
     }
 
-    private var tabs: [DockTab] = []
+    private var panels: [Panel] = []
     private var selectedIndex: Int = 0
     private var tabButtons: [DockTabButton] = []
     private var thumbnailButtons: [DockThumbnailButton] = []
@@ -137,70 +137,67 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // MARK: - Public API
 
-    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: StageDisplayMode = .tabs) {
-        self.tabs = newTabs
-        self.selectedIndex = max(0, min(selectedIndex, newTabs.count - 1))
-        self.displayMode = displayMode
-        rebuildForDisplayMode()
+    public func setTabs(_ newPanels: [Panel], selectedIndex: Int, groupStyle: PanelGroupStyle = .tabs) {
+        self.panels = newPanels
+        self.selectedIndex = max(0, min(selectedIndex, newPanels.count - 1))
+        self.groupStyle = groupStyle
+        rebuildForGroupStyle()
     }
 
-    /// Convenience method for backward compatibility with TabGroupDisplayMode
-    public func setTabs(_ newTabs: [DockTab], selectedIndex: Int, displayMode: TabGroupDisplayMode) {
-        let newMode: StageDisplayMode = displayMode == .thumbnails ? .thumbnails : .tabs
-        setTabs(newTabs, selectedIndex: selectedIndex, displayMode: newMode)
-    }
-
-    /// Rebuild the view based on current display mode
-    private func rebuildForDisplayMode() {
-        // Determine effective mode - fall back to tabs if custom renderer not registered
-        let effectiveMode: StageDisplayMode
-        if displayMode == .custom && DockKit.customTabRenderer != nil {
-            effectiveMode = .custom
-        } else if displayMode == .custom {
-            effectiveMode = .tabs  // Fallback
+    /// Rebuild the view based on current group style
+    private func rebuildForGroupStyle() {
+        // Determine effective style - fall back to tabs if custom renderer not registered
+        let effectiveStyle: PanelGroupStyle
+        if DockKit.customTabRenderer != nil {
+            effectiveStyle = groupStyle
         } else {
-            effectiveMode = displayMode
+            effectiveStyle = groupStyle
         }
 
-        switch effectiveMode {
-        case .tabs:
-            rebuildTabButtons()
+        switch effectiveStyle {
+        case .tabs, .split, .stages:
+            if DockKit.customTabRenderer != nil {
+                rebuildCustomTabViews()
+            } else {
+                rebuildTabButtons()
+            }
         case .thumbnails:
             rebuildThumbnailButtons()
-        case .custom:
-            rebuildCustomTabViews()
         }
     }
 
     public func selectTab(at index: Int) {
-        guard index >= 0 && index < tabs.count else { return }
+        guard index >= 0 && index < panels.count else { return }
         selectedIndex = index
         updateSelectionState()
     }
 
     public func updateTab(at index: Int, title: String? = nil) {
-        guard index >= 0 && index < tabs.count else { return }
+        guard index >= 0 && index < panels.count else { return }
         if let title = title {
-            tabs[index].title = title
+            panels[index].title = title
         }
-        tabButtons[safe: index]?.update(with: tabs[index], isSelected: index == selectedIndex)
+        tabButtons[safe: index]?.update(with: panels[index], isSelected: index == selectedIndex)
     }
 
     /// Update focus state - shows focus indicator on the selected tab
     public func setFocused(_ focused: Bool) {
-        switch displayMode {
-        case .tabs:
-            for (index, button) in tabButtons.enumerated() {
-                button.setFocused(focused && index == selectedIndex)
+        let effectiveStyle = groupStyle
+        switch effectiveStyle {
+        case .tabs, .split, .stages:
+            if DockKit.customTabRenderer != nil {
+                let renderer = DockKit.customTabRenderer!
+                for (index, view) in customTabViews.enumerated() {
+                    renderer.setFocused(focused && index == selectedIndex, on: view)
+                }
+            } else {
+                for (index, button) in tabButtons.enumerated() {
+                    button.setFocused(focused && index == selectedIndex)
+                }
             }
         case .thumbnails:
             for (index, button) in thumbnailButtons.enumerated() {
                 button.setFocused(focused && index == selectedIndex)
-            }
-        case .custom:
-            guard let renderer = DockKit.customTabRenderer else { return }
-            for (index, view) in customTabViews.enumerated() {
-                renderer.setFocused(focused && index == selectedIndex, on: view)
             }
         }
     }
@@ -222,8 +219,8 @@ public class DockTabBarView: NSView, NSDraggingSource {
         clearAllTabViews()
 
         // Create new buttons
-        for (index, tab) in tabs.enumerated() {
-            let button = DockTabButton(tab: tab, isSelected: index == selectedIndex)
+        for (index, panel) in panels.enumerated() {
+            let button = DockTabButton(panel: panel, isSelected: index == selectedIndex)
             button.onSelect = { [weak self] in
                 self?.handleTabSelected(at: index)
             }
@@ -249,8 +246,8 @@ public class DockTabBarView: NSView, NSDraggingSource {
         clearAllTabViews()
 
         // Create thumbnail buttons
-        for (index, tab) in tabs.enumerated() {
-            let button = DockThumbnailButton(tab: tab, isSelected: index == selectedIndex)
+        for (index, panel) in panels.enumerated() {
+            let button = DockThumbnailButton(panel: panel, isSelected: index == selectedIndex, panelProvider: nil)
             button.onSelect = { [weak self] in
                 self?.handleTabSelected(at: index)
             }
@@ -274,7 +271,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     private func rebuildCustomTabViews() {
         guard let renderer = DockKit.customTabRenderer else {
-            // Should not happen - rebuildForDisplayMode checks this
+            // Should not happen - rebuildForGroupStyle checks this
             rebuildTabButtons()
             return
         }
@@ -282,8 +279,8 @@ public class DockTabBarView: NSView, NSDraggingSource {
         clearAllTabViews()
 
         // Create custom tab views
-        for (index, tab) in tabs.enumerated() {
-            let view = renderer.createTabView(for: tab, isSelected: index == selectedIndex)
+        for (index, panel) in panels.enumerated() {
+            let view = renderer.createTabView(for: panel, isSelected: index == selectedIndex)
             view.onSelect = { [weak self] in
                 self?.handleTabSelected(at: index)
             }
@@ -312,22 +309,23 @@ public class DockTabBarView: NSView, NSDraggingSource {
     }
 
     private func updateSelectionState() {
-        switch displayMode {
-        case .tabs:
-            for (index, button) in tabButtons.enumerated() {
-                guard index < tabs.count else { continue }
-                button.update(with: tabs[index], isSelected: index == selectedIndex)
-            }
-        case .thumbnails:
-            for (index, button) in thumbnailButtons.enumerated() {
-                guard index < tabs.count else { continue }
-                button.update(with: tabs[index], isSelected: index == selectedIndex)
-            }
-        case .custom:
+        let useCustom = DockKit.customTabRenderer != nil && (groupStyle == .tabs || groupStyle == .split || groupStyle == .stages)
+
+        if useCustom {
             guard let renderer = DockKit.customTabRenderer else { return }
             for (index, view) in customTabViews.enumerated() {
-                guard index < tabs.count else { continue }
-                renderer.updateTabView(view, for: tabs[index], isSelected: index == selectedIndex)
+                guard index < panels.count else { continue }
+                renderer.updateTabView(view, for: panels[index], isSelected: index == selectedIndex)
+            }
+        } else if groupStyle == .thumbnails {
+            for (index, button) in thumbnailButtons.enumerated() {
+                guard index < panels.count else { continue }
+                button.update(with: panels[index], isSelected: index == selectedIndex)
+            }
+        } else {
+            for (index, button) in tabButtons.enumerated() {
+                guard index < panels.count else { continue }
+                button.update(with: panels[index], isSelected: index == selectedIndex)
             }
         }
     }
@@ -359,17 +357,17 @@ public class DockTabBarView: NSView, NSDraggingSource {
             dragStartScreenY = screenPoint.y
         }
 
-        guard let tab = tabs[safe: index] else { return }
+        guard let panel = panels[safe: index] else { return }
 
         // Create drag image
-        let dragImage = createDragImage(for: tab)
+        let dragImage = createDragImage(for: panel)
 
         // Create pasteboard item
         let dragInfo = DockTabDragInfo(
-            tabId: tab.id,
+            tabId: panel.id,
             sourceGroupId: groupId,
-            title: tab.title,
-            iconName: tab.iconName
+            title: panel.title ?? "Untitled",
+            iconName: panel.iconName
         )
 
         let pasteboardItem = NSPasteboardItem()
@@ -389,15 +387,15 @@ public class DockTabBarView: NSView, NSDraggingSource {
         beginDraggingSession(with: [draggingItem], event: event, source: self)
     }
 
-    private func createDragImage(for tab: DockTab) -> NSImage {
+    private func createDragImage(for panel: Panel) -> NSImage {
         // Get the actual tab view to use for drag image
         let views = activeTabViews
-        if let index = tabs.firstIndex(where: { $0.id == tab.id }),
+        if let index = panels.firstIndex(where: { $0.id == panel.id }),
            index < views.count {
             let view = views[index]
             // Create image from the actual view at screen resolution
             guard let bitmapRep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
-                return createFallbackDragImage(for: tab)
+                return createFallbackDragImage(for: panel)
             }
             view.cacheDisplay(in: view.bounds, to: bitmapRep)
 
@@ -405,10 +403,10 @@ public class DockTabBarView: NSView, NSDraggingSource {
             image.addRepresentation(bitmapRep)
             return image
         }
-        return createFallbackDragImage(for: tab)
+        return createFallbackDragImage(for: panel)
     }
 
-    private func createFallbackDragImage(for tab: DockTab) -> NSImage {
+    private func createFallbackDragImage(for panel: Panel) -> NSImage {
         // Fallback if we can't capture the actual view
         let size = NSSize(width: 150, height: 28)
         let image = NSImage(size: size)
@@ -419,7 +417,8 @@ public class DockTabBarView: NSView, NSDraggingSource {
         NSRect(origin: .zero, size: size).fill()
 
         // Draw icon
-        if let icon = tab.icon {
+        if let iconName = panel.iconName,
+           let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: nil) {
             icon.draw(in: NSRect(x: 8, y: 7, width: 14, height: 14))
         }
 
@@ -429,7 +428,8 @@ public class DockTabBarView: NSView, NSDraggingSource {
             .foregroundColor: NSColor.labelColor
         ]
         let titleRect = NSRect(x: 28, y: 7, width: 110, height: 14)
-        (tab.title as NSString).draw(in: titleRect, withAttributes: attributes)
+        let title = panel.title ?? "Untitled"
+        (title as NSString).draw(in: titleRect, withAttributes: attributes)
 
         image.unlockFocus()
         return image
@@ -516,7 +516,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
         // Check if it's a reorder within the same tab bar
         if dragInfo.sourceGroupId == groupId {
-            if let fromIndex = tabs.firstIndex(where: { $0.id == dragInfo.tabId }) {
+            if let fromIndex = panels.firstIndex(where: { $0.id == dragInfo.tabId }) {
                 let toIndex = insertionIndex > fromIndex ? insertionIndex - 1 : insertionIndex
                 if fromIndex != toIndex {
                     delegate?.tabBar(self, didReorderTabFrom: fromIndex, to: toIndex)
@@ -533,15 +533,16 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // MARK: - Drop Indicator
 
-    /// Get the currently active tab views based on display mode
+    /// Get the currently active tab views based on group style
     private var activeTabViews: [NSView] {
-        switch displayMode {
-        case .tabs:
+        if DockKit.customTabRenderer != nil && (groupStyle == .tabs || groupStyle == .split || groupStyle == .stages) {
+            return customTabViews
+        }
+        switch groupStyle {
+        case .tabs, .split, .stages:
             return tabButtons
         case .thumbnails:
             return thumbnailButtons
-        case .custom:
-            return customTabViews
         }
     }
 
@@ -593,14 +594,14 @@ public class DockTabButton: NSView, DockTabView {
     private var isSelected: Bool = false
     private var isFocused: Bool = false
     private var isHovering: Bool = false
-    private var tab: DockTab
+    private var panel: Panel
 
-    public init(tab: DockTab, isSelected: Bool) {
-        self.tab = tab
+    public init(panel: Panel, isSelected: Bool) {
+        self.panel = panel
         self.isSelected = isSelected
         super.init(frame: .zero)
         setupUI()
-        update(with: tab, isSelected: isSelected)
+        update(with: panel, isSelected: isSelected)
     }
 
     public required init?(coder: NSCoder) {
@@ -673,12 +674,18 @@ public class DockTabButton: NSView, DockTabView {
         addTrackingArea(trackingArea)
     }
 
-    public func update(with tab: DockTab, isSelected: Bool) {
-        self.tab = tab
+    public func update(with panel: Panel, isSelected: Bool) {
+        self.panel = panel
         self.isSelected = isSelected
 
-        titleLabel.stringValue = tab.title
-        iconView.image = tab.icon ?? NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
+        titleLabel.stringValue = panel.title ?? "Untitled"
+
+        if let iconName = panel.iconName {
+            iconView.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
+                ?? NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
+        } else {
+            iconView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
+        }
 
         updateAppearance()
     }
@@ -746,17 +753,21 @@ public class DockThumbnailButton: NSView, DockTabView {
     private var isSelected: Bool = false
     private var isFocused: Bool = false
     private var isHovering: Bool = false
-    private var tab: DockTab
+    private var panel: Panel
+
+    /// Panel provider for resolving DockablePanel instances (for thumbnail capture)
+    private var panelProvider: ((UUID) -> (any DockablePanel)?)?
 
     /// Height of thumbnail (width is fixed at 120pt in stack)
     private static let thumbnailHeight: CGFloat = 80
 
-    public init(tab: DockTab, isSelected: Bool) {
-        self.tab = tab
+    public init(panel: Panel, isSelected: Bool, panelProvider: ((UUID) -> (any DockablePanel)?)?) {
+        self.panel = panel
         self.isSelected = isSelected
+        self.panelProvider = panelProvider
         super.init(frame: .zero)
         setupUI()
-        update(with: tab, isSelected: isSelected)
+        update(with: panel, isSelected: isSelected)
     }
 
     public required init?(coder: NSCoder) {
@@ -859,16 +870,17 @@ public class DockThumbnailButton: NSView, DockTabView {
         addTrackingArea(trackingArea)
     }
 
-    public func update(with tab: DockTab, isSelected: Bool) {
-        self.tab = tab
+    public func update(with panel: Panel, isSelected: Bool) {
+        self.panel = panel
         self.isSelected = isSelected
 
-        titleLabel.stringValue = tab.title
+        titleLabel.stringValue = panel.title ?? "Untitled"
 
-        // Capture thumbnail from panel's view if available
-        if let panel = tab.panel {
-            captureThumbnail(from: panel.panelViewController.view)
-        } else if let icon = tab.icon {
+        // Capture thumbnail from DockablePanel's view if available
+        if let dockablePanel = panelProvider?(panel.id) {
+            captureThumbnail(from: dockablePanel.panelViewController.view)
+        } else if let iconName = panel.iconName,
+                  let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: nil) {
             // Fall back to icon if no panel view
             thumbnailView.image = icon
         } else {
@@ -966,8 +978,8 @@ public class DockThumbnailButton: NSView, DockTabView {
 
     /// Refresh the thumbnail capture
     public func refreshThumbnail() {
-        if let panel = tab.panel {
-            captureThumbnail(from: panel.panelViewController.view)
+        if let dockablePanel = panelProvider?(panel.id) {
+            captureThumbnail(from: dockablePanel.panelViewController.view)
         }
     }
 }

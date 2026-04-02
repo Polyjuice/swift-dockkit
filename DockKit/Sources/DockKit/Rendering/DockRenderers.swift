@@ -32,16 +32,4 @@ public enum DockKit {
     public static var customDropZoneRenderer: DockDropZoneRenderer?
 }
 
-/// Display mode for stage host windows
-/// Controls how tabs and stage indicators are rendered
-public enum StageDisplayMode: String, Codable, CaseIterable {
-    /// Standard tab bar style (icon + title)
-    case tabs
-
-    /// Thumbnail preview style (visual preview of content)
-    case thumbnails
-
-    /// Custom renderer (uses globally registered custom renderer)
-    /// Falls back to `.tabs` if no custom renderer is registered
-    case custom
-}
+// StageDisplayMode and TabGroupDisplayMode are replaced by PanelGroupStyle in DockLayout.swift

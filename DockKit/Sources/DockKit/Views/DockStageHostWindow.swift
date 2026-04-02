@@ -18,7 +18,7 @@ public protocol DockStageHostWindowDelegate: AnyObject {
     func stageHostWindow(_ window: DockStageHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow)
 
     /// Called when a split is requested
-    func stageHostWindow(_ window: DockStageHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
+    func stageHostWindow(_ window: DockStageHostWindow, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController)
 
     /// Called when the user requests to close a stage (via close button).
     /// The delegate should handle cleanup (e.g. notify governor) and then update the state.
@@ -26,7 +26,7 @@ public protocol DockStageHostWindowDelegate: AnyObject {
 
     /// Called when the user requests to close a tab (via close button).
     /// The delegate should handle cleanup (e.g. notify governor) and then update the state.
-    func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseTab tabId: UUID)
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestClosePanel panelId: UUID)
 
     /// Called when the user requests a new stage (via + button).
     /// The delegate should handle creation (e.g. notify governor).
@@ -40,12 +40,12 @@ public extension DockStageHostWindowDelegate {
     func stageHostWindow(_ window: DockStageHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
     func stageHostWindow(_ window: DockStageHostWindow, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool { true }
     func stageHostWindow(_ window: DockStageHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow) {}
-    func stageHostWindow(_ window: DockStageHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
+    func stageHostWindow(_ window: DockStageHostWindow, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {}
     func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseStageAt index: Int) {
         window.controller.removeStage(at: index)
     }
-    func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseTab tabId: UUID) {
-        window.controller.handleTabClosed(tabId)
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestClosePanel panelId: UUID) {
+        window.controller.handleChildClosed(panelId)
     }
     func stageHostWindowDidRequestNewStage(_ window: DockStageHostWindow) {
         window.addNewStage()
@@ -53,6 +53,7 @@ public extension DockStageHostWindowDelegate {
 }
 
 /// A window that hosts multiple stages with swipe gesture navigation
+///
 /// Structure:
 /// ┌─────────────────────────────────────────┐
 /// │  Stage Header (selection UI)          │  ← Fixed height, shows stage icons/titles
@@ -62,6 +63,9 @@ public extension DockStageHostWindowDelegate {
 /// │       (animated transitions)            │
 /// │                                         │
 /// └─────────────────────────────────────────┘
+///
+/// Accepts a `Panel` with `.group(PanelGroup)` content where `style == .stages`.
+/// The panel should have `isTopLevelWindow == true` and a `frame`.
 public class DockStageHostWindow: NSWindow {
 
     // MARK: - Properties
@@ -83,8 +87,8 @@ public class DockStageHostWindow: NSWindow {
 
     // MARK: - Forwarding Properties
 
-    /// The stage host state (forwarded from controller)
-    public var stageHostState: StageHostWindowState { controller.state }
+    /// The root panel (forwarded from controller)
+    public var stageHostPanel: Panel { controller.panel }
 
     /// Panel provider for looking up panels by ID (forwarded to controller)
     public var panelProvider: ((UUID) -> (any DockablePanel)?)? {
@@ -92,22 +96,22 @@ public class DockStageHostWindow: NSWindow {
         set { controller.panelProvider = newValue }
     }
 
-    /// Display mode for tabs and stage indicators
-    public var displayMode: StageDisplayMode {
-        get { controller.displayMode }
+    /// Group style for tabs and stage indicators
+    public var groupStyle: PanelGroupStyle {
+        get { controller.groupStyle }
         set {
-            controller.displayMode = newValue
-            headerView?.displayMode = newValue
-            containerView?.displayMode = newValue
+            controller.groupStyle = newValue
+            headerView?.groupStyle = newValue
+            containerView?.groupStyle = newValue
         }
     }
 
-    /// Apply display mode to header and container views during initialization
-    private func applyDisplayMode(_ mode: StageDisplayMode) {
-        headerView?.displayMode = mode
-        containerView?.displayMode = mode
+    /// Apply group style to header and container views during initialization
+    private func applyGroupStyle(_ style: PanelGroupStyle) {
+        headerView?.groupStyle = style
+        containerView?.groupStyle = style
 
-        let useThumbnails = (mode == .thumbnails)
+        let useThumbnails = (style == .thumbnails)
         let headerHeight = headerView.setThumbnailMode(useThumbnails)
         headerHeightConstraint?.constant = headerHeight
     }
@@ -141,13 +145,13 @@ public class DockStageHostWindow: NSWindow {
 
     public init(
         id: UUID = UUID(),
-        stageHostState: StageHostWindowState,
+        panel: Panel,
         frame: NSRect,
         layoutManager: DockLayoutManager? = nil,
         panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
     ) {
         self.windowId = id
-        self.controller = StageHostController(state: stageHostState)
+        self.controller = StageHostController(panel: panel)
         self.layoutManager = layoutManager
 
         super.init(
@@ -162,7 +166,7 @@ public class DockStageHostWindow: NSWindow {
 
         setupWindow()
         setupViews()
-        applyDisplayMode(stageHostState.displayMode)
+        applyGroupStyle(panel.group?.style ?? .stages)
         loadStages()
     }
 
@@ -173,20 +177,21 @@ public class DockStageHostWindow: NSWindow {
         at screenPoint: NSPoint,
         panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
     ) {
-        // Create a single stage with the panel
-        let tabState = TabLayoutState(
+        // Create a content panel for the dockable panel
+        let contentPanel = Panel.contentPanel(
             id: panel.panelId,
             title: panel.panelTitle,
             iconName: panel.panelIcon != nil ? "doc" : nil
         )
-        let tabGroup = TabGroupLayoutNode(
-            tabs: [tabState],
-            activeTabIndex: 0
-        )
-        let stage = Stage(
+
+        // Create a stage containing a tabs group with the content panel
+        let stagePanel = Panel(
             title: panel.panelTitle,
-            iconName: nil,
-            layout: .tabGroup(tabGroup)
+            content: .group(PanelGroup(
+                children: [contentPanel],
+                activeIndex: 0,
+                style: .tabs
+            ))
         )
 
         // Create frame centered at screen point
@@ -198,14 +203,20 @@ public class DockStageHostWindow: NSWindow {
             height: size.height
         )
 
-        let state = StageHostWindowState(
+        // Create the root stages panel
+        let rootPanel = Panel(
+            content: .group(PanelGroup(
+                children: [stagePanel],
+                activeIndex: 0,
+                style: .stages
+            )),
+            isTopLevelWindow: true,
             frame: frame,
-            activeStageIndex: 0,
-            stages: [stage]
+            isFullScreen: false
         )
 
         self.init(
-            stageHostState: state,
+            panel: rootPanel,
             frame: frame,
             panelProvider: panelProvider
         )
@@ -281,17 +292,6 @@ public class DockStageHostWindow: NSWindow {
 
     // MARK: - Public API
 
-    /// Get the active stage's root node
-    public var activeStageRootNode: DockNode? {
-        guard controller.activeStageIndex >= 0 &&
-              controller.activeStageIndex < controller.stages.count else {
-            return nil
-        }
-
-        let layout = controller.stages[controller.activeStageIndex].layout
-        return convertLayoutNodeToDockNode(layout)
-    }
-
     /// Switch to a specific stage
     public func switchToStage(at index: Int, animated: Bool = true) {
         controller.switchToStage(at: index)
@@ -300,12 +300,12 @@ public class DockStageHostWindow: NSWindow {
         updateTitle()
     }
 
-    /// Update the stage state (for reconciliation)
-    public func updateStageHostState(_ state: StageHostWindowState) {
-        let stageCountChanged = controller.stages.count != state.stages.count
-        controller.updateState(state)
+    /// Update the root panel (for reconciliation)
+    public func updateStageHostPanel(_ newPanel: Panel) {
+        let stageCountChanged = controller.stages.count != (newPanel.group?.children.count ?? 0)
+        controller.updatePanel(newPanel)
 
-        if stageCountChanged && state.displayMode == .thumbnails {
+        if stageCountChanged && (newPanel.group?.style == .thumbnails) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
                 let thumbnails = self.containerView.captureStageThumbnails()
@@ -321,24 +321,25 @@ public class DockStageHostWindow: NSWindow {
 
     /// Add a new empty stage
     @discardableResult
-    public func addNewStage(title: String? = nil, iconName: String? = nil) -> Stage {
+    public func addNewStage(title: String? = nil, iconName: String? = nil) -> Panel {
         controller.addNewStage(title: title, iconName: iconName)
     }
 
     // MARK: - Title
 
     public func updateTitle() {
-        guard controller.activeStageIndex >= 0 &&
-              controller.activeStageIndex < controller.stages.count else {
+        let stages = controller.stages
+        let activeIndex = controller.activeStageIndex
+        guard activeIndex >= 0 && activeIndex < stages.count else {
             title = "Stage"
             return
         }
 
-        let stage = controller.stages[controller.activeStageIndex]
+        let stage = stages[activeIndex]
         if let stageTitle = stage.title {
             title = stageTitle
         } else {
-            title = "Stage \(controller.activeStageIndex + 1)"
+            title = "Stage \(activeIndex + 1)"
         }
     }
 
@@ -417,45 +418,6 @@ public class DockStageHostWindow: NSWindow {
         layoutManager?.windowDidClose(self)
         super.close()
     }
-
-    // MARK: - Private Helpers
-
-    private func convertLayoutNodeToDockNode(_ layoutNode: DockLayoutNode) -> DockNode {
-        switch layoutNode {
-        case .split(let splitLayout):
-            let children = splitLayout.children.map { convertLayoutNodeToDockNode($0) }
-            return .split(SplitNode(
-                id: splitLayout.id,
-                axis: splitLayout.axis,
-                children: children,
-                proportions: splitLayout.proportions
-            ))
-
-        case .tabGroup(let tabGroupLayout):
-            let tabs = tabGroupLayout.tabs.compactMap { tabState -> DockTab? in
-                if let panel = panelProvider?(tabState.id) {
-                    return DockTab(from: panel, cargo: tabState.cargo)
-                }
-                return DockTab(
-                    id: tabState.id,
-                    title: tabState.title,
-                    iconName: tabState.iconName,
-                    panel: nil,
-                    cargo: tabState.cargo
-                )
-            }
-
-            return .tabGroup(TabGroupNode(
-                id: tabGroupLayout.id,
-                tabs: tabs,
-                activeTabIndex: tabGroupLayout.activeTabIndex,
-                displayMode: tabGroupLayout.displayMode
-            ))
-
-        case .stageHost(let stageHostLayout):
-            return .stageHost(StageHostNode(from: stageHostLayout))
-        }
-    }
 }
 
 // MARK: - DockStageHeaderViewDelegate
@@ -494,7 +456,7 @@ extension DockStageHostWindow: DockStageHeaderViewDelegate {
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt targetIndex: Int) {
-        controller.handleTabMovedToStage(tabInfo.tabId, targetStageIndex: targetIndex)
+        controller.handleChildMovedToStage(tabInfo.tabId, targetStageIndex: targetIndex)
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didCloseStageAt index: Int) {
@@ -530,36 +492,36 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
     }
 
     public func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
-        controller.handleTabReceived(tabInfo.tabId, in: tabGroup.tabGroupNode.id, at: index)
+        controller.handleChildReceived(tabInfo.tabId, in: tabGroup.panel.id, at: index)
     }
 
-    public func stageContainer(_ container: DockStageContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {
-        guard let panel = tab.panel ?? panelProvider?(tab.id) else { return }
+    public func stageContainer(_ container: DockStageContainerView, wantsToDetachPanel panelId: UUID, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {
+        guard let panel = panelProvider?(panelId) else { return }
 
         let allowTear = stageDelegate?.stageHostWindow(self, willTearPanel: panel, at: screenPoint) ?? true
         guard allowTear else { return }
 
-        // Use controller's handleDetach which removes the tab from layout
-        controller.handleDetach(tab: tab, at: screenPoint)
+        // Use controller's handleDetach which removes the panel from layout
+        controller.handleDetach(panelId: panelId, at: screenPoint)
     }
 
-    public func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
-        controller.handleSplit(groupId: tabGroup.tabGroupNode.id, direction: direction, withTab: tab)
+    public func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {
+        controller.handleSplit(groupId: tabGroup.panel.id, direction: direction, withPanelId: panelId)
     }
 
-    public func stageContainer(_ container: DockStageContainerView, didCloseTab tabId: UUID) {
-        stageDelegate?.stageHostWindow(self, didRequestCloseTab: tabId)
+    public func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID) {
+        stageDelegate?.stageHostWindow(self, didRequestClosePanel: panelId)
     }
 }
 
 // MARK: - StageHostControllerDelegate
 
 extension DockStageHostWindow: StageHostControllerDelegate {
-    public func controller(_ controller: StageHostController, didUpdateLayout layout: DockLayoutNode, forStageAt index: Int) {
+    public func controller(_ controller: StageHostController, didUpdateLayout layout: Panel, forStageAt index: Int) {
         containerView.updateStageLayout(layout, forStageAt: index)
 
         // Recapture thumbnails after layout changes
-        if controller.displayMode == .thumbnails {
+        if controller.groupStyle == .thumbnails {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
                 let thumbnails = self.containerView.captureStageThumbnails()
@@ -568,12 +530,12 @@ extension DockStageHostWindow: StageHostControllerDelegate {
         }
     }
 
-    public func controller(_ controller: StageHostController, didUpdateStages stages: [Stage], activeIndex: Int) {
+    public func controller(_ controller: StageHostController, didUpdateStages stages: [Panel], activeIndex: Int) {
         headerView.setStages(stages, activeIndex: activeIndex)
         containerView.setStages(stages, activeIndex: activeIndex)
         updateTitle()
 
-        if controller.displayMode == .thumbnails {
+        if controller.groupStyle == .thumbnails {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
                 let thumbnails = self.containerView.captureStageThumbnails()

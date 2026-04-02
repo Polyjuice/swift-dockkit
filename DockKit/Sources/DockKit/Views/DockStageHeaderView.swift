@@ -45,8 +45,8 @@ public class DockStageHeaderView: NSView {
 
     public weak var delegate: DockStageHeaderViewDelegate?
 
-    /// The stages being displayed
-    private var stages: [Stage] = []
+    /// The stage panels being displayed (children of the stages-style group)
+    private var stages: [Panel] = []
 
     /// Currently active stage index
     private var activeIndex: Int = 0
@@ -63,10 +63,10 @@ public class DockStageHeaderView: NSView {
     /// Stack view height constraint (changes in thumbnail mode)
     private var stackHeightConstraint: NSLayoutConstraint!
 
-    /// Current display mode
-    public var displayMode: StageDisplayMode = .tabs {
+    /// Current group style (tabs or thumbnails for display mode)
+    public var groupStyle: PanelGroupStyle = .tabs {
         didSet {
-            if displayMode != oldValue {
+            if groupStyle != oldValue {
                 rebuildButtons()
             }
         }
@@ -372,8 +372,8 @@ public class DockStageHeaderView: NSView {
         }
     }
 
-    /// Set the stages to display
-    public func setStages(_ newStages: [Stage], activeIndex: Int) {
+    /// Set the stages to display (stage panels are children of the stages-style group)
+    public func setStages(_ newStages: [Panel], activeIndex: Int) {
         stages = newStages
         self.activeIndex = max(0, min(activeIndex, stages.count - 1))
         rebuildButtons()
@@ -482,21 +482,11 @@ public class DockStageHeaderView: NSView {
     private func rebuildButtons() {
         clearAllViews()
 
-        // Determine effective mode
-        let effectiveMode: StageDisplayMode
-        if displayMode == .custom && DockKit.customStageRenderer != nil {
-            effectiveMode = .custom
-        } else if displayMode == .custom {
-            effectiveMode = .tabs  // Fallback
-        } else {
-            effectiveMode = displayMode
-        }
-
-        switch effectiveMode {
-        case .tabs, .thumbnails:
-            rebuildBuiltInButtons()
-        case .custom:
+        // Check if custom renderer is available
+        if DockKit.customStageRenderer != nil {
             rebuildCustomViews()
+        } else {
+            rebuildBuiltInButtons()
         }
 
         updateButtonStates()
@@ -586,7 +576,7 @@ public class DockStageButton: NSView, DockStageView {
     public var onClose: (() -> Void)?
     public var stageIndex: Int
 
-    private let stage: Stage
+    private let stagePanel: Panel
     private var isDragTarget: Bool = false
 
     // Icon+Title mode views
@@ -621,8 +611,8 @@ public class DockStageButton: NSView, DockStageView {
     public static let thumbnailWidth: CGFloat = 120
     public static let thumbnailHeight: CGFloat = 80
 
-    public init(stage: Stage, index: Int) {
-        self.stage = stage
+    public init(stage: Panel, index: Int) {
+        self.stagePanel = stage
         self.stageIndex = index
         super.init(frame: .zero)
         setupUI()
@@ -656,9 +646,9 @@ public class DockStageButton: NSView, DockStageView {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentStack)
 
-        if let iconName = stage.iconName {
+        if let iconName = stagePanel.iconName {
             let icon = NSImageView()
-            if let image = NSImage(systemSymbolName: iconName, accessibilityDescription: stage.title) {
+            if let image = NSImage(systemSymbolName: iconName, accessibilityDescription: stagePanel.title) {
                 icon.image = image
             }
             icon.imageScaling = .scaleProportionallyDown
@@ -669,7 +659,7 @@ public class DockStageButton: NSView, DockStageView {
             iconView = icon
         }
 
-        let title = stage.title ?? "Stage \(stageIndex + 1)"
+        let title = stagePanel.title ?? "Stage \(stageIndex + 1)"
         let label = NSTextField(labelWithString: title)
         label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         label.textColor = .secondaryLabelColor

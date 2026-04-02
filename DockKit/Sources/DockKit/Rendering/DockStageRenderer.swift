@@ -12,13 +12,13 @@ import AppKit
 /// class MyStageRenderer: DockStageRenderer {
 ///     var headerHeight: CGFloat { 48 }
 ///
-///     func createStageView(for stage: Stage, index: Int, isActive: Bool) -> DockStageView {
+///     func createStageView(for stage: Panel, index: Int, isActive: Bool) -> DockStageView {
 ///         let view = MyStageIndicator()
 ///         view.configure(stage: stage, index: index, isActive: isActive)
 ///         return view
 ///     }
 ///
-///     func updateStageView(_ view: DockStageView, for stage: Stage, index: Int, isActive: Bool) {
+///     func updateStageView(_ view: DockStageView, for stage: Panel, index: Int, isActive: Bool) {
 ///         (view as? MyStageIndicator)?.configure(stage: stage, index: index, isActive: isActive)
 ///     }
 ///
@@ -35,20 +35,20 @@ public protocol DockStageRenderer: AnyObject {
     /// Create a view for a stage indicator
     ///
     /// - Parameters:
-    ///   - stage: The stage data to display
+    ///   - stage: The stage panel data to display
     ///   - index: The index of this stage (0-based)
     ///   - isActive: Whether this stage is currently active/selected
     /// - Returns: A view conforming to DockStageView protocol
-    func createStageView(for stage: Stage, index: Int, isActive: Bool) -> DockStageView
+    func createStageView(for stage: Panel, index: Int, isActive: Bool) -> DockStageView
 
     /// Update an existing stage view with new data
     ///
     /// - Parameters:
     ///   - view: The view to update (previously created by createStageView)
-    ///   - stage: The updated stage data
+    ///   - stage: The updated stage panel data
     ///   - index: The index of this stage
     ///   - isActive: Whether this stage is currently active
-    func updateStageView(_ view: DockStageView, for stage: Stage, index: Int, isActive: Bool)
+    func updateStageView(_ view: DockStageView, for stage: Panel, index: Int, isActive: Bool)
 
     /// Set swipe target highlight on a stage view
     ///

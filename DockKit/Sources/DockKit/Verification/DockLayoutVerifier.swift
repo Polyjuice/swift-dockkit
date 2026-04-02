@@ -16,17 +16,17 @@ public class DockLayoutVerifier {
         var mismatches: [LayoutMismatch] = []
 
         // Build maps for quick lookup
-        let layoutWindowsById = Dictionary(uniqueKeysWithValues: layout.windows.map { ($0.id, $0) })
+        let layoutPanelsById = Dictionary(uniqueKeysWithValues: layout.panels.map { ($0.id, $0) })
         let actualWindowsById = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowId, $0) })
 
         // Check for missing/extra windows
-        let layoutWindowIds = Set(layout.windows.map { $0.id })
+        let layoutPanelIds = Set(layout.panels.map { $0.id })
         let actualWindowIds = Set(windows.map { $0.windowId })
 
-        // Windows in layout but not in actual
-        for windowId in layoutWindowIds.subtracting(actualWindowIds) {
+        // Panels in layout but not in actual
+        for panelId in layoutPanelIds.subtracting(actualWindowIds) {
             mismatches.append(LayoutMismatch(
-                path: "windows[\(windowId.uuidString.prefix(8))]",
+                path: "panels[\(panelId.uuidString.prefix(8))]",
                 expected: "window exists",
                 actual: "window missing",
                 severity: .error
@@ -34,9 +34,9 @@ public class DockLayoutVerifier {
         }
 
         // Windows in actual but not in layout
-        for windowId in actualWindowIds.subtracting(layoutWindowIds) {
+        for windowId in actualWindowIds.subtracting(layoutPanelIds) {
             mismatches.append(LayoutMismatch(
-                path: "windows[\(windowId.uuidString.prefix(8))]",
+                path: "panels[\(windowId.uuidString.prefix(8))]",
                 expected: "window missing",
                 actual: "window exists",
                 severity: .error
@@ -44,13 +44,13 @@ public class DockLayoutVerifier {
         }
 
         // Verify each window that exists in both
-        for windowId in layoutWindowIds.intersection(actualWindowIds) {
-            guard let layoutWindow = layoutWindowsById[windowId],
-                  let actualWindow = actualWindowsById[windowId] else { continue }
+        for panelId in layoutPanelIds.intersection(actualWindowIds) {
+            guard let layoutPanel = layoutPanelsById[panelId],
+                  let actualWindow = actualWindowsById[panelId] else { continue }
 
-            let windowPath = "windows[\(windowId.uuidString.prefix(8))]"
+            let windowPath = "panels[\(panelId.uuidString.prefix(8))]"
             mismatches.append(contentsOf: verifyWindow(
-                layout: layoutWindow,
+                layoutPanel: layoutPanel,
                 actual: actualWindow,
                 path: windowPath
             ))
@@ -68,44 +68,47 @@ public class DockLayoutVerifier {
     // MARK: - Window Verification
 
     private static func verifyWindow(
-        layout: WindowState,
+        layoutPanel: Panel,
         actual: DockWindow,
         path: String
     ) -> [LayoutMismatch] {
         var mismatches: [LayoutMismatch] = []
 
         // Verify frame
-        let frameMatch = framesApproximatelyEqual(layout.frame, actual.frame)
-        if !frameMatch {
-            mismatches.append(LayoutMismatch(
-                path: "\(path).frame",
-                expected: frameString(layout.frame),
-                actual: frameString(actual.frame),
-                severity: .warning
-            ))
+        if let layoutFrame = layoutPanel.frame {
+            let frameMatch = framesApproximatelyEqual(layoutFrame, actual.frame)
+            if !frameMatch {
+                mismatches.append(LayoutMismatch(
+                    path: "\(path).frame",
+                    expected: frameString(layoutFrame),
+                    actual: frameString(actual.frame),
+                    severity: .warning
+                ))
+            }
         }
 
         // Verify fullscreen state
         let actualIsFullScreen = actual.styleMask.contains(.fullScreen)
-        if layout.isFullScreen != actualIsFullScreen {
+        let layoutIsFullScreen = layoutPanel.isFullScreen ?? false
+        if layoutIsFullScreen != actualIsFullScreen {
             mismatches.append(LayoutMismatch(
                 path: "\(path).isFullScreen",
-                expected: "\(layout.isFullScreen)",
+                expected: "\(layoutIsFullScreen)",
                 actual: "\(actualIsFullScreen)",
                 severity: .error
             ))
         }
 
-        // Verify root node
+        // Verify panel tree
         if let rootVC = actual.rootViewController {
-            mismatches.append(contentsOf: verifyNode(
-                layout: layout.rootNode,
+            mismatches.append(contentsOf: verifyPanel(
+                layout: layoutPanel,
                 actual: rootVC,
-                path: "\(path).rootNode"
+                path: "\(path).root"
             ))
         } else {
             mismatches.append(LayoutMismatch(
-                path: "\(path).rootNode",
+                path: "\(path).root",
                 expected: "root view controller",
                 actual: "nil",
                 severity: .error
@@ -115,61 +118,69 @@ public class DockLayoutVerifier {
         return mismatches
     }
 
-    // MARK: - Node Verification
+    // MARK: - Panel Verification
 
-    private static func verifyNode(
-        layout: DockLayoutNode,
+    private static func verifyPanel(
+        layout: Panel,
         actual: NSViewController,
         path: String
     ) -> [LayoutMismatch] {
         var mismatches: [LayoutMismatch] = []
 
-        switch (layout, actual) {
-        case (.split(let layoutSplit), let splitVC as DockSplitViewController):
+        guard let group = layout.group else {
+            // Content panel - nothing to verify at the view controller level
+            return mismatches
+        }
+
+        switch (group.style, actual) {
+        case (.split, let splitVC as DockSplitViewController):
             mismatches.append(contentsOf: verifySplit(
-                layout: layoutSplit,
+                layout: layout,
+                layoutGroup: group,
                 actual: splitVC,
                 path: path
             ))
 
-        case (.tabGroup(let layoutTabGroup), let tabGroupVC as DockTabGroupViewController):
+        case (.tabs, let tabGroupVC as DockTabGroupViewController),
+             (.thumbnails, let tabGroupVC as DockTabGroupViewController):
             mismatches.append(contentsOf: verifyTabGroup(
-                layout: layoutTabGroup,
+                layout: layout,
+                layoutGroup: group,
                 actual: tabGroupVC,
                 path: path
             ))
 
-        case (.split, _):
-            mismatches.append(LayoutMismatch(
-                path: path,
-                expected: "DockSplitViewController",
-                actual: String(describing: type(of: actual)),
-                severity: .error
-            ))
-
-        case (.tabGroup, _):
-            mismatches.append(LayoutMismatch(
-                path: path,
-                expected: "DockTabGroupViewController",
-                actual: String(describing: type(of: actual)),
-                severity: .error
-            ))
-
-        case (.stageHost(let layoutStageHost), let hostVC as DockStageHostViewController):
+        case (.stages, let stageHostVC as DockStageHostViewController):
             // Verify stage host ID matches
-            if layoutStageHost.id != hostVC.layoutNode.id {
+            if layout.id != stageHostVC.stagePanel.id {
                 mismatches.append(LayoutMismatch(
                     path: "\(path).id",
-                    expected: layoutStageHost.id.uuidString.prefix(8).description,
-                    actual: hostVC.layoutNode.id.uuidString.prefix(8).description,
+                    expected: layout.id.uuidString.prefix(8).description,
+                    actual: stageHostVC.stagePanel.id.uuidString.prefix(8).description,
                     severity: .error
                 ))
             }
 
-        case (.stageHost, _):
+        case (.split, _):
             mismatches.append(LayoutMismatch(
                 path: path,
-                expected: "DockStageHostViewController",
+                expected: "DockSplitViewController (split style)",
+                actual: String(describing: type(of: actual)),
+                severity: .error
+            ))
+
+        case (.tabs, _), (.thumbnails, _):
+            mismatches.append(LayoutMismatch(
+                path: path,
+                expected: "DockTabGroupViewController (tabs/thumbnails style)",
+                actual: String(describing: type(of: actual)),
+                severity: .error
+            ))
+
+        case (.stages, _):
+            mismatches.append(LayoutMismatch(
+                path: path,
+                expected: "DockStageHostViewController (stages style)",
                 actual: String(describing: type(of: actual)),
                 severity: .error
             ))
@@ -181,7 +192,8 @@ public class DockLayoutVerifier {
     // MARK: - Split Verification
 
     private static func verifySplit(
-        layout: SplitLayoutNode,
+        layout: Panel,
+        layoutGroup: PanelGroup,
         actual: DockSplitViewController,
         path: String
     ) -> [LayoutMismatch] {
@@ -198,20 +210,21 @@ public class DockLayoutVerifier {
         }
 
         // Verify axis
-        if layout.axis != actual.splitNode.axis {
+        let actualGroup = actual.panel.group
+        if layoutGroup.axis != actualGroup?.axis {
             mismatches.append(LayoutMismatch(
                 path: "\(path).axis",
-                expected: "\(layout.axis)",
-                actual: "\(actual.splitNode.axis)",
+                expected: "\(layoutGroup.axis)",
+                actual: "\(actualGroup?.axis.rawValue ?? "nil")",
                 severity: .error
             ))
         }
 
         // Verify proportions (with tolerance)
-        if !proportionsApproximatelyEqual(layout.proportions, actual.getProportions()) {
+        if !proportionsApproximatelyEqual(layoutGroup.proportions, actual.getProportions()) {
             mismatches.append(LayoutMismatch(
                 path: "\(path).proportions",
-                expected: proportionsString(layout.proportions),
+                expected: proportionsString(layoutGroup.proportions),
                 actual: proportionsString(actual.getProportions()),
                 severity: .warning
             ))
@@ -219,10 +232,10 @@ public class DockLayoutVerifier {
 
         // Verify children count
         let actualChildren = actual.splitViewItems.map { $0.viewController }
-        if layout.children.count != actualChildren.count {
+        if layoutGroup.children.count != actualChildren.count {
             mismatches.append(LayoutMismatch(
                 path: "\(path).children.count",
-                expected: "\(layout.children.count)",
+                expected: "\(layoutGroup.children.count)",
                 actual: "\(actualChildren.count)",
                 severity: .error
             ))
@@ -230,8 +243,8 @@ public class DockLayoutVerifier {
         }
 
         // Verify each child
-        for (index, (layoutChild, actualChild)) in zip(layout.children, actualChildren).enumerated() {
-            mismatches.append(contentsOf: verifyNode(
+        for (index, (layoutChild, actualChild)) in zip(layoutGroup.children, actualChildren).enumerated() {
+            mismatches.append(contentsOf: verifyPanel(
                 layout: layoutChild,
                 actual: actualChild,
                 path: "\(path).children[\(index)]"
@@ -244,61 +257,63 @@ public class DockLayoutVerifier {
     // MARK: - Tab Group Verification
 
     private static func verifyTabGroup(
-        layout: TabGroupLayoutNode,
+        layout: Panel,
+        layoutGroup: PanelGroup,
         actual: DockTabGroupViewController,
         path: String
     ) -> [LayoutMismatch] {
         var mismatches: [LayoutMismatch] = []
 
         // Verify ID
-        if layout.id != actual.tabGroupNode.id {
+        if layout.id != actual.panel.id {
             mismatches.append(LayoutMismatch(
                 path: "\(path).id",
                 expected: layout.id.uuidString.prefix(8).description,
-                actual: actual.tabGroupNode.id.uuidString.prefix(8).description,
+                actual: actual.panel.id.uuidString.prefix(8).description,
                 severity: .error
             ))
         }
 
-        // Verify active tab index
-        if layout.activeTabIndex != actual.tabGroupNode.activeTabIndex {
+        // Verify active index
+        if layoutGroup.activeIndex != actual.activeIndex {
             mismatches.append(LayoutMismatch(
-                path: "\(path).activeTabIndex",
-                expected: "\(layout.activeTabIndex)",
-                actual: "\(actual.tabGroupNode.activeTabIndex)",
+                path: "\(path).activeIndex",
+                expected: "\(layoutGroup.activeIndex)",
+                actual: "\(actual.activeIndex)",
                 severity: .warning
             ))
         }
 
-        // Verify tabs count
-        if layout.tabs.count != actual.tabGroupNode.tabs.count {
+        // Verify children count
+        let actualChildren = actual.group?.children ?? []
+        if layoutGroup.children.count != actualChildren.count {
             mismatches.append(LayoutMismatch(
-                path: "\(path).tabs.count",
-                expected: "\(layout.tabs.count)",
-                actual: "\(actual.tabGroupNode.tabs.count)",
+                path: "\(path).children.count",
+                expected: "\(layoutGroup.children.count)",
+                actual: "\(actualChildren.count)",
                 severity: .error
             ))
             return mismatches
         }
 
-        // Verify each tab
-        for (index, (layoutTab, actualTab)) in zip(layout.tabs, actual.tabGroupNode.tabs).enumerated() {
-            let tabPath = "\(path).tabs[\(index)]"
+        // Verify each child
+        for (index, (layoutChild, actualChild)) in zip(layoutGroup.children, actualChildren).enumerated() {
+            let childPath = "\(path).children[\(index)]"
 
-            if layoutTab.id != actualTab.id {
+            if layoutChild.id != actualChild.id {
                 mismatches.append(LayoutMismatch(
-                    path: "\(tabPath).id",
-                    expected: layoutTab.id.uuidString.prefix(8).description,
-                    actual: actualTab.id.uuidString.prefix(8).description,
+                    path: "\(childPath).id",
+                    expected: layoutChild.id.uuidString.prefix(8).description,
+                    actual: actualChild.id.uuidString.prefix(8).description,
                     severity: .error
                 ))
             }
 
-            if layoutTab.title != actualTab.title {
+            if layoutChild.title != actualChild.title {
                 mismatches.append(LayoutMismatch(
-                    path: "\(tabPath).title",
-                    expected: layoutTab.title,
-                    actual: actualTab.title,
+                    path: "\(childPath).title",
+                    expected: layoutChild.title ?? "(nil)",
+                    actual: actualChild.title ?? "(nil)",
                     severity: .warning
                 ))
             }

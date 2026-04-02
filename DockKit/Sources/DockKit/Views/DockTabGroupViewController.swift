@@ -2,32 +2,46 @@ import AppKit
 
 /// Delegate for tab group events
 public protocol DockTabGroupViewControllerDelegate: AnyObject {
-    func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachTab tab: DockTab, at screenPoint: NSPoint)
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachPanel panelId: UUID, at screenPoint: NSPoint)
     func tabGroup(_ tabGroup: DockTabGroupViewController, didReceiveTab tabInfo: DockTabDragInfo, at index: Int)
-    func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseTab tabId: UUID)
-    func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastTab: Bool)
-    func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab)
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didClosePanel panelId: UUID)
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastPanel: Bool)
+    func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID)
     func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController)
 }
 
 /// Optional delegate methods
 public extension DockTabGroupViewControllerDelegate {
-    func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseTab tabId: UUID) {}
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didClosePanel panelId: UUID) {}
     func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {}
 }
 
 /// A view controller that manages a tab bar and content area
-/// This is the leaf node in the dock hierarchy
+/// This is the leaf node in the dock hierarchy.
+///
+/// Accepts a `Panel` with `.group(PanelGroup)` content where `style` is `.tabs` or `.thumbnails`.
+/// Its children are `Panel` objects with `content: .content`.
+///
+/// Because `Panel` is a pure Codable struct with no DockablePanel reference,
+/// this controller maintains its own mapping of panel ID → DockablePanel,
+/// resolved via the `panelProvider` callback.
 public class DockTabGroupViewController: NSViewController {
     public weak var delegate: DockTabGroupViewControllerDelegate?
 
-    /// The tab group node this controller represents
-    public private(set) var tabGroupNode: TabGroupNode
+    /// The panel group this controller represents (a Panel with .group content)
+    public private(set) var panel: Panel
+
+    /// Callback to resolve a panel ID to a DockablePanel instance
+    /// The host app provides this to supply actual view controllers for content panels
+    public var panelProvider: ((UUID) -> (any DockablePanel)?)?
+
+    /// Local cache of resolved DockablePanel instances, keyed by panel ID
+    private var resolvedPanels: [UUID: any DockablePanel] = [:]
 
     /// The tab bar
     private var tabBar: DockTabBarView!
 
-    /// Tab bar height constraint (varies based on displayMode)
+    /// Tab bar height constraint (varies based on group style)
     private var tabBarHeightConstraint: NSLayoutConstraint!
 
     /// Container for panel content
@@ -45,13 +59,13 @@ public class DockTabGroupViewController: NSViewController {
     /// KVO observation for first responder changes
     private var firstResponderObservation: NSKeyValueObservation?
 
-    public init(tabGroupNode: TabGroupNode = TabGroupNode()) {
-        self.tabGroupNode = tabGroupNode
+    public init(panel: Panel = Panel(content: .group(PanelGroup(style: .tabs)))) {
+        self.panel = panel
         super.init(nibName: nil, bundle: nil)
     }
 
     public required init?(coder: NSCoder) {
-        self.tabGroupNode = TabGroupNode()
+        self.panel = Panel(content: .group(PanelGroup(style: .tabs)))
         super.init(coder: coder)
     }
 
@@ -88,7 +102,8 @@ public class DockTabGroupViewController: NSViewController {
         // Check if we're the source of the drag and only have one tab
         // In that case, don't show the overlay since dropping on yourself is a no-op
         if let dragInfo = notification.userInfo?["dragInfo"] as? DockTabDragInfo {
-            if dragInfo.sourceGroupId == tabGroupNode.id && tabGroupNode.tabs.count == 1 {
+            let children = group?.children ?? []
+            if dragInfo.sourceGroupId == panel.id && childPanels.count == 1 {
                 // Don't show overlay - can't drop the only tab on itself
                 return
             }
@@ -105,12 +120,54 @@ public class DockTabGroupViewController: NSViewController {
         NotificationCenter.default.removeObserver(self)
     }
 
+    // MARK: - Convenience Accessors
+
+    /// The PanelGroup for this controller (the panel must have .group content)
+    public var group: PanelGroup? {
+        get { panel.group }
+        set {
+            if let newValue = newValue {
+                panel.content = .group(newValue)
+            }
+        }
+    }
+
+    /// The child panels (tabs) in this group
+    public var childPanels: [Panel] {
+        get { group?.children ?? [] }
+    }
+
+    /// The active child index
+    public var activeIndex: Int {
+        get { group?.activeIndex ?? 0 }
+        set {
+            guard case .group(var g) = panel.content else { return }
+            g.activeIndex = newValue
+            panel.content = .group(g)
+        }
+    }
+
+    /// The currently active child panel
+    public var activeChild: Panel? {
+        group?.activeChild
+    }
+
+    /// The group style (tabs or thumbnails)
+    public var groupStyle: PanelGroupStyle {
+        get { group?.style ?? .tabs }
+        set {
+            guard case .group(var g) = panel.content else { return }
+            g.style = newValue
+            panel.content = .group(g)
+        }
+    }
+
     // MARK: - Setup
 
     private func setupUI() {
         // Tab bar at top
         tabBar = DockTabBarView()
-        tabBar.groupId = tabGroupNode.id
+        tabBar.groupId = panel.id
         tabBar.delegate = self
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(tabBar)
@@ -121,8 +178,8 @@ public class DockTabGroupViewController: NSViewController {
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(contentContainer)
 
-        // Height depends on display mode (28 for tabs, 80 for thumbnails)
-        tabBarHeightConstraint = tabBar.heightAnchor.constraint(equalToConstant: heightForDisplayMode(tabGroupNode.displayMode))
+        // Height depends on group style (28 for tabs, 80 for thumbnails)
+        tabBarHeightConstraint = tabBar.heightAnchor.constraint(equalToConstant: heightForGroupStyle(groupStyle))
 
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: view.topAnchor),
@@ -165,8 +222,9 @@ public class DockTabGroupViewController: NSViewController {
     /// Focus the active panel's preferred first responder
     public func focusPanelContent() {
         guard let window = view.window,
-              let panel = tabGroupNode.activeTab?.panel,
-              let responder = panel.preferredFirstResponder else {
+              let activeChild = activeChild,
+              let dockablePanel = resolvePanel(for: activeChild.id),
+              let responder = dockablePanel.preferredFirstResponder else {
             return
         }
 
@@ -240,77 +298,136 @@ public class DockTabGroupViewController: NSViewController {
         return false
     }
 
+    // MARK: - Panel Resolution
+
+    /// Resolve a DockablePanel for a given panel ID, using cache or panelProvider
+    private func resolvePanel(for panelId: UUID) -> (any DockablePanel)? {
+        if let cached = resolvedPanels[panelId] {
+            return cached
+        }
+        if let resolved = panelProvider?(panelId) {
+            resolvedPanels[panelId] = resolved
+            return resolved
+        }
+        return nil
+    }
+
+    /// Remove a resolved panel from the cache
+    private func evictPanel(for panelId: UUID) {
+        resolvedPanels.removeValue(forKey: panelId)
+    }
+
     // MARK: - Public API
 
     /// Add a panel as a new tab
-    public func addTab(from panel: any DockablePanel, activate: Bool = true) {
-        let tab = DockTab(from: panel)
-        tabGroupNode.addTab(tab)
+    public func addTab(from dockablePanel: any DockablePanel, activate: Bool = true) {
+        let childPanel = Panel(
+            id: dockablePanel.panelId,
+            title: dockablePanel.panelTitle,
+            iconName: nil,
+            content: .content
+        )
+        resolvedPanels[dockablePanel.panelId] = dockablePanel
+
+        guard case .group(var g) = panel.content else { return }
+        g.children.append(childPanel)
+        panel.content = .group(g)
+
         updateTabBar()
         if activate {
-            selectTab(at: tabGroupNode.tabs.count - 1)
+            selectTab(at: childPanels.count - 1)
         }
     }
 
     /// Insert a panel at a specific index
-    public func insertTab(from panel: any DockablePanel, at index: Int, activate: Bool = true) {
-        let tab = DockTab(from: panel)
-        tabGroupNode.insertTab(tab, at: index)
+    public func insertTab(from dockablePanel: any DockablePanel, at index: Int, activate: Bool = true) {
+        let childPanel = Panel(
+            id: dockablePanel.panelId,
+            title: dockablePanel.panelTitle,
+            iconName: nil,
+            content: .content
+        )
+        resolvedPanels[dockablePanel.panelId] = dockablePanel
+
+        guard case .group(var g) = panel.content else { return }
+        let clampedIndex = max(0, min(index, g.children.count))
+        g.children.insert(childPanel, at: clampedIndex)
+        panel.content = .group(g)
+
         updateTabBar()
         if activate {
-            selectTab(at: index)
+            selectTab(at: clampedIndex)
         }
     }
 
     /// Remove a tab by index
     @discardableResult
-    public func removeTab(at index: Int) -> DockTab? {
-        guard let tab = tabGroupNode.removeTab(at: index) else { return nil }
+    public func removeTab(at index: Int) -> Panel? {
+        guard case .group(var g) = panel.content,
+              index >= 0 && index < g.children.count else { return nil }
+
+        let removedChild = g.children.remove(at: index)
+
+        // Adjust active index
+        if g.activeIndex >= g.children.count {
+            g.activeIndex = max(0, g.children.count - 1)
+        }
+        panel.content = .group(g)
 
         // Notify delegate about tab closure (for layout model updates)
-        delegate?.tabGroup(self, didCloseTab: tab.id)
+        delegate?.tabGroup(self, didClosePanel: removedChild.id)
 
-        // Notify panel
-        tab.panel?.panelDidResignActive()
+        // Notify the dockable panel
+        resolvePanel(for: removedChild.id)?.panelDidResignActive()
+
+        // Remove from cache
+        evictPanel(for: removedChild.id)
 
         updateTabBar()
         updateContent()
 
-        if tabGroupNode.tabs.isEmpty {
-            delegate?.tabGroup(self, didCloseLastTab: true)
+        if childPanels.isEmpty {
+            delegate?.tabGroup(self, didCloseLastPanel: true)
         }
 
-        return tab
+        return removedChild
     }
 
     /// Remove a tab by ID
     @discardableResult
-    public func removeTab(withId id: UUID) -> DockTab? {
-        guard let index = tabGroupNode.tabs.firstIndex(where: { $0.id == id }) else { return nil }
+    public func removeTab(withId id: UUID) -> Panel? {
+        guard let index = childPanels.firstIndex(where: { $0.id == id }) else { return nil }
         return removeTab(at: index)
     }
 
     /// Select a tab by index
     public func selectTab(at index: Int) {
-        guard index >= 0 && index < tabGroupNode.tabs.count else { return }
+        guard case .group(var g) = panel.content,
+              index >= 0 && index < g.children.count else { return }
 
         // Notify old tab
-        tabGroupNode.activeTab?.panel?.panelDidResignActive()
+        if let oldChild = g.activeChild {
+            resolvePanel(for: oldChild.id)?.panelDidResignActive()
+        }
 
-        tabGroupNode.activeTabIndex = index
+        g.activeIndex = index
+        panel.content = .group(g)
+
         tabBar.selectTab(at: index)
         updateContent()
 
         // Notify new tab
-        tabGroupNode.activeTab?.panel?.panelDidBecomeActive()
+        if let newChild = group?.activeChild {
+            resolvePanel(for: newChild.id)?.panelDidBecomeActive()
+        }
 
         // Focus the new panel's content
         focusPanelContent()
     }
 
-    /// Get the currently active tab
-    public var activeTab: DockTab? {
-        tabGroupNode.activeTab
+    /// Get the currently active child panel
+    public var activeTab: Panel? {
+        activeChild
     }
 
     /// Show/hide the drop overlay
@@ -321,67 +438,74 @@ public class DockTabGroupViewController: NSViewController {
 
     // MARK: - Reconciliation Support
 
-    /// Reconcile tabs with a target state (for layout reconciliation)
-    public func reconcileTabs(with targetTabs: [TabLayoutState], panelProvider: ((UUID) -> (any DockablePanel)?)?) {
-        let currentTabIds = Set(tabGroupNode.tabs.map { $0.id })
-        let targetTabIds = Set(targetTabs.map { $0.id })
+    /// Reconcile children with a target state (for layout reconciliation)
+    public func reconcileTabs(with targetChildren: [Panel], panelProvider: ((UUID) -> (any DockablePanel)?)?) {
+        guard case .group(var g) = panel.content else { return }
 
-        // Remove tabs not in target
-        let toRemove = currentTabIds.subtracting(targetTabIds)
-        for tabId in toRemove {
-            _ = removeTab(withId: tabId)
+        let currentIds = Set(g.children.map { $0.id })
+        let targetIds = Set(targetChildren.map { $0.id })
+
+        // Remove children not in target
+        let toRemove = currentIds.subtracting(targetIds)
+        for panelId in toRemove {
+            _ = removeTab(withId: panelId)
         }
 
-        // Add or update tabs
-        for (targetIndex, targetTab) in targetTabs.enumerated() {
-            if let existingIndex = tabGroupNode.tabs.firstIndex(where: { $0.id == targetTab.id }) {
-                // Tab exists - move to correct position if needed
-                if existingIndex != targetIndex && targetIndex < tabGroupNode.tabs.count {
-                    moveTabInternal(from: existingIndex, to: targetIndex)
+        // Re-read group after removals
+        guard case .group(var g2) = panel.content else { return }
+
+        // Add or update children
+        for (targetIndex, targetChild) in targetChildren.enumerated() {
+            if let existingIndex = g2.children.firstIndex(where: { $0.id == targetChild.id }) {
+                // Child exists - move to correct position if needed
+                if existingIndex != targetIndex && targetIndex < g2.children.count {
+                    let moved = g2.children.remove(at: existingIndex)
+                    g2.children.insert(moved, at: targetIndex)
                 }
                 // Update title if changed
-                let actualIndex = min(targetIndex, tabGroupNode.tabs.count - 1)
-                if actualIndex >= 0 && actualIndex < tabGroupNode.tabs.count {
-                    tabGroupNode.tabs[actualIndex].title = targetTab.title
+                let actualIndex = min(targetIndex, g2.children.count - 1)
+                if actualIndex >= 0 && actualIndex < g2.children.count {
+                    g2.children[actualIndex].title = targetChild.title
+                    g2.children[actualIndex].iconName = targetChild.iconName
+                    g2.children[actualIndex].cargo = targetChild.cargo
                 }
             } else {
-                // New tab - create and insert
-                let panel = panelProvider?(targetTab.id)
-                let tab = DockTab(
-                    id: targetTab.id,
-                    title: targetTab.title,
-                    iconName: targetTab.iconName,
-                    panel: panel
-                )
-                insertTabInternal(tab, at: targetIndex)
+                // New child - insert and resolve its DockablePanel
+                var newChild = targetChild
+                // Ensure it's a content panel
+                if case .content = newChild.content {} else {
+                    newChild.content = .content
+                }
+                let clampedIndex = min(targetIndex, g2.children.count)
+                g2.children.insert(newChild, at: clampedIndex)
+
+                // Resolve and cache the DockablePanel
+                if let resolved = panelProvider?(targetChild.id) {
+                    resolvedPanels[targetChild.id] = resolved
+                }
             }
         }
 
+        panel.content = .group(g2)
         updateTabBar()
         updateContent()  // Also update content to show the panel
     }
 
-    /// Move a tab from one index to another (for reconciliation)
-    private func moveTabInternal(from sourceIndex: Int, to targetIndex: Int) {
-        guard sourceIndex >= 0, sourceIndex < tabGroupNode.tabs.count,
-              targetIndex >= 0, targetIndex < tabGroupNode.tabs.count,
-              sourceIndex != targetIndex else { return }
+    /// Insert a child Panel at a specific index (public for reconciliation)
+    public func insertChildPanel(_ childPanel: Panel, at index: Int, dockablePanel: (any DockablePanel)? = nil, activate: Bool = true) {
+        guard case .group(var g) = panel.content else { return }
 
-        let tab = tabGroupNode.tabs.remove(at: sourceIndex)
-        tabGroupNode.tabs.insert(tab, at: targetIndex)
-    }
+        let clampedIndex = max(0, min(index, g.children.count))
+        g.children.insert(childPanel, at: clampedIndex)
+        panel.content = .group(g)
 
-    /// Insert a DockTab at a specific index (for reconciliation)
-    private func insertTabInternal(_ tab: DockTab, at index: Int) {
-        tabGroupNode.insertTab(tab, at: index)
-    }
+        if let dp = dockablePanel {
+            resolvedPanels[childPanel.id] = dp
+        }
 
-    /// Insert a DockTab at a specific index (public for reconciliation)
-    public func insertDockTab(_ tab: DockTab, at index: Int, activate: Bool = true) {
-        tabGroupNode.insertTab(tab, at: index)
         updateTabBar()
         if activate {
-            selectTab(at: min(index, tabGroupNode.tabs.count - 1))
+            selectTab(at: min(clampedIndex, childPanels.count - 1))
         }
     }
 
@@ -390,69 +514,45 @@ public class DockTabGroupViewController: NSViewController {
         selectTab(at: index)
     }
 
-    /// Update the display mode (tabs vs thumbnails)
-    public func setDisplayMode(_ mode: TabGroupDisplayMode) {
-        tabGroupNode.displayMode = mode
+    /// Update the group style (tabs vs thumbnails)
+    public func setGroupStyle(_ style: PanelGroupStyle) {
+        guard case .group(var g) = panel.content else { return }
+        g.style = style
+        panel.content = .group(g)
         updateTabBar()
-    }
-
-    /// Update the display mode using StageDisplayMode
-    public func setDisplayMode(_ mode: StageDisplayMode) {
-        // Convert to tab bar display mode
-        tabBar.displayMode = mode
-        updateTabBarForStageMode(mode)
     }
 
     // MARK: - Private
 
     private func updateTabBar() {
-        tabBar.setTabs(tabGroupNode.tabs, selectedIndex: tabGroupNode.activeTabIndex, displayMode: tabGroupNode.displayMode)
+        let tabPanels = childPanels
+        let currentActiveIndex = activeIndex
+        let style = groupStyle
+        tabBar.setTabs(tabPanels, selectedIndex: currentActiveIndex, groupStyle: style)
 
-        // Update height for display mode
-        let newHeight = heightForDisplayMode(tabGroupNode.displayMode)
+        // Update height for group style
+        let newHeight = heightForGroupStyle(style)
         if tabBarHeightConstraint.constant != newHeight {
             tabBarHeightConstraint.constant = newHeight
             view.layoutSubtreeIfNeeded()
         }
     }
 
-    private func updateTabBarForStageMode(_ mode: StageDisplayMode) {
-        tabBar.setTabs(tabGroupNode.tabs, selectedIndex: tabGroupNode.activeTabIndex, displayMode: mode)
-
-        // Update height for display mode
-        let newHeight = heightForStageDisplayMode(mode)
-        if tabBarHeightConstraint.constant != newHeight {
-            tabBarHeightConstraint.constant = newHeight
-            view.layoutSubtreeIfNeeded()
-        }
-    }
-
-    private func heightForDisplayMode(_ mode: TabGroupDisplayMode) -> CGFloat {
-        switch mode {
-        case .tabs:
+    private func heightForGroupStyle(_ style: PanelGroupStyle) -> CGFloat {
+        switch style {
+        case .tabs, .stages, .split:
             return 28
         case .thumbnails:
             return 80
-        }
-    }
-
-    private func heightForStageDisplayMode(_ mode: StageDisplayMode) -> CGFloat {
-        switch mode {
-        case .tabs:
-            return 28
-        case .thumbnails:
-            return 80
-        case .custom:
-            return DockKit.customTabRenderer?.tabBarHeight ?? 28
         }
     }
 
     private func updateContent() {
         // Show new panel first (if any)
         let newPanelVC: NSViewController?
-        if let activeTab = tabGroupNode.activeTab {
-            if let panel = activeTab.panel {
-                newPanelVC = panel.panelViewController
+        if let activeChild = activeChild {
+            if let dockablePanel = resolvePanel(for: activeChild.id) {
+                newPanelVC = dockablePanel.panelViewController
             } else {
                 newPanelVC = nil
             }
@@ -515,28 +615,30 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
     }
 
     public func tabBar(_ tabBar: DockTabBarView, didReorderTabFrom fromIndex: Int, to toIndex: Int) {
-        guard fromIndex >= 0 && fromIndex < tabGroupNode.tabs.count,
-              toIndex >= 0 && toIndex <= tabGroupNode.tabs.count else { return }
+        guard case .group(var g) = panel.content,
+              fromIndex >= 0 && fromIndex < g.children.count,
+              toIndex >= 0 && toIndex <= g.children.count else { return }
 
-        let tab = tabGroupNode.tabs.remove(at: fromIndex)
+        let child = g.children.remove(at: fromIndex)
         let insertIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
-        tabGroupNode.tabs.insert(tab, at: insertIndex)
+        g.children.insert(child, at: insertIndex)
 
         // Update active index if needed
-        if tabGroupNode.activeTabIndex == fromIndex {
-            tabGroupNode.activeTabIndex = insertIndex
-        } else if fromIndex < tabGroupNode.activeTabIndex && toIndex > tabGroupNode.activeTabIndex {
-            tabGroupNode.activeTabIndex -= 1
-        } else if fromIndex > tabGroupNode.activeTabIndex && toIndex <= tabGroupNode.activeTabIndex {
-            tabGroupNode.activeTabIndex += 1
+        if g.activeIndex == fromIndex {
+            g.activeIndex = insertIndex
+        } else if fromIndex < g.activeIndex && toIndex > g.activeIndex {
+            g.activeIndex -= 1
+        } else if fromIndex > g.activeIndex && toIndex <= g.activeIndex {
+            g.activeIndex += 1
         }
 
+        panel.content = .group(g)
         updateTabBar()
     }
 
     public func tabBar(_ tabBar: DockTabBarView, didInitiateTearOff tabIndex: Int, at screenPoint: NSPoint) {
-        guard let tab = tabGroupNode.tabs[safe: tabIndex] else { return }
-        delegate?.tabGroup(self, didDetachTab: tab, at: screenPoint)
+        guard let child = childPanels[safe: tabIndex] else { return }
+        delegate?.tabGroup(self, didDetachPanel: child.id, at: screenPoint)
     }
 
     public func tabBar(_ tabBar: DockTabBarView, didReceiveDroppedTab tabInfo: DockTabDragInfo, at index: Int) {
@@ -556,49 +658,32 @@ extension DockTabGroupViewController: DockDropOverlayViewDelegate {
         switch zone {
         case .center:
             // Add as tab to this group
-            delegate?.tabGroup(self, didReceiveTab: tabInfo, at: tabGroupNode.tabs.count)
+            delegate?.tabGroup(self, didReceiveTab: tabInfo, at: children.count)
 
         case .left:
-            if let tab = findTab(byId: tabInfo.tabId) {
-                delegate?.tabGroup(self, wantsToSplit: .left, withTab: tab)
-            } else {
-                // Tab from external source - create placeholder and split
-                let placeholderTab = DockTab(id: tabInfo.tabId, title: tabInfo.title, iconName: tabInfo.iconName)
-                delegate?.tabGroup(self, wantsToSplit: .left, withTab: placeholderTab)
-            }
+            let panelId = findChildId(byId: tabInfo.tabId) ?? tabInfo.tabId
+            delegate?.tabGroup(self, wantsToSplit: .left, withPanelId: panelId)
 
         case .right:
-            if let tab = findTab(byId: tabInfo.tabId) {
-                delegate?.tabGroup(self, wantsToSplit: .right, withTab: tab)
-            } else {
-                let placeholderTab = DockTab(id: tabInfo.tabId, title: tabInfo.title, iconName: tabInfo.iconName)
-                delegate?.tabGroup(self, wantsToSplit: .right, withTab: placeholderTab)
-            }
+            let panelId = findChildId(byId: tabInfo.tabId) ?? tabInfo.tabId
+            delegate?.tabGroup(self, wantsToSplit: .right, withPanelId: panelId)
 
         case .top:
-            if let tab = findTab(byId: tabInfo.tabId) {
-                delegate?.tabGroup(self, wantsToSplit: .top, withTab: tab)
-            } else {
-                let placeholderTab = DockTab(id: tabInfo.tabId, title: tabInfo.title, iconName: tabInfo.iconName)
-                delegate?.tabGroup(self, wantsToSplit: .top, withTab: placeholderTab)
-            }
+            let panelId = findChildId(byId: tabInfo.tabId) ?? tabInfo.tabId
+            delegate?.tabGroup(self, wantsToSplit: .top, withPanelId: panelId)
 
         case .bottom:
-            if let tab = findTab(byId: tabInfo.tabId) {
-                delegate?.tabGroup(self, wantsToSplit: .bottom, withTab: tab)
-            } else {
-                let placeholderTab = DockTab(id: tabInfo.tabId, title: tabInfo.title, iconName: tabInfo.iconName)
-                delegate?.tabGroup(self, wantsToSplit: .bottom, withTab: placeholderTab)
-            }
+            let panelId = findChildId(byId: tabInfo.tabId) ?? tabInfo.tabId
+            delegate?.tabGroup(self, wantsToSplit: .bottom, withPanelId: panelId)
         }
     }
 
-    private func findTab(byId id: UUID) -> DockTab? {
-        // First check our own tabs
-        if let tab = tabGroupNode.tabs.first(where: { $0.id == id }) {
-            return tab
+    private func findChildId(byId id: UUID) -> UUID? {
+        // Check if the ID matches one of our children
+        if childPanels.contains(where: { $0.id == id }) {
+            return id
         }
-        // Tab might be from another group - delegate will handle
+        // ID might be from another group - delegate will handle
         return nil
     }
 }

@@ -3,6 +3,8 @@ import AppKit
 /// A view controller that hosts a nested stage host within a layout tree.
 /// This is used when a stage host is embedded as a node in another layout,
 /// enabling recursive nesting of virtual workspaces (Version 3 feature).
+///
+/// Accepts a `Panel` with `.group(PanelGroup)` content where `style == .stages`.
 public class DockStageHostViewController: NSViewController, DockStageHostViewDelegate {
 
     // MARK: - Properties
@@ -10,8 +12,8 @@ public class DockStageHostViewController: NSViewController, DockStageHostViewDel
     /// The stage host view this controller manages
     public let hostView: DockStageHostView
 
-    /// The layout node configuration
-    public let layoutNode: StageHostLayoutNode
+    /// The panel configuration (must have .group content with style .stages)
+    public let stagePanel: Panel
 
     /// Panel provider for looking up panels by ID
     public var panelProvider: ((UUID) -> (any DockablePanel)?)?
@@ -25,17 +27,14 @@ public class DockStageHostViewController: NSViewController, DockStageHostViewDel
 
     // MARK: - Initialization
 
-    public init(layoutNode: StageHostLayoutNode, panelProvider: ((UUID) -> (any DockablePanel)?)? = nil) {
-        self.layoutNode = layoutNode
+    public init(panel: Panel, panelProvider: ((UUID) -> (any DockablePanel)?)? = nil) {
+        self.stagePanel = panel
         self.panelProvider = panelProvider
-
-        // Create the stage host state from the layout node
-        let state = layoutNode.toStageHostWindowState()
 
         // Create the host view
         self.hostView = DockStageHostView(
-            id: layoutNode.id,
-            stageHostState: state,
+            id: panel.id,
+            panel: panel,
             panelProvider: panelProvider
         )
 
@@ -86,7 +85,7 @@ public class DockStageHostViewController: NSViewController, DockStageHostViewDel
         // Could notify parent if needed
     }
 
-    public func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
+    public func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {
         // Could forward to parent if needed
     }
 }

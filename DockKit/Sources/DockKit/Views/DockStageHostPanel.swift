@@ -33,13 +33,13 @@ public class DockStageHostPanel: DockablePanel {
     ///   - id: Unique identifier for this panel
     ///   - title: Display title for the panel tab
     ///   - icon: Icon shown in the tab (optional)
-    ///   - stageHostState: Initial state for the stage host
+    ///   - stageHostPanel: The root panel with stages-style group content
     ///   - panelProvider: Provider for looking up panels by ID
     public init(
         id: UUID = UUID(),
         title: String = "Nested Stages",
         icon: NSImage? = nil,
-        stageHostState: StageHostWindowState,
+        stageHostPanel: Panel,
         panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
     ) {
         self.panelId = id
@@ -49,7 +49,7 @@ public class DockStageHostPanel: DockablePanel {
         // Create the host view
         self.hostView = DockStageHostView(
             id: id,
-            stageHostState: stageHostState,
+            panel: stageHostPanel,
             panelProvider: panelProvider
         )
 
@@ -63,24 +63,21 @@ public class DockStageHostPanel: DockablePanel {
         id: UUID = UUID(),
         title: String = "Nested Stages",
         icon: NSImage? = nil,
-        singleStageLayout: DockLayoutNode,
+        singleStageLayout: Panel,
         panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
     ) {
-        let stage = Stage(
-            title: "Stage 1",
-            iconName: nil,
-            layout: singleStageLayout
-        )
-        let state = StageHostWindowState(
-            frame: .zero, // Frame is managed by parent
-            activeStageIndex: 0,
-            stages: [stage]
+        let stageHostPanel = Panel(
+            content: .group(PanelGroup(
+                children: [singleStageLayout],
+                activeIndex: 0,
+                style: .stages
+            ))
         )
         self.init(
             id: id,
             title: title,
             icon: icon,
-            stageHostState: state,
+            stageHostPanel: stageHostPanel,
             panelProvider: panelProvider
         )
     }
@@ -114,9 +111,9 @@ public class DockStageHostPanel: DockablePanel {
 
     // MARK: - Public API
 
-    /// Get the underlying stage host state
-    public var stageHostState: StageHostWindowState {
-        hostView.stageHostState
+    /// Get the underlying root panel
+    public var stageHostPanel: Panel {
+        hostView.stageHostPanel
     }
 
     /// Set the swipe gesture delegate for gesture bubbling
@@ -132,13 +129,13 @@ public class DockStageHostPanel: DockablePanel {
 
     /// Add a new empty stage
     @discardableResult
-    public func addNewStage(title: String? = nil, iconName: String? = nil) -> Stage {
+    public func addNewStage(title: String? = nil, iconName: String? = nil) -> Panel {
         hostView.addNewStage(title: title, iconName: iconName)
     }
 
-    /// Update the stage host state
-    public func updateStageHostState(_ state: StageHostWindowState) {
-        hostView.updateStageHostState(state)
+    /// Update the stage host panel
+    public func updateStageHostPanel(_ panel: Panel) {
+        hostView.updateStageHostPanel(panel)
     }
 }
 
@@ -184,11 +181,10 @@ extension DockStageHostView {
     /// Reload stages if needed (called when panel becomes active)
     func loadStagesIfNeeded() {
         // Recapture thumbnails if in thumbnail mode
-        if stageHostState.displayMode == .thumbnails {
+        if stageHostPanel.group?.style == .thumbnails {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
-                // Access containerView through reflection since it's private
-                // For now, just trigger a layout update
+                // Trigger a layout update
                 self.needsLayout = true
             }
         }

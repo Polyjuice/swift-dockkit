@@ -10,19 +10,19 @@ import Foundation
 /// let commands = layoutManager.computeCommands(to: newLayout)
 ///
 /// for cmd in commands.panelsToCreate {
-///     let panel = factory.create(id: cmd.tabId, cargo: cmd.cargo)
-///     panelRegistry[cmd.tabId] = panel
+///     let panel = factory.create(id: cmd.panelId, cargo: cmd.cargo)
+///     panelRegistry[cmd.panelId] = panel
 /// }
 ///
-/// for tabId in commands.panelsToRemove {
-///     panelRegistry[tabId]?.cleanup()
-///     panelRegistry.removeValue(forKey: tabId)
+/// for panelId in commands.panelsToRemove {
+///     panelRegistry[panelId]?.cleanup()
+///     panelRegistry.removeValue(forKey: panelId)
 /// }
 ///
 /// layoutManager.updateLayout(newLayout)
 /// ```
 public struct ReconciliationCommands {
-    /// Panels that need to be created (new tabs with cargo)
+    /// Panels that need to be created (new content panels with cargo)
     public let panelsToCreate: [PanelCreationCommand]
 
     /// Panel IDs that should be removed/cleaned up
@@ -50,22 +50,21 @@ public struct ReconciliationCommands {
 // MARK: - Panel Creation Command
 
 /// Command to create a new panel
-/// The tab ID should be used as the panel ID for registration
 public struct PanelCreationCommand {
-    /// The tab ID - use this as the panel ID for registration
-    public let tabId: UUID
+    /// The panel ID
+    public let panelId: UUID
 
     /// The cargo containing type and configuration
     public let cargo: [String: AnyCodable]
 
-    /// Target window for this panel
-    public let windowId: UUID
+    /// Target root panel
+    public let rootPanelId: UUID
 
-    /// Target tab group within the window
+    /// Target group within the root panel
     public let groupId: UUID
 
     /// Suggested title from the layout
-    public let title: String
+    public let title: String?
 
     /// Suggested icon name
     public let iconName: String?
@@ -76,16 +75,16 @@ public struct PanelCreationCommand {
     }
 
     public init(
-        tabId: UUID,
+        panelId: UUID,
         cargo: [String: AnyCodable],
-        windowId: UUID,
+        rootPanelId: UUID,
         groupId: UUID,
-        title: String,
+        title: String?,
         iconName: String?
     ) {
-        self.tabId = tabId
+        self.panelId = panelId
         self.cargo = cargo
-        self.windowId = windowId
+        self.rootPanelId = rootPanelId
         self.groupId = groupId
         self.title = title
         self.iconName = iconName
@@ -96,8 +95,8 @@ public struct PanelCreationCommand {
 
 /// Command to update an existing panel's cargo
 public struct PanelUpdateCommand {
-    /// The tab/panel ID
-    public let tabId: UUID
+    /// The panel ID
+    public let panelId: UUID
 
     /// The old cargo (for comparison)
     public let oldCargo: [String: AnyCodable]?
@@ -111,11 +110,11 @@ public struct PanelUpdateCommand {
     }
 
     public init(
-        tabId: UUID,
+        panelId: UUID,
         oldCargo: [String: AnyCodable]?,
         newCargo: [String: AnyCodable]?
     ) {
-        self.tabId = tabId
+        self.panelId = panelId
         self.oldCargo = oldCargo
         self.newCargo = newCargo
     }
@@ -125,11 +124,6 @@ public struct PanelUpdateCommand {
 
 public extension DockLayoutDiff {
     /// Extract high-level reconciliation commands from this diff
-    ///
-    /// - Parameters:
-    ///   - currentLayout: The layout before changes
-    ///   - targetLayout: The layout after changes
-    /// - Returns: Commands for the host app to process
     static func extractCommands(
         from currentLayout: DockLayout,
         to targetLayout: DockLayout
@@ -148,46 +142,44 @@ public extension DockLayoutDiff {
         var toUpdate: [PanelUpdateCommand] = []
 
         // Build lookup maps
-        let currentTabs = currentLayout.allTabs()
-        let targetTabs = targetLayout.allTabs()
+        let currentContentPanels = currentLayout.allContentPanelsWithLocation()
+        let targetContentPanels = targetLayout.allContentPanelsWithLocation()
 
-        let currentTabIds = Set(currentTabs.keys)
-        let targetTabIds = Set(targetTabs.keys)
+        let currentIds = Set(currentContentPanels.keys)
+        let targetIds = Set(targetContentPanels.keys)
 
-        // Tabs to create (in target but not in current)
-        let addedTabIds = targetTabIds.subtracting(currentTabIds)
-        for tabId in addedTabIds {
-            guard let (tab, windowId, groupId) = targetTabs[tabId] else { continue }
+        // Panels to create (in target but not in current)
+        let addedIds = targetIds.subtracting(currentIds)
+        for panelId in addedIds {
+            guard let (panel, rootPanelId, groupId) = targetContentPanels[panelId] else { continue }
 
-            // Only include tabs that have cargo (type information)
-            if let cargo = tab.cargo {
+            if let cargo = panel.cargo {
                 toCreate.append(PanelCreationCommand(
-                    tabId: tabId,
+                    panelId: panelId,
                     cargo: cargo,
-                    windowId: windowId,
+                    rootPanelId: rootPanelId,
                     groupId: groupId,
-                    title: tab.title,
-                    iconName: tab.iconName
+                    title: panel.title,
+                    iconName: panel.iconName
                 ))
             }
         }
 
-        // Tabs to remove (in current but not in target)
-        let removedTabIds = currentTabIds.subtracting(targetTabIds)
-        toRemove = Array(removedTabIds)
+        // Panels to remove (in current but not in target)
+        let removedIds = currentIds.subtracting(targetIds)
+        toRemove = Array(removedIds)
 
-        // Tabs to potentially update (in both, check cargo changes)
-        let commonTabIds = currentTabIds.intersection(targetTabIds)
-        for tabId in commonTabIds {
-            guard let (currentTab, _, _) = currentTabs[tabId],
-                  let (targetTab, _, _) = targetTabs[tabId] else { continue }
+        // Panels to potentially update (in both, check cargo changes)
+        let commonIds = currentIds.intersection(targetIds)
+        for panelId in commonIds {
+            guard let (currentPanel, _, _) = currentContentPanels[panelId],
+                  let (targetPanel, _, _) = targetContentPanels[panelId] else { continue }
 
-            // Check if cargo changed
-            if !cargoEqual(currentTab.cargo, targetTab.cargo) {
+            if !cargoEqual(currentPanel.cargo, targetPanel.cargo) {
                 toUpdate.append(PanelUpdateCommand(
-                    tabId: tabId,
-                    oldCargo: currentTab.cargo,
-                    newCargo: targetTab.cargo
+                    panelId: panelId,
+                    oldCargo: currentPanel.cargo,
+                    newCargo: targetPanel.cargo
                 ))
             }
         }
@@ -210,44 +202,38 @@ public extension DockLayoutDiff {
         case (nil, _), (_, nil):
             return false
         case (let a?, let b?):
-            // Use Equatable conformance of AnyCodable
             return a == b
         }
     }
 }
 
-// MARK: - Layout Tab Extraction Helper
+// MARK: - Layout Content Panel Extraction Helper
 
 public extension DockLayout {
-    /// Extract all tabs with their location info
-    /// Returns: [tabId: (tab, windowId, groupId)]
-    func allTabs() -> [UUID: (tab: TabLayoutState, windowId: UUID, groupId: UUID)] {
-        var result: [UUID: (TabLayoutState, UUID, UUID)] = [:]
+    /// Extract all content panels with their location info
+    /// Returns: [panelId: (panel, rootPanelId, groupId)]
+    func allContentPanelsWithLocation() -> [UUID: (panel: Panel, rootPanelId: UUID, groupId: UUID)] {
+        var result: [UUID: (Panel, UUID, UUID)] = [:]
 
-        for window in windows {
-            collectTabs(from: window.rootNode, windowId: window.id, into: &result)
+        for rootPanel in panels {
+            collectContentPanels(from: rootPanel, rootPanelId: rootPanel.id, parentGroupId: rootPanel.id, into: &result)
         }
 
         return result
     }
 
-    private func collectTabs(
-        from node: DockLayoutNode,
-        windowId: UUID,
-        into result: inout [UUID: (TabLayoutState, UUID, UUID)]
+    private func collectContentPanels(
+        from panel: Panel,
+        rootPanelId: UUID,
+        parentGroupId: UUID,
+        into result: inout [UUID: (Panel, UUID, UUID)]
     ) {
-        switch node {
-        case .tabGroup(let group):
-            for tab in group.tabs {
-                result[tab.id] = (tab, windowId, group.id)
-            }
-        case .split(let split):
-            for child in split.children {
-                collectTabs(from: child, windowId: windowId, into: &result)
-            }
-        case .stageHost(let stageHost):
-            for stage in stageHost.stages {
-                collectTabs(from: stage.layout, windowId: windowId, into: &result)
+        switch panel.content {
+        case .content:
+            result[panel.id] = (panel, rootPanelId, parentGroupId)
+        case .group(let group):
+            for child in group.children {
+                collectContentPanels(from: child, rootPanelId: rootPanelId, parentGroupId: panel.id, into: &result)
             }
         }
     }
@@ -263,7 +249,7 @@ extension ReconciliationCommands: CustomDebugStringConvertible {
             lines.append("  Panels to create: \(panelsToCreate.count)")
             for cmd in panelsToCreate {
                 let type = cmd.panelType ?? "unknown"
-                lines.append("    - \(cmd.tabId.uuidString.prefix(8)): \(type) '\(cmd.title)'")
+                lines.append("    - \(cmd.panelId.uuidString.prefix(8)): \(type) '\(cmd.title ?? "")'")
             }
         }
 
@@ -278,7 +264,7 @@ extension ReconciliationCommands: CustomDebugStringConvertible {
             lines.append("  Panels to update: \(panelsToUpdate.count)")
             for cmd in panelsToUpdate {
                 let typeChange = cmd.typeChanged ? " (TYPE CHANGED)" : ""
-                lines.append("    - \(cmd.tabId.uuidString.prefix(8))\(typeChange)")
+                lines.append("    - \(cmd.panelId.uuidString.prefix(8))\(typeChange)")
             }
         }
 

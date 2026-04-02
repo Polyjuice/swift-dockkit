@@ -1,157 +1,129 @@
 import Foundation
 
-// MARK: - Display Mode
+// MARK: - Panel Group Style
 
-/// How a tab group displays its tabs
-public enum TabGroupDisplayMode: String, Codable {
-    case tabs        // Traditional tab bar with icon and title
-    case thumbnails  // Visual preview thumbnails of panel content
+/// How a panel group presents its children
+public enum PanelGroupStyle: String, Codable, CaseIterable {
+    case tabs           // Standard tab bar, one child visible at a time
+    case thumbnails     // Thumbnail previews, one child visible at a time
+    case stages         // Stage-switching with animations, one child visible at a time
+    case split          // All children visible, divided by axis
 }
 
-// MARK: - New Architecture (Equal Windows)
+// MARK: - Split Axis
 
-/// Serializable representation of a dock layout
-/// Contains ALL windows - there is no "main" window, all windows are equal
-public struct DockLayout: Codable {
-    public var version: Int = 1
-    public var windows: [WindowState]
-
-    public init(windows: [WindowState] = []) {
-        self.windows = windows
-    }
-
-    /// Create an empty layout with a single window containing an empty tab group
-    public static func empty() -> DockLayout {
-        DockLayout(windows: [
-            WindowState(
-                id: UUID(),
-                frame: CGRect(x: 100, y: 100, width: 800, height: 600),
-                isFullScreen: false,
-                rootNode: .tabGroup(TabGroupLayoutNode())
-            )
-        ])
-    }
+/// Axis for split orientation
+public enum SplitAxis: String, Codable {
+    case horizontal     // Children arranged left-to-right
+    case vertical       // Children arranged top-to-bottom
 }
 
-/// State of a single window
-/// All windows have identical capabilities (splits, tabs, etc.)
-public struct WindowState: Codable, Identifiable {
-    public let id: UUID
-    public var frame: CGRect
-    public var isFullScreen: Bool
-    public var rootNode: DockLayoutNode
+// MARK: - Panel Content
 
-    public init(id: UUID = UUID(), frame: CGRect, isFullScreen: Bool = false, rootNode: DockLayoutNode) {
-        self.id = id
-        self.frame = frame
-        self.isFullScreen = isFullScreen
-        self.rootNode = rootNode
-    }
-}
+/// What a panel contains — either leaf content or a group of sub-panels
+public enum PanelContent: Codable {
+    case content                    // Leaf — actual view (resolved via panelProvider at runtime)
+    case group(PanelGroup)          // Container — N sub-panels with layout mode and style
 
-/// Codable version of DockNode - uses explicit type discriminator for cleaner JSON
-public indirect enum DockLayoutNode: Codable {
-    case split(SplitLayoutNode)
-    case tabGroup(TabGroupLayoutNode)
-    /// A nested stage host (Version 3: nested stages)
-    case stageHost(StageHostLayoutNode)
+    // MARK: Codable
 
-    // Custom coding to add "type" discriminator
     private enum CodingKeys: String, CodingKey {
         case type
     }
 
-    private enum NodeType: String, Codable {
-        case split
-        case tabGroup
-        case stageHost
+    private enum ContentType: String, Codable {
+        case content
+        case group
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(NodeType.self, forKey: .type)
-
+        let type = try container.decode(ContentType.self, forKey: .type)
         switch type {
-        case .split:
-            self = .split(try SplitLayoutNode(from: decoder))
-        case .tabGroup:
-            self = .tabGroup(try TabGroupLayoutNode(from: decoder))
-        case .stageHost:
-            self = .stageHost(try StageHostLayoutNode(from: decoder))
+        case .content:
+            self = .content
+        case .group:
+            self = .group(try PanelGroup(from: decoder))
         }
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-
         switch self {
-        case .split(let node):
-            try container.encode(NodeType.split, forKey: .type)
-            try node.encode(to: encoder)
-        case .tabGroup(let node):
-            try container.encode(NodeType.tabGroup, forKey: .type)
-            try node.encode(to: encoder)
-        case .stageHost(let node):
-            try container.encode(NodeType.stageHost, forKey: .type)
-            try node.encode(to: encoder)
+        case .content:
+            try container.encode(ContentType.content, forKey: .type)
+        case .group(let group):
+            try container.encode(ContentType.group, forKey: .type)
+            try group.encode(to: encoder)
         }
     }
 }
 
-/// Codable version of SplitNode
-public struct SplitLayoutNode: Codable {
-    public let id: UUID
+// MARK: - Panel Group
+
+/// A group of sub-panels with layout attributes
+/// All attributes are preserved regardless of current style, enabling reversible style switches
+public struct PanelGroup: Codable {
+    public var children: [Panel]
+
+    /// Which child is selected (used by tabs/thumbnails/stages styles)
+    public var activeIndex: Int
+
+    /// Split orientation (used by split style)
     public var axis: SplitAxis
-    public var children: [DockLayoutNode]
+
+    /// Split ratios for each child (used by split style, must sum to 1.0)
     public var proportions: [CGFloat]
 
+    /// Determines which attributes are active for rendering
+    public var style: PanelGroupStyle
+
     private enum CodingKeys: String, CodingKey {
-        case id, axis, children, proportions
+        case children, activeIndex, axis, proportions, style
     }
 
-    public init(id: UUID = UUID(), axis: SplitAxis = .horizontal, children: [DockLayoutNode] = [], proportions: [CGFloat] = []) {
-        self.id = id
-        self.axis = axis
+    public init(
+        children: [Panel] = [],
+        activeIndex: Int = 0,
+        axis: SplitAxis = .horizontal,
+        proportions: [CGFloat]? = nil,
+        style: PanelGroupStyle = .tabs
+    ) {
         self.children = children
-        self.proportions = proportions.isEmpty ?
-            Array(repeating: 1.0 / max(1, CGFloat(children.count)), count: children.count) :
-            proportions
+        self.activeIndex = activeIndex
+        self.axis = axis
+        self.style = style
+
+        // If proportions not provided, distribute equally
+        if let proportions = proportions, proportions.count == children.count {
+            self.proportions = proportions
+        } else {
+            let count = max(1, children.count)
+            self.proportions = Array(repeating: 1.0 / CGFloat(count), count: count)
+        }
+    }
+
+    /// Recalculate proportions to distribute equally among current children
+    public mutating func recalculateProportions() {
+        let count = max(1, children.count)
+        proportions = Array(repeating: 1.0 / CGFloat(count), count: count)
+    }
+
+    /// The currently active child, if any (meaningful for tabs/thumbnails/stages)
+    public var activeChild: Panel? {
+        guard activeIndex >= 0 && activeIndex < children.count else { return nil }
+        return children[activeIndex]
     }
 }
 
-/// Codable version of TabGroupNode
-public struct TabGroupLayoutNode: Codable {
+// MARK: - Panel
+
+/// The universal layout unit in DockKit
+/// Everything is a Panel — windows, tabs, stages, split panes, leaf content.
+/// Behavioral differences are controlled by attributes, not types.
+public struct Panel: Codable, Identifiable {
     public let id: UUID
-    public var tabs: [TabLayoutState]
-    public var activeTabIndex: Int
-    public var displayMode: TabGroupDisplayMode
-
-    private enum CodingKeys: String, CodingKey {
-        case id, tabs, activeTabIndex, displayMode
-    }
-
-    public init(id: UUID = UUID(), tabs: [TabLayoutState] = [], activeTabIndex: Int = 0, displayMode: TabGroupDisplayMode = .tabs) {
-        self.id = id
-        self.tabs = tabs
-        self.activeTabIndex = activeTabIndex
-        self.displayMode = displayMode
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        tabs = try container.decode([TabLayoutState].self, forKey: .tabs)
-        activeTabIndex = try container.decode(Int.self, forKey: .activeTabIndex)
-        // Default to .tabs for backward compatibility with existing JSON
-        displayMode = try container.decodeIfPresent(TabGroupDisplayMode.self, forKey: .displayMode) ?? .tabs
-    }
-}
-
-/// Codable state for a single tab
-/// NOTE: DockKit is panel-agnostic - the host app interprets the cargo field
-public struct TabLayoutState: Codable {
-    public let id: UUID
-    public var title: String
+    public var title: String?
     public var iconName: String?
 
     /// Arbitrary JSON cargo for panel-specific configuration
@@ -159,155 +131,210 @@ public struct TabLayoutState: Codable {
     /// DockKit stores and diffs cargo but doesn't interpret its contents
     public var cargo: [String: AnyCodable]?
 
-    public init(
-        id: UUID = UUID(),
-        title: String,
-        iconName: String? = nil,
-        cargo: [String: AnyCodable]? = nil
-    ) {
-        self.id = id
-        self.title = title
-        self.iconName = iconName
-        self.cargo = cargo
-    }
-}
+    /// What this panel contains — leaf content or a group of sub-panels
+    public var content: PanelContent
 
-/// Codable version of a nested stage host (Version 3: nested stages)
-/// This allows stage hosts to be embedded within other layouts, enabling
-/// recursive nesting of virtual workspaces.
-public struct StageHostLayoutNode: Codable {
-    public let id: UUID
-    public var title: String?
-    public var iconName: String?
-    public var activeStageIndex: Int
-    public var stages: [Stage]
-    public var displayMode: StageDisplayMode
-    public var cargo: [String: AnyCodable]?
+    // Window presentation attributes (preserved even when not a window)
+    // Flipping isTopLevelWindow creates/destroys an OS window during reconciliation
+
+    /// Whether this panel renders as a top-level OS window
+    public var isTopLevelWindow: Bool
+
+    /// Window frame (preserved across window/embedded transitions)
+    public var frame: CGRect?
+
+    /// Window fullscreen state (preserved across window/embedded transitions)
+    public var isFullScreen: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, iconName, activeStageIndex, stages, displayMode, cargo
+        case id, title, iconName, cargo, content
+        case isTopLevelWindow, frame, isFullScreen
     }
 
     public init(
         id: UUID = UUID(),
         title: String? = nil,
         iconName: String? = nil,
-        activeStageIndex: Int = 0,
-        stages: [Stage] = [],
-        displayMode: StageDisplayMode = .thumbnails,
-        cargo: [String: AnyCodable]? = nil
+        cargo: [String: AnyCodable]? = nil,
+        content: PanelContent = .content,
+        isTopLevelWindow: Bool = false,
+        frame: CGRect? = nil,
+        isFullScreen: Bool? = nil
     ) {
         self.id = id
         self.title = title
         self.iconName = iconName
-        self.activeStageIndex = activeStageIndex
-        self.stages = stages
-        self.displayMode = displayMode
         self.cargo = cargo
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        title = try container.decodeIfPresent(String.self, forKey: .title)
-        iconName = try container.decodeIfPresent(String.self, forKey: .iconName)
-        activeStageIndex = try container.decode(Int.self, forKey: .activeStageIndex)
-        stages = try container.decode([Stage].self, forKey: .stages)
-        displayMode = try container.decodeIfPresent(StageDisplayMode.self, forKey: .displayMode) ?? .thumbnails
-        cargo = try container.decodeIfPresent([String: AnyCodable].self, forKey: .cargo)
-    }
-
-    /// Create from a StageHostWindowState
-    public init(from state: StageHostWindowState, title: String? = nil, iconName: String? = nil) {
-        self.id = state.id
-        self.title = title
-        self.iconName = iconName
-        self.activeStageIndex = state.activeStageIndex
-        self.stages = state.stages
-        self.displayMode = state.displayMode
-        self.cargo = state.cargo
-    }
-
-    /// Convert to a StageHostWindowState
-    public func toStageHostWindowState(frame: CGRect = .zero) -> StageHostWindowState {
-        StageHostWindowState(
-            id: id,
-            frame: frame,
-            activeStageIndex: activeStageIndex,
-            stages: stages,
-            displayMode: displayMode,
-            cargo: cargo
-        )
+        self.content = content
+        self.isTopLevelWindow = isTopLevelWindow
+        self.frame = frame
+        self.isFullScreen = isFullScreen
     }
 }
 
-// MARK: - DockLayoutNode Helpers
+// MARK: - DockLayout
 
-public extension DockLayoutNode {
-    /// Check if this node contains no tabs (empty tree)
+/// The top-level layout state
+/// Contains all root panels (typically those with isTopLevelWindow == true)
+public struct DockLayout: Codable {
+    public var version: Int = 2
+    public var panels: [Panel]
+
+    public init(panels: [Panel] = []) {
+        self.panels = panels
+    }
+
+    /// Create an empty layout with a single window containing an empty tab group
+    public static func empty() -> DockLayout {
+        DockLayout(panels: [
+            Panel(
+                content: .group(PanelGroup(style: .tabs)),
+                isTopLevelWindow: true,
+                frame: CGRect(x: 100, y: 100, width: 800, height: 600),
+                isFullScreen: false
+            )
+        ])
+    }
+}
+
+// MARK: - Panel Convenience Properties
+
+public extension Panel {
+    /// Whether this panel is a leaf content panel
+    var isContent: Bool {
+        if case .content = content { return true }
+        return false
+    }
+
+    /// Whether this panel contains a group
+    var isGroup: Bool {
+        if case .group = content { return true }
+        return false
+    }
+
+    /// The group, if this panel contains one
+    var group: PanelGroup? {
+        if case .group(let g) = content { return g }
+        return nil
+    }
+
+    /// Whether this panel acts as a stage host (tabs-style group where children have groups)
+    var isStageHost: Bool {
+        guard let g = group else { return false }
+        return g.style == .stages
+    }
+}
+
+// MARK: - Tree Traversal
+
+public extension Panel {
+    /// Find a panel anywhere in this tree by ID
+    func findPanel(byId targetId: UUID) -> Panel? {
+        if id == targetId { return self }
+        guard case .group(let group) = content else { return nil }
+        for child in group.children {
+            if let found = child.findPanel(byId: targetId) { return found }
+        }
+        return nil
+    }
+
+    /// Find the group containing a specific content panel ID
+    /// Returns the group's panel ID and the index of the child within that group
+    func findGroup(containingPanelId panelId: UUID) -> (groupId: UUID, index: Int)? {
+        guard case .group(let group) = content else { return nil }
+
+        // Check if any direct child matches
+        if let index = group.children.firstIndex(where: { $0.id == panelId }) {
+            return (groupId: id, index: index)
+        }
+
+        // Recurse into children that are groups
+        for child in group.children {
+            if let found = child.findGroup(containingPanelId: panelId) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// Get all leaf content panels in this tree
+    var allContentPanels: [Panel] {
+        switch content {
+        case .content:
+            return [self]
+        case .group(let group):
+            return group.children.flatMap { $0.allContentPanels }
+        }
+    }
+
+    /// Get all content panel IDs in this tree
+    func allContentIds() -> [UUID] {
+        var result: [UUID] = []
+        collectContentIds(into: &result)
+        return result
+    }
+
+    private func collectContentIds(into result: inout [UUID]) {
+        switch content {
+        case .content:
+            result.append(id)
+        case .group(let group):
+            for child in group.children {
+                child.collectContentIds(into: &result)
+            }
+        }
+    }
+
+    /// Get all group panels in this tree
+    func allGroups() -> [Panel] {
+        var result: [Panel] = []
+        collectGroups(into: &result)
+        return result
+    }
+
+    private func collectGroups(into result: inout [Panel]) {
+        guard case .group(let group) = content else { return }
+        result.append(self)
+        for child in group.children {
+            child.collectGroups(into: &result)
+        }
+    }
+
+    /// Count total leaf content panels in this tree
+    var totalContentCount: Int {
+        switch content {
+        case .content:
+            return 1
+        case .group(let group):
+            return group.children.reduce(0) { $0 + $1.totalContentCount }
+        }
+    }
+
+    /// Check if tree is empty (no content panels)
     var isEmpty: Bool {
-        switch self {
-        case .tabGroup(let tabGroup):
-            return tabGroup.tabs.isEmpty
-        case .split(let split):
-            return split.children.allSatisfy { $0.isEmpty }
-        case .stageHost(let stageHost):
-            return stageHost.stages.allSatisfy { $0.layout.isEmpty }
-        }
+        return totalContentCount == 0
     }
-}
 
-// MARK: - Conversion from Runtime Models
-
-public extension DockLayoutNode {
-    /// Create a layout node from a runtime DockNode
-    static func from(_ node: DockNode) -> DockLayoutNode {
-        switch node {
-        case .split(let splitNode):
-            return .split(SplitLayoutNode(
-                id: splitNode.id,
-                axis: splitNode.axis,
-                children: splitNode.children.map { DockLayoutNode.from($0) },
-                proportions: splitNode.proportions
-            ))
-        case .tabGroup(let tabGroupNode):
-            return .tabGroup(TabGroupLayoutNode(
-                id: tabGroupNode.id,
-                tabs: tabGroupNode.tabs.map { TabLayoutState.from($0) },
-                activeTabIndex: tabGroupNode.activeTabIndex,
-                displayMode: tabGroupNode.displayMode
-            ))
-        case .stageHost(let stageHostNode):
-            return .stageHost(StageHostLayoutNode(
-                id: stageHostNode.id,
-                title: stageHostNode.title,
-                iconName: stageHostNode.iconName,
-                activeStageIndex: stageHostNode.activeStageIndex,
-                stages: stageHostNode.stages,
-                displayMode: stageHostNode.displayMode,
-                cargo: stageHostNode.cargo
-            ))
-        }
+    /// Flatten the tree into a dictionary of [panelId: Panel]
+    func flattenPanels() -> [UUID: Panel] {
+        var result: [UUID: Panel] = [:]
+        flattenPanels(into: &result)
+        return result
     }
-}
 
-public extension TabLayoutState {
-    /// Create a tab state from a runtime DockTab
-    static func from(_ tab: DockTab) -> TabLayoutState {
-        TabLayoutState(
-            id: tab.id,
-            title: tab.title,
-            iconName: tab.iconName,
-            cargo: tab.cargo
-        )
+    private func flattenPanels(into result: inout [UUID: Panel]) {
+        result[id] = self
+        guard case .group(let group) = content else { return }
+        for child in group.children {
+            child.flattenPanels(into: &result)
+        }
     }
 }
 
 // MARK: - Persistence
 
 public extension DockLayout {
-    private static let storageKey = "dockkit.dockLayout.v2"
-    private static let legacyStorageKey = "dockkit.dockLayout"
+    private static let storageKey = "dockkit.panelLayout.v1"
 
     /// Save the layout to UserDefaults
     func save() {
@@ -320,21 +347,16 @@ public extension DockLayout {
 
     /// Load the layout from UserDefaults
     static func load() -> DockLayout? {
-        // Try new format first
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let layout = try? JSONDecoder().decode(DockLayout.self, from: data) {
             return layout
         }
-
-        // TODO: Migration from legacy format could be added here
-
         return nil
     }
 
     /// Clear the saved layout
     static func clear() {
         UserDefaults.standard.removeObject(forKey: storageKey)
-        UserDefaults.standard.removeObject(forKey: legacyStorageKey)
     }
 }
 
@@ -353,35 +375,5 @@ public extension DockLayout {
     static func fromJSON(_ json: String) -> DockLayout? {
         guard let data = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(DockLayout.self, from: data)
-    }
-}
-
-// MARK: - Legacy Support (Deprecated)
-// These types are kept for backward compatibility during migration
-
-@available(*, deprecated, message: "Use WindowState instead")
-public struct FloatingWindowState: Codable {
-    public let id: UUID
-    public var frame: CGRect
-    public var tabGroup: TabGroupLayoutNode
-
-    public init(id: UUID = UUID(), frame: CGRect, tabGroup: TabGroupLayoutNode) {
-        self.id = id
-        self.frame = frame
-        self.tabGroup = tabGroup
-    }
-}
-
-/// Info about a floating window (runtime, not codable) - DEPRECATED
-@available(*, deprecated, message: "Use WindowState for all windows")
-public struct FloatingWindowInfo {
-    public let id: UUID
-    public let frame: CGRect
-    public let tabGroup: TabGroupNode
-
-    public init(id: UUID, frame: CGRect, tabGroup: TabGroupNode) {
-        self.id = id
-        self.frame = frame
-        self.tabGroup = tabGroup
     }
 }

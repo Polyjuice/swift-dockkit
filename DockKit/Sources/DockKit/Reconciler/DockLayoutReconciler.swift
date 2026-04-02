@@ -36,13 +36,13 @@ public class DockLayoutReconciler {
         currentWindows: [DockWindow],
         targetLayout: DockLayout,
         diff: DockLayoutDiff,
-        windowFactory: (WindowState) -> DockWindow
+        windowFactory: (Panel) -> DockWindow
     ) -> [DockWindow] {
         var windows = currentWindows
 
         // Suppress auto-close on ALL windows during reconciliation
         // This prevents windows from closing when tab groups temporarily become empty
-        // during tab moves (Phase 5) or node tree reconciliation (Phase 4)
+        // during child moves (Phase 5) or panel tree reconciliation (Phase 4)
         for window in windows {
             window.suppressAutoClose = true
         }
@@ -52,50 +52,50 @@ public class DockLayoutReconciler {
             }
         }
 
-        // Phase 1: Pre-detach notifications for tabs that will move
-        if verboseLogging { print("[RECONCILER] Phase 1: Pre-detach notifications for \(diff.movedTabs.count) tab(s)") }
+        // Phase 1: Pre-detach notifications for children that will move
+        if verboseLogging { print("[RECONCILER] Phase 1: Pre-detach notifications for \(diff.movedChildren.count) child(ren)") }
         notifyPanelsWillDetach(for: diff, in: windows)
 
         // Phase 2: Close removed windows
-        if verboseLogging { print("[RECONCILER] Phase 2: Close removed windows: \(diff.removedWindowIds.map { $0.uuidString.prefix(8) })") }
-        for windowId in diff.removedWindowIds {
-            if let index = windows.firstIndex(where: { $0.windowId == windowId }) {
+        if verboseLogging { print("[RECONCILER] Phase 2: Close removed windows: \(diff.removedPanelIds.map { $0.uuidString.prefix(8) })") }
+        for panelId in diff.removedPanelIds {
+            if let index = windows.firstIndex(where: { $0.windowId == panelId }) {
                 let window = windows[index]
                 // Detach all panels first
-                detachAllPanels(from: window.rootNode)
+                detachAllPanels(from: window.rootPanel)
                 window.close()
                 windows.remove(at: index)
-                if verboseLogging { print("[RECONCILER]   Closed window \(windowId.uuidString.prefix(8))") }
+                if verboseLogging { print("[RECONCILER]   Closed window \(panelId.uuidString.prefix(8))") }
             }
         }
 
         // Phase 3: Create new windows
-        if verboseLogging { print("[RECONCILER] Phase 3: Create new windows: \(diff.addedWindowIds.map { $0.uuidString.prefix(8) })") }
-        for windowState in targetLayout.windows {
-            if diff.addedWindowIds.contains(windowState.id) {
-                let newWindow = windowFactory(windowState)
+        if verboseLogging { print("[RECONCILER] Phase 3: Create new windows: \(diff.addedPanelIds.map { $0.uuidString.prefix(8) })") }
+        for rootPanel in targetLayout.panels {
+            if diff.addedPanelIds.contains(rootPanel.id) {
+                let newWindow = windowFactory(rootPanel)
                 windows.append(newWindow)
-                if verboseLogging { print("[RECONCILER]   Created window \(windowState.id.uuidString.prefix(8))") }
+                if verboseLogging { print("[RECONCILER]   Created window \(rootPanel.id.uuidString.prefix(8))") }
             }
         }
 
         // Phase 4: Reconcile existing windows
-        if verboseLogging { print("[RECONCILER] Phase 4: Reconcile \(diff.modifiedWindows.count) modified window(s)") }
-        let targetWindowsById = Dictionary(uniqueKeysWithValues: targetLayout.windows.map { ($0.id, $0) })
+        if verboseLogging { print("[RECONCILER] Phase 4: Reconcile \(diff.modifiedPanels.count) modified window(s)") }
+        let targetPanelsById = Dictionary(uniqueKeysWithValues: targetLayout.panels.map { ($0.id, $0) })
 
         for window in windows {
-            guard let targetState = targetWindowsById[window.windowId],
-                  let modification = diff.modifiedWindows[window.windowId] else {
+            guard let targetPanel = targetPanelsById[window.windowId],
+                  let modification = diff.modifiedPanels[window.windowId] else {
                 continue
             }
 
             if verboseLogging { print("[RECONCILER]   Reconciling window \(window.windowId.uuidString.prefix(8)): frame=\(modification.frameChanged), fullscreen=\(modification.fullScreenChanged), nodes=\(modification.nodeChanges.hasChanges)") }
-            reconcileWindow(window, with: targetState, modification: modification)
+            reconcileWindow(window, with: targetPanel, modification: modification)
         }
 
-        // Phase 5: Apply tab moves across windows
-        if verboseLogging { print("[RECONCILER] Phase 5: Apply \(diff.movedTabs.count) tab move(s)") }
-        applyTabMoves(diff.movedTabs, in: &windows, targetLayout: targetLayout)
+        // Phase 5: Apply child moves across windows
+        if verboseLogging { print("[RECONCILER] Phase 5: Apply \(diff.movedChildren.count) child move(s)") }
+        applyChildMoves(diff.movedChildren, in: &windows, targetLayout: targetLayout)
 
         // Phase 6: Post-dock notifications
         if verboseLogging { print("[RECONCILER] Phase 6: Post-dock notifications") }
@@ -108,46 +108,47 @@ public class DockLayoutReconciler {
     /// Reconcile a single window with its target state
     private func reconcileWindow(
         _ window: DockWindow,
-        with targetState: WindowState,
-        modification: WindowModification
+        with targetPanel: Panel,
+        modification: PanelModification
     ) {
         // Update frame if changed
-        if modification.frameChanged {
-            window.setFrame(targetState.frame, display: true, animate: false)
+        if modification.frameChanged, let frame = targetPanel.frame {
+            window.setFrame(frame, display: true, animate: false)
         }
 
         // Handle fullscreen change (macOS manages this specially)
         if modification.fullScreenChanged {
-            if targetState.isFullScreen && !window.styleMask.contains(.fullScreen) {
+            let targetFullScreen = targetPanel.isFullScreen ?? false
+            if targetFullScreen && !window.styleMask.contains(.fullScreen) {
                 window.toggleFullScreen(nil)
-            } else if !targetState.isFullScreen && window.styleMask.contains(.fullScreen) {
+            } else if !targetFullScreen && window.styleMask.contains(.fullScreen) {
                 window.toggleFullScreen(nil)
             }
         }
 
-        // Reconcile node tree if changed
+        // Reconcile panel tree if changed
         if modification.nodeChanges.hasChanges {
-            reconcileNodeTree(
+            reconcilePanelTree(
                 in: window,
-                targetNode: targetState.rootNode,
+                targetPanel: targetPanel,
                 nodeChanges: modification.nodeChanges
             )
         }
     }
 
-    // MARK: - Node Tree Reconciliation
+    // MARK: - Panel Tree Reconciliation
 
-    /// Reconcile the node tree within a window
-    private func reconcileNodeTree(
+    /// Reconcile the panel tree within a window
+    private func reconcilePanelTree(
         in window: DockWindow,
-        targetNode: DockLayoutNode,
+        targetPanel: Panel,
         nodeChanges: NodeChanges
     ) {
         // Note: suppressAutoClose is already set at the top level in reconcileWindows()
 
         guard let rootVC = window.rootViewController else {
             // No existing root - update model and rebuild from scratch
-            window.rootNode = convertLayoutNodeToDockNode(targetNode)
+            window.rootPanel = resolvePanel(targetPanel)
             window.rebuildLayout()
             return
         }
@@ -155,7 +156,7 @@ public class DockLayoutReconciler {
         // Try to reconcile in place
         let success = reconcileNode(
             currentVC: rootVC,
-            targetNode: targetNode,
+            targetPanel: targetPanel,
             parentSplit: nil,
             indexInParent: nil,
             window: window
@@ -166,16 +167,16 @@ public class DockLayoutReconciler {
             if verboseLogging {
                 print("[RECONCILER] In-place reconciliation failed, rebuilding layout")
             }
-            window.rootNode = convertLayoutNodeToDockNode(targetNode)
+            window.rootPanel = resolvePanel(targetPanel)
             window.rebuildLayout()
         } else {
             // CRITICAL: Even on successful in-place reconciliation, we must update
-            // window.rootNode to match the target layout. Otherwise getLayout() will
+            // window.rootPanel to match the target layout. Otherwise getLayout() will
             // return stale IDs that don't match the view hierarchy, causing subsequent
-            // tab moves to fail because the target group ID won't be found.
-            window.rootNode = convertLayoutNodeToDockNode(targetNode)
+            // child moves to fail because the target group ID won't be found.
+            window.rootPanel = resolvePanel(targetPanel)
             if verboseLogging {
-                print("[RECONCILER] In-place reconciliation succeeded, updated rootNode model")
+                print("[RECONCILER] In-place reconciliation succeeded, updated rootPanel model")
             }
         }
     }
@@ -185,23 +186,43 @@ public class DockLayoutReconciler {
     @discardableResult
     private func reconcileNode(
         currentVC: NSViewController,
-        targetNode: DockLayoutNode,
+        targetPanel: Panel,
         parentSplit: DockSplitViewController?,
         indexInParent: Int?,
         window: DockWindow
     ) -> Bool {
-        switch (currentVC, targetNode) {
-        case (let splitVC as DockSplitViewController, .split(let targetSplit)):
-            return reconcileSplit(splitVC, with: targetSplit, window: window)
+        guard let targetGroup = targetPanel.group else {
+            // Target is a content panel, not a group - need to replace
+            if let parent = parentSplit, let index = indexInParent {
+                parent.replaceChild(at: index, with: resolvePanel(targetPanel))
+                return true
+            }
+            return false
+        }
 
-        case (let tabGroupVC as DockTabGroupViewController, .tabGroup(let targetTabGroup)):
-            return reconcileTabGroup(tabGroupVC, with: targetTabGroup)
+        switch (currentVC, targetGroup.style) {
+        case (let splitVC as DockSplitViewController, .split):
+            return reconcileSplit(splitVC, with: targetPanel, targetGroup: targetGroup, window: window)
+
+        case (let tabGroupVC as DockTabGroupViewController, .tabs),
+             (let tabGroupVC as DockTabGroupViewController, .thumbnails):
+            return reconcileTabGroup(tabGroupVC, with: targetPanel, targetGroup: targetGroup)
+
+        case (let stageHostVC as DockStageHostViewController, .stages):
+            // Stage hosts: verify ID matches, rebuild if needed
+            if stageHostVC.stagePanel.id != targetPanel.id {
+                if let parent = parentSplit, let index = indexInParent {
+                    parent.replaceChild(at: index, with: resolvePanel(targetPanel))
+                    return true
+                }
+                return false
+            }
+            return true
 
         default:
             // Type mismatch - need to replace this node
             if let parent = parentSplit, let index = indexInParent {
-                let newNode = convertLayoutNodeToDockNode(targetNode)
-                parent.replaceChild(at: index, with: newNode)
+                parent.replaceChild(at: index, with: resolvePanel(targetPanel))
                 return true
             }
             // No parent means we need to rebuild root
@@ -212,33 +233,36 @@ public class DockLayoutReconciler {
     /// Reconcile a split view controller with its target state
     private func reconcileSplit(
         _ splitVC: DockSplitViewController,
-        with targetSplit: SplitLayoutNode,
+        with targetPanel: Panel,
+        targetGroup: PanelGroup,
         window: DockWindow
     ) -> Bool {
+        let currentGroup = splitVC.panel.group!
+
         // Update axis if changed
-        if splitVC.splitNode.axis != targetSplit.axis {
-            splitVC.updateAxis(targetSplit.axis)
+        if currentGroup.axis != targetGroup.axis {
+            splitVC.updateAxis(targetGroup.axis)
         }
 
         // Update proportions if changed
-        if splitVC.splitNode.proportions != targetSplit.proportions {
-            splitVC.setProportions(targetSplit.proportions)
+        if currentGroup.proportions != targetGroup.proportions {
+            splitVC.setProportions(targetGroup.proportions)
         }
 
         // Reconcile children
-        let currentChildIds = splitVC.splitNode.children.map { $0.nodeId }
-        let targetChildIds = targetSplit.children.map { nodeIdFromLayoutNode($0) }
+        let currentChildIds = currentGroup.children.map { $0.id }
+        let targetChildIds = targetGroup.children.map { $0.id }
 
         // Check if we need structural changes
         if currentChildIds != targetChildIds {
             // Complex reconciliation - rebuild children
-            return reconcileSplitChildren(splitVC, with: targetSplit.children, window: window)
+            return reconcileSplitChildren(splitVC, with: targetGroup.children, window: window)
         } else {
             // Same children, just recursively reconcile
-            for (index, (childVC, targetChild)) in zip(splitVC.splitViewItems.map { $0.viewController }, targetSplit.children).enumerated() {
+            for (index, (childVC, targetChild)) in zip(splitVC.splitViewItems.map { $0.viewController }, targetGroup.children).enumerated() {
                 if !reconcileNode(
                     currentVC: childVC,
-                    targetNode: targetChild,
+                    targetPanel: targetChild,
                     parentSplit: splitVC,
                     indexInParent: index,
                     window: window
@@ -253,9 +277,11 @@ public class DockLayoutReconciler {
     /// Reconcile split children when structure has changed
     private func reconcileSplitChildren(
         _ splitVC: DockSplitViewController,
-        with targetChildren: [DockLayoutNode],
+        with targetChildren: [Panel],
         window: DockWindow
     ) -> Bool {
+        let currentGroup = splitVC.panel.group!
+
         // Build maps for matching
         var currentChildMap: [UUID: (index: Int, vc: NSViewController)] = [:]
         for (index, item) in splitVC.splitViewItems.enumerated() {
@@ -264,8 +290,8 @@ public class DockLayoutReconciler {
         }
 
         // Determine which children to keep, remove, or add
-        let targetChildIds = Set(targetChildren.map { nodeIdFromLayoutNode($0) })
-        let currentChildIds = Set(currentChildMap.keys)
+        let targetChildIds = Set(targetChildren.map { $0.id })
+        let currentChildIds = Set(currentGroup.children.map { $0.id })
 
         let toRemove = currentChildIds.subtracting(targetChildIds)
         let toAdd = targetChildIds.subtracting(currentChildIds)
@@ -277,9 +303,10 @@ public class DockLayoutReconciler {
             if toRemove.contains(nodeId) {
                 // Detach panels before removing
                 if let tabGroupVC = item.viewController as? DockTabGroupViewController {
-                    for tab in tabGroupVC.tabGroupNode.tabs {
-                        if let panel = tab.panel {
-                            panelWillDetach?(panel)
+                    let tabChildren = tabGroupVC.group?.children ?? []
+                    for child in tabChildren {
+                        if let dockablePanel = tabGroupVC.panelProvider?(child.id) {
+                            panelWillDetach?(dockablePanel)
                         }
                     }
                 }
@@ -289,7 +316,7 @@ public class DockLayoutReconciler {
 
         // Reorder and add children to match target
         for (targetIndex, targetChild) in targetChildren.enumerated() {
-            let targetId = nodeIdFromLayoutNode(targetChild)
+            let targetId = targetChild.id
 
             if toKeep.contains(targetId) {
                 // This child exists - move to correct position if needed
@@ -297,7 +324,7 @@ public class DockLayoutReconciler {
                     // Recursively reconcile
                     if !reconcileNode(
                         currentVC: currentInfo.vc,
-                        targetNode: targetChild,
+                        targetPanel: targetChild,
                         parentSplit: splitVC,
                         indexInParent: targetIndex,
                         window: window
@@ -307,8 +334,8 @@ public class DockLayoutReconciler {
                 }
             } else if toAdd.contains(targetId) {
                 // New child - create and insert
-                let newNode = convertLayoutNodeToDockNode(targetChild)
-                splitVC.insertChild(newNode, at: targetIndex)
+                let resolvedChild = resolvePanel(targetChild)
+                splitVC.insertChild(resolvedChild, at: targetIndex)
             }
         }
 
@@ -318,95 +345,98 @@ public class DockLayoutReconciler {
     /// Reconcile a tab group view controller with its target state
     private func reconcileTabGroup(
         _ tabGroupVC: DockTabGroupViewController,
-        with targetTabGroup: TabGroupLayoutNode
+        with targetPanel: Panel,
+        targetGroup: PanelGroup
     ) -> Bool {
-        // Reconcile tabs
-        tabGroupVC.reconcileTabs(with: targetTabGroup.tabs, panelProvider: panelProvider)
+        // Reconcile children
+        tabGroupVC.reconcileTabs(with: targetGroup.children, panelProvider: panelProvider)
 
-        // Update active tab index
-        if tabGroupVC.tabGroupNode.activeTabIndex != targetTabGroup.activeTabIndex {
-            tabGroupVC.activateTab(at: targetTabGroup.activeTabIndex)
+        // Update active child index
+        if tabGroupVC.activeIndex != targetGroup.activeIndex {
+            tabGroupVC.activateTab(at: targetGroup.activeIndex)
         }
 
         return true
     }
 
-    // MARK: - Tab Movement
+    // MARK: - Child Movement
 
-    /// Apply tab moves across windows
-    private func applyTabMoves(
-        _ moves: [TabMove],
+    /// Apply child moves across windows
+    private func applyChildMoves(
+        _ moves: [ChildMove],
         in windows: inout [DockWindow],
         targetLayout: DockLayout
     ) {
         // Group moves by source window to batch removals
-        let movesBySource = Dictionary(grouping: moves.filter { $0.fromWindowId != nil }) {
-            $0.fromWindowId!
+        let movesBySource = Dictionary(grouping: moves.filter { $0.fromRootPanelId != nil }) {
+            $0.fromRootPanelId!
         }
 
-        // Track tabs we need to insert
-        var tabsToInsert: [(tab: DockTab, move: TabMove)] = []
+        // Track children we need to insert
+        var childrenToInsert: [(child: Panel, dockablePanel: (any DockablePanel)?, move: ChildMove)] = []
 
-        // Phase 1: Remove tabs from sources and collect for insertion
-        for (sourceWindowId, windowMoves) in movesBySource {
-            guard let sourceWindow = windows.first(where: { $0.windowId == sourceWindowId }) else {
+        // Phase 1: Remove children from sources and collect for insertion
+        for (sourceRootPanelId, windowMoves) in movesBySource {
+            guard let sourceWindow = windows.first(where: { $0.windowId == sourceRootPanelId }) else {
                 continue
             }
 
             for move in windowMoves {
                 guard let sourceGroupId = move.fromGroupId else { continue }
 
-                // Find and remove the tab
-                if let (tab, _) = findAndRemoveTab(
-                    withId: move.tabId,
+                // Find and remove the child
+                if let result = findAndRemoveChild(
+                    withId: move.childId,
                     fromGroupId: sourceGroupId,
                     in: sourceWindow
                 ) {
-                    tabsToInsert.append((tab, move))
+                    childrenToInsert.append((result.child, result.dockablePanel, move))
                 }
             }
         }
 
-        // Phase 2: Insert tabs at destinations
-        for (tab, move) in tabsToInsert {
-            guard let targetWindow = windows.first(where: { $0.windowId == move.toWindowId }) else {
+        // Phase 2: Insert children at destinations
+        for (child, dockablePanel, move) in childrenToInsert {
+            guard let targetWindow = windows.first(where: { $0.windowId == move.toRootPanelId }) else {
                 continue
             }
 
-            insertTab(tab, toGroupId: move.toGroupId, at: move.toIndex, in: targetWindow)
+            insertChild(child, dockablePanel: dockablePanel, toGroupId: move.toGroupId, at: move.toIndex, in: targetWindow)
         }
     }
 
-    /// Find and remove a tab from a window, returning the tab and its panel
-    private func findAndRemoveTab(
-        withId tabId: UUID,
+    /// Find and remove a child from a window, returning the child panel and its DockablePanel
+    private func findAndRemoveChild(
+        withId childId: UUID,
         fromGroupId groupId: UUID,
         in window: DockWindow
-    ) -> (tab: DockTab, panel: (any DockablePanel)?)? {
+    ) -> (child: Panel, dockablePanel: (any DockablePanel)?)? {
         guard let tabGroupVC = findTabGroupController(withId: groupId, in: window.rootViewController) else {
             return nil
         }
 
-        guard let index = tabGroupVC.tabGroupNode.tabs.firstIndex(where: { $0.id == tabId }) else {
+        let tabChildren = tabGroupVC.group?.children ?? []
+        guard let index = tabChildren.firstIndex(where: { $0.id == childId }) else {
             return nil
         }
 
-        let tab = tabGroupVC.tabGroupNode.tabs[index]
+        let child = tabChildren[index]
 
         // Notify panel will detach
-        if let panel = tab.panel {
-            panelWillDetach?(panel)
+        if let dockablePanel = panelProvider?(childId) {
+            panelWillDetach?(dockablePanel)
         }
 
-        // Remove from view controller - use the existing public method
+        // Remove from view controller
         _ = tabGroupVC.removeTab(at: index)
 
-        return (tab, tab.panel)
+        return (child, panelProvider?(childId))
     }
 
-    /// Insert a tab into a target group
-    private func insertTab(
-        _ tab: DockTab,
+    /// Insert a child into a target group
+    private func insertChild(
+        _ child: Panel,
+        dockablePanel: (any DockablePanel)?,
         toGroupId groupId: UUID,
         at index: Int,
         in window: DockWindow
@@ -418,19 +448,20 @@ public class DockLayoutReconciler {
             return
         }
 
-        // Check if tab already exists in target group (can happen when split mutation already added it)
-        if tabGroupVC.tabGroupNode.tabs.contains(where: { $0.id == tab.id }) {
+        // Check if child already exists in target group (can happen when split mutation already added it)
+        let existingChildren = tabGroupVC.group?.children ?? []
+        if existingChildren.contains(where: { $0.id == child.id }) {
             if verboseLogging {
-                print("[RECONCILER] Tab \(tab.id.uuidString.prefix(8)) already in target group, skipping insert")
+                print("[RECONCILER] Child \(child.id.uuidString.prefix(8)) already in target group, skipping insert")
             }
             return
         }
 
-        tabGroupVC.insertDockTab(tab, at: index, activate: false)
+        tabGroupVC.insertChildPanel(child, at: index, dockablePanel: dockablePanel, activate: false)
 
         // Notify panel did dock
-        if let panel = tab.panel {
-            panelDidDock?(panel)
+        if let dockablePanel = dockablePanel ?? panelProvider?(child.id) {
+            panelDidDock?(dockablePanel)
         }
     }
 
@@ -438,126 +469,92 @@ public class DockLayoutReconciler {
 
     /// Notify panels that will be detached
     private func notifyPanelsWillDetach(for diff: DockLayoutDiff, in windows: [DockWindow]) {
-        for move in diff.movedTabs {
-            guard let sourceWindowId = move.fromWindowId,
-                  let sourceWindow = windows.first(where: { $0.windowId == sourceWindowId }),
+        for move in diff.movedChildren {
+            guard let sourceRootPanelId = move.fromRootPanelId,
+                  let sourceWindow = windows.first(where: { $0.windowId == sourceRootPanelId }),
                   let groupId = move.fromGroupId,
                   let tabGroupVC = findTabGroupController(withId: groupId, in: sourceWindow.rootViewController),
-                  let tab = tabGroupVC.tabGroupNode.tabs.first(where: { $0.id == move.tabId }),
-                  let panel = tab.panel else {
+                  (tabGroupVC.group?.children ?? []).contains(where: { $0.id == move.childId }),
+                  let dockablePanel = panelProvider?(move.childId) else {
                 continue
             }
 
-            panelWillDetach?(panel)
+            panelWillDetach?(dockablePanel)
         }
     }
 
     /// Notify panels that were docked
     private func notifyPanelsDidDock(for diff: DockLayoutDiff, in windows: [DockWindow]) {
-        for move in diff.movedTabs {
-            guard let targetWindow = windows.first(where: { $0.windowId == move.toWindowId }),
+        for move in diff.movedChildren {
+            guard let targetWindow = windows.first(where: { $0.windowId == move.toRootPanelId }),
                   let tabGroupVC = findTabGroupController(withId: move.toGroupId, in: targetWindow.rootViewController),
-                  let tab = tabGroupVC.tabGroupNode.tabs.first(where: { $0.id == move.tabId }),
-                  let panel = tab.panel else {
+                  (tabGroupVC.group?.children ?? []).contains(where: { $0.id == move.childId }),
+                  let dockablePanel = panelProvider?(move.childId) else {
                 continue
             }
 
-            panelDidDock?(panel)
+            panelDidDock?(dockablePanel)
         }
     }
 
-    /// Detach all panels from a node tree
-    private func detachAllPanels(from node: DockNode) {
-        switch node {
-        case .tabGroup(let tabGroup):
-            for tab in tabGroup.tabs {
-                if let panel = tab.panel {
-                    panelWillDetach?(panel)
-                }
+    /// Detach all panels from a panel tree
+    private func detachAllPanels(from panel: Panel) {
+        switch panel.content {
+        case .content:
+            if let dockablePanel = panelProvider?(panel.id) {
+                panelWillDetach?(dockablePanel)
             }
-        case .split(let split):
-            for child in split.children {
+        case .group(let group):
+            for child in group.children {
                 detachAllPanels(from: child)
-            }
-        case .stageHost(let stageHost):
-            for stage in stageHost.stages {
-                let node = DockNode.from(stage.layout)
-                detachAllPanels(from: node)
             }
         }
     }
 
     // MARK: - Helpers
 
-    /// Get node ID from a DockLayoutNode
-    private func nodeIdFromLayoutNode(_ node: DockLayoutNode) -> UUID {
-        switch node {
-        case .split(let n): return n.id
-        case .tabGroup(let n): return n.id
-        case .stageHost(let n): return n.id
-        }
-    }
-
     /// Get node ID from a view controller
     private func nodeIdFromViewController(_ vc: NSViewController) -> UUID {
         if let splitVC = vc as? DockSplitViewController {
             return splitVC.nodeId
         } else if let tabGroupVC = vc as? DockTabGroupViewController {
-            return tabGroupVC.tabGroupNode.id
+            return tabGroupVC.panel.id
+        } else if let stageHostVC = vc as? DockStageHostViewController {
+            return stageHostVC.stagePanel.id
         }
         return UUID() // Fallback - should not happen
     }
 
-    /// Convert DockLayoutNode to DockNode
-    private func convertLayoutNodeToDockNode(_ layoutNode: DockLayoutNode) -> DockNode {
-        switch layoutNode {
-        case .split(let splitLayout):
-            let children = splitLayout.children.map { convertLayoutNodeToDockNode($0) }
-            return .split(SplitNode(
-                id: splitLayout.id,
-                axis: splitLayout.axis,
-                children: children,
-                proportions: splitLayout.proportions
-            ))
-
-        case .tabGroup(let tabGroupLayout):
-            let tabs = tabGroupLayout.tabs.compactMap { tabState -> DockTab? in
-                // Try to get existing panel from provider
-                if let panel = panelProvider?(tabState.id) {
-                    if verboseLogging {
-                        print("[RECONCILER] convertLayoutNodeToDockNode: FOUND panel '\(panel.panelTitle)' for tab \(tabState.id.uuidString.prefix(8))")
-                    }
-                    return DockTab(from: panel, cargo: tabState.cargo)
-                }
-                // Create placeholder tab
+    /// Resolve a target Panel by attaching DockablePanel instances via panelProvider
+    /// This creates a Panel ready for the view hierarchy (with all children resolved)
+    private func resolvePanel(_ targetPanel: Panel) -> Panel {
+        switch targetPanel.content {
+        case .content:
+            // Leaf panel - try to resolve via panelProvider
+            if let dockablePanel = panelProvider?(targetPanel.id) {
                 if verboseLogging {
-                    print("[RECONCILER] convertLayoutNodeToDockNode: panelProvider returned NIL for tab \(tabState.id.uuidString.prefix(8)) - creating placeholder")
+                    print("[RECONCILER] resolvePanel: FOUND panel '\(dockablePanel.panelTitle)' for \(targetPanel.id.uuidString.prefix(8))")
                 }
-                return DockTab(
-                    id: tabState.id,
-                    title: tabState.title,
-                    iconName: tabState.iconName,
-                    panel: nil,
-                    cargo: tabState.cargo
-                )
+            } else {
+                if verboseLogging {
+                    print("[RECONCILER] resolvePanel: panelProvider returned NIL for \(targetPanel.id.uuidString.prefix(8)) - creating placeholder")
+                }
             }
+            return targetPanel
 
-            return .tabGroup(TabGroupNode(
-                id: tabGroupLayout.id,
-                tabs: tabs,
-                activeTabIndex: tabGroupLayout.activeTabIndex,
-                displayMode: tabGroupLayout.displayMode
-            ))
-
-        case .stageHost(let stageHostLayout):
-            return .stageHost(StageHostNode(from: stageHostLayout))
+        case .group(var group):
+            // Recursively resolve children
+            group.children = group.children.map { resolvePanel($0) }
+            var resolved = targetPanel
+            resolved.content = .group(group)
+            return resolved
         }
     }
 
     /// Find a tab group controller by ID in the view hierarchy
     private func findTabGroupController(withId id: UUID, in controller: NSViewController?) -> DockTabGroupViewController? {
         if let tabGroup = controller as? DockTabGroupViewController,
-           tabGroup.tabGroupNode.id == id {
+           tabGroup.panel.id == id {
             return tabGroup
         }
 
@@ -572,4 +569,3 @@ public class DockLayoutReconciler {
         return nil
     }
 }
-

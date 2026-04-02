@@ -31,40 +31,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let panel2 = createPanel(title: "Terminal", color: .systemGreen)
         let panel3 = createPanel(title: "Preview", color: .systemPurple)
 
-        // Create stages
-        let stage1 = Stage(
+        // Create content panels (leaf nodes)
+        let contentPanel1 = Panel(id: panel1.panelId, title: panel1.panelTitle, content: .content)
+        let contentPanel2 = Panel(id: panel2.panelId, title: panel2.panelTitle, content: .content)
+        let contentPanel3 = Panel(id: panel3.panelId, title: panel3.panelTitle, content: .content)
+
+        // Create stages (each stage is a Panel with a tabs-style group)
+        let stage1 = Panel(
             title: "Code",
             iconName: "doc.text",
-            layout: .tabGroup(TabGroupLayoutNode(
-                tabs: [
-                    TabLayoutState(id: panel1.panelId, title: panel1.panelTitle),
-                    TabLayoutState(id: panel2.panelId, title: panel2.panelTitle)
-                ],
-                activeTabIndex: 0
+            content: .group(PanelGroup(
+                children: [contentPanel1, contentPanel2],
+                activeIndex: 0,
+                style: .tabs
             ))
         )
 
-        let stage2 = Stage(
+        let stage2 = Panel(
             title: "Design",
             iconName: "paintbrush",
-            layout: .tabGroup(TabGroupLayoutNode(
-                tabs: [TabLayoutState(id: panel3.panelId, title: panel3.panelTitle)],
-                activeTabIndex: 0
+            content: .group(PanelGroup(
+                children: [contentPanel3],
+                activeIndex: 0,
+                style: .tabs
             ))
         )
 
-        // Create window state with custom display mode
-        let state = StageHostWindowState(
-            frame: CGRect(x: 200, y: 200, width: 800, height: 600),
-            activeStageIndex: 0,
-            stages: [stage1, stage2],
-            displayMode: .custom
+        // Create the root panel (stages-style group, top-level window)
+        let windowFrame = CGRect(x: 200, y: 200, width: 800, height: 600)
+        let rootPanel = Panel(
+            content: .group(PanelGroup(
+                children: [stage1, stage2],
+                activeIndex: 0,
+                style: .stages
+            )),
+            isTopLevelWindow: true,
+            frame: windowFrame
         )
 
         // Create dock window
         dockWindow = DockStageHostWindow(
-            stageHostState: state,
-            frame: state.frame,
+            panel: rootPanel,
+            frame: windowFrame,
             panelProvider: { [weak self] id in
                 self?.panels[id]
             }
@@ -98,8 +106,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create control bar
         controlBar = ModeControlBar()
         controlBar?.translatesAutoresizingMaskIntoConstraints = false
-        controlBar?.onDisplayModeChanged = { [weak self] mode in
-            self?.dockWindow?.displayMode = mode
+        controlBar?.onUseCustomRenderer = { [weak self] useCustom in
+            guard let self = self else { return }
+            if useCustom {
+                DockKit.customTabRenderer = self.wireframeTabRenderer
+                DockKit.customStageRenderer = self.wireframeStageRenderer
+            } else {
+                DockKit.customTabRenderer = nil
+                DockKit.customStageRenderer = nil
+            }
+            // Force refresh by toggling group style
+            let current = self.dockWindow?.groupStyle ?? .stages
+            self.dockWindow?.groupStyle = .tabs
+            self.dockWindow?.groupStyle = current
         }
         controlBar?.onRendererStyleChanged = { [weak self] style in
             guard let self = self else { return }
@@ -111,11 +130,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 DockKit.customTabRenderer = self.polishedTabRenderer
                 DockKit.customStageRenderer = self.polishedStageRenderer
             }
-            // Force refresh if already in custom mode
-            if self.dockWindow?.displayMode == .custom {
-                self.dockWindow?.displayMode = .tabs
-                self.dockWindow?.displayMode = .custom
-            }
+            // Force refresh by toggling group style
+            let current = self.dockWindow?.groupStyle ?? .stages
+            self.dockWindow?.groupStyle = .tabs
+            self.dockWindow?.groupStyle = current
         }
         containerView.addSubview(controlBar!)
 
@@ -170,7 +188,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 class ModeControlBar: NSView {
 
-    var onDisplayModeChanged: ((StageDisplayMode) -> Void)?
+    var onUseCustomRenderer: ((Bool) -> Void)?
     var onRendererStyleChanged: ((CustomRendererStyle) -> Void)?
 
     private var displayModeControl: NSSegmentedControl!
@@ -259,13 +277,8 @@ class ModeControlBar: NSView {
     }
 
     @objc private func displayModeChanged(_ sender: NSSegmentedControl) {
-        let mode: StageDisplayMode
-        switch sender.selectedSegment {
-        case 0: mode = .tabs      // Standard tabs
-        case 1: mode = .custom    // Custom renderer
-        default: mode = .tabs
-        }
-        onDisplayModeChanged?(mode)
+        let useCustom = sender.selectedSegment == 1
+        onUseCustomRenderer?(useCustom)
     }
 
     @objc private func rendererStyleChanged(_ sender: NSSegmentedControl) {

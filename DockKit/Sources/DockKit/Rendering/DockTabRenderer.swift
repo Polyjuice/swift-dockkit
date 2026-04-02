@@ -11,14 +11,14 @@ import AppKit
 /// class MyTabRenderer: DockTabRenderer {
 ///     var tabBarHeight: CGFloat { 36 }
 ///
-///     func createTabView(for tab: DockTab, isSelected: Bool) -> DockTabView {
+///     func createTabView(for panel: Panel, isSelected: Bool) -> DockTabView {
 ///         let view = MyCustomTabView()
-///         view.configure(tab: tab, isSelected: isSelected)
+///         view.configure(panel: panel, isSelected: isSelected)
 ///         return view
 ///     }
 ///
-///     func updateTabView(_ view: DockTabView, for tab: DockTab, isSelected: Bool) {
-///         (view as? MyCustomTabView)?.configure(tab: tab, isSelected: isSelected)
+///     func updateTabView(_ view: DockTabView, for panel: Panel, isSelected: Bool) {
+///         (view as? MyCustomTabView)?.configure(panel: panel, isSelected: isSelected)
 ///     }
 ///
 ///     func setFocused(_ focused: Bool, on view: DockTabView) {
@@ -34,18 +34,18 @@ public protocol DockTabRenderer: AnyObject {
     /// Create a view for a single tab
     ///
     /// - Parameters:
-    ///   - tab: The tab data to display
+    ///   - panel: The panel data to display (a Panel with content: .content)
     ///   - isSelected: Whether this tab is currently selected
     /// - Returns: A view conforming to DockTabView protocol
-    func createTabView(for tab: DockTab, isSelected: Bool) -> DockTabView
+    func createTabView(for panel: Panel, isSelected: Bool) -> DockTabView
 
     /// Update an existing tab view with new data
     ///
     /// - Parameters:
     ///   - view: The view to update (previously created by createTabView)
-    ///   - tab: The updated tab data
+    ///   - panel: The updated panel data
     ///   - isSelected: Whether this tab is currently selected
-    func updateTabView(_ view: DockTabView, for tab: DockTab, isSelected: Bool)
+    func updateTabView(_ view: DockTabView, for panel: Panel, isSelected: Bool)
 
     /// Set focus state on a tab view
     ///

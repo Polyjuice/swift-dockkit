@@ -41,15 +41,14 @@ public class DockLayoutManager: DockWindowDelegate {
     /// Get current layout as JSON-serializable struct
     /// Contains ALL windows and their layout trees
     public func getLayout() -> DockLayout {
-        let windowStates = windows.map { window -> WindowState in
-            WindowState(
-                id: window.windowId,
-                frame: window.frame,
-                isFullScreen: window.styleMask.contains(.fullScreen),
-                rootNode: DockLayoutNode.from(window.rootNode)
-            )
+        let rootPanels = windows.map { window -> Panel in
+            var panel = window.rootPanel
+            panel.isTopLevelWindow = true
+            panel.frame = window.frame
+            panel.isFullScreen = window.styleMask.contains(.fullScreen)
+            return panel
         }
-        return DockLayout(windows: windowStates)
+        return DockLayout(panels: rootPanels)
     }
 
     /// Compute reconciliation commands between current and target layout
@@ -112,11 +111,11 @@ public class DockLayoutManager: DockWindowDelegate {
             currentWindows: windows,
             targetLayout: layout,
             diff: diff,
-            windowFactory: { [weak self] windowState in
-                self?.createWindowFromState(windowState) ?? DockWindow(
-                    id: windowState.id,
-                    rootNode: .tabGroup(TabGroupNode()),
-                    frame: windowState.frame,
+            windowFactory: { [weak self] windowPanel in
+                self?.createWindowFromPanel(windowPanel) ?? DockWindow(
+                    id: windowPanel.id,
+                    rootPanel: Panel(content: .group(PanelGroup(style: .tabs))),
+                    frame: windowPanel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600),
                     layoutManager: nil
                 )
             }
@@ -149,18 +148,18 @@ public class DockLayoutManager: DockWindowDelegate {
         }
     }
 
-    /// Create a window from a WindowState (used by reconciler)
-    private func createWindowFromState(_ state: WindowState) -> DockWindow {
-        let rootNode = restoreNode(from: state.rootNode)
+    /// Create a window from a Panel (used by reconciler)
+    private func createWindowFromPanel(_ panel: Panel) -> DockWindow {
         let window = DockWindow(
-            id: state.id,
-            rootNode: rootNode,
-            frame: state.frame,
+            id: panel.id,
+            rootPanel: panel,
+            frame: panel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600),
             layoutManager: self
         )
         window.dockDelegate = self
+        window.panelProvider = { [weak self] id in self?.panelProvider?(id) }
 
-        if state.isFullScreen && !window.styleMask.contains(.fullScreen) {
+        if panel.isFullScreen == true && !window.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
         }
 
@@ -183,16 +182,17 @@ public class DockLayoutManager: DockWindowDelegate {
     /// Create a new window with the given layout
     @discardableResult
     public func createWindow(
-        rootNode: DockNode = .tabGroup(TabGroupNode()),
+        rootPanel: Panel = Panel(content: .group(PanelGroup(style: .tabs))),
         frame: NSRect = NSRect(x: 100, y: 100, width: 800, height: 600)
     ) -> DockWindow {
         let window = DockWindow(
             id: UUID(),
-            rootNode: rootNode,
+            rootPanel: rootPanel,
             frame: frame,
             layoutManager: self
         )
         window.dockDelegate = self
+        window.panelProvider = { [weak self] id in self?.panelProvider?(id) }
         windows.append(window)
         window.makeKeyAndOrderFront(nil)
         return window
@@ -254,9 +254,19 @@ public class DockLayoutManager: DockWindowDelegate {
         }
 
         guard let window = targetWindow else {
-            // No windows exist - create one
-            let tabGroup = TabGroupNode(tabs: [DockTab(from: panel)])
-            createWindow(rootNode: .tabGroup(tabGroup))
+            // No windows exist - create one with this panel as content
+            let contentPanel = Panel.contentPanel(
+                id: panel.panelId,
+                title: panel.panelTitle
+            )
+            let rootPanel = Panel(
+                content: .group(PanelGroup(
+                    children: [contentPanel],
+                    activeIndex: 0,
+                    style: .tabs
+                ))
+            )
+            createWindow(rootPanel: rootPanel)
             return
         }
 
@@ -281,7 +291,17 @@ public class DockLayoutManager: DockWindowDelegate {
     public func detachPanel(_ panel: any DockablePanel, at screenPoint: NSPoint) -> DockWindow {
         panel.panelWillDetach()
 
-        let tabGroup = TabGroupNode(tabs: [DockTab(from: panel)])
+        let contentPanel = Panel.contentPanel(
+            id: panel.panelId,
+            title: panel.panelTitle
+        )
+        let rootPanel = Panel(
+            content: .group(PanelGroup(
+                children: [contentPanel],
+                activeIndex: 0,
+                style: .tabs
+            ))
+        )
         let frame = NSRect(
             x: screenPoint.x - 300,
             y: screenPoint.y - 200,
@@ -291,11 +311,12 @@ public class DockLayoutManager: DockWindowDelegate {
 
         let window = DockWindow(
             id: UUID(),
-            rootNode: .tabGroup(tabGroup),
+            rootPanel: rootPanel,
             frame: frame,
             layoutManager: self
         )
         window.dockDelegate = self
+        window.panelProvider = { [weak self] id in self?.panelProvider?(id) }
         windows.append(window)
         window.makeKeyAndOrderFront(nil)
 
@@ -315,64 +336,23 @@ public class DockLayoutManager: DockWindowDelegate {
         windows.removeAll()
 
         // Create windows from layout
-        for windowState in layout.windows {
-            let rootNode = restoreNode(from: windowState.rootNode)
+        for panel in layout.panels {
             let window = DockWindow(
-                id: windowState.id,
-                rootNode: rootNode,
-                frame: windowState.frame,
+                id: panel.id,
+                rootPanel: panel,
+                frame: panel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600),
                 layoutManager: self
             )
             window.dockDelegate = self
+            window.panelProvider = { [weak self] id in self?.panelProvider?(id) }
             windows.append(window)
 
             // Handle full-screen state
-            if windowState.isFullScreen && !window.styleMask.contains(.fullScreen) {
+            if panel.isFullScreen == true && !window.styleMask.contains(.fullScreen) {
                 window.toggleFullScreen(nil)
             }
 
             window.makeKeyAndOrderFront(nil)
-        }
-    }
-
-    /// Restore a DockNode from a layout node
-    private func restoreNode(from layoutNode: DockLayoutNode) -> DockNode {
-        switch layoutNode {
-        case .split(let splitLayout):
-            let children = splitLayout.children.map { restoreNode(from: $0) }
-            let splitNode = SplitNode(
-                id: splitLayout.id,
-                axis: splitLayout.axis,
-                children: children,
-                proportions: splitLayout.proportions
-            )
-            return .split(splitNode)
-
-        case .tabGroup(let tabGroupLayout):
-            var tabs: [DockTab] = []
-            for tabState in tabGroupLayout.tabs {
-                // Try to get panel from provider
-                if let panel = panelProvider?(tabState.id) {
-                    tabs.append(DockTab(from: panel, cargo: tabState.cargo))
-                } else {
-                    // Create placeholder tab (panel not yet registered)
-                    tabs.append(DockTab(
-                        id: tabState.id,
-                        title: tabState.title,
-                        iconName: tabState.iconName,
-                        cargo: tabState.cargo
-                    ))
-                }
-            }
-            return .tabGroup(TabGroupNode(
-                id: tabGroupLayout.id,
-                tabs: tabs,
-                activeTabIndex: tabGroupLayout.activeTabIndex,
-                displayMode: tabGroupLayout.displayMode
-            ))
-
-        case .stageHost(let stageHostLayout):
-            return .stageHost(StageHostNode(from: stageHostLayout))
         }
     }
 
@@ -421,43 +401,46 @@ extension DockLayoutManager {
     }
 
     public func dockWindow(_ window: DockWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
-        // Get current layout and compute new layout with tab moved
+        // Get current layout and compute new layout with child moved
         let currentLayout = getLayout()
-        let targetGroupId = tabGroup.tabGroupNode.id
+        let targetGroupId = tabGroup.panel.id
 
-        // Use layout mutation API to move the tab
-        let newLayout = currentLayout.movingTab(tabInfo.tabId, toGroupId: targetGroupId, at: index)
+        // Use layout mutation API to move the child
+        let newLayout = currentLayout.movingChild(tabInfo.tabId, toGroupId: targetGroupId, at: index)
 
         // Apply the new layout
         updateLayout(newLayout)
     }
 
-    public func dockWindow(_ window: DockWindow, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {
+    public func dockWindow(_ window: DockWindow, wantsToDetachPanelId panelId: UUID, at screenPoint: NSPoint) {
         // Remove from current location
-        removePanel(panel.panelId)
+        removePanel(panelId)
 
-        // Create new floating window via delegate (host app creates new window)
-        delegate?.layoutManager(self, wantsToDetachPanel: panel, at: screenPoint)
+        // Look up the dockable panel and notify delegate (host app creates new window)
+        if let panel = panelProvider?(panelId) {
+            delegate?.layoutManager(self, wantsToDetachPanel: panel, at: screenPoint)
+        }
     }
 
-    public func dockWindow(_ window: DockWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
+    public func dockWindow(_ window: DockWindow, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {
         // Get current layout
         let currentLayout = getLayout()
-        let targetGroupId = tabGroup.tabGroupNode.id
+        let targetGroupId = tabGroup.panel.id
 
-        // Create TabLayoutState from DockTab
-        let tabState = TabLayoutState(
-            id: tab.id,
-            title: tab.title,
-            iconName: tab.iconName,
-            cargo: tab.cargo
-        )
+        // Find the panel info from the layout tree to build the child panel
+        let childPanel: Panel
+        if let info = currentLayout.findChild(panelId) {
+            childPanel = info.panel
+        } else {
+            // Fallback: create a content panel with just the ID
+            childPanel = Panel.contentPanel(id: panelId, title: "Untitled")
+        }
 
         // Use layout mutation API to perform the split
         let newLayout = currentLayout.splitting(
             groupId: targetGroupId,
             direction: direction,
-            withTab: tabState
+            withChild: childPanel
         )
 
         // Apply the new layout
@@ -469,7 +452,7 @@ extension DockLayoutManager {
 
 /// Represents a mismatch between expected layout and actual view state
 public struct LayoutMismatch {
-    /// Path to the mismatched element (e.g., "windows[0].rootNode.children[1].tabs[0]")
+    /// Path to the mismatched element (e.g., "panels[0].group.children[1].children[0]")
     public let path: String
 
     /// What the layout JSON expected

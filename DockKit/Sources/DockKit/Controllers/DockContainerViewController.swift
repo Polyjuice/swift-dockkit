@@ -4,13 +4,13 @@ import AppKit
 /// This is the root view controller for the docking system
 open class DockContainerViewController: NSViewController {
 
-    /// The root dock node
-    public private(set) var rootNode: DockNode
+    /// The root panel (a group panel containing the layout tree)
+    public private(set) var rootPanel: Panel
 
     /// Floating windows
     private var floatingWindows: [UUID: DockWindow] = [:]
 
-    /// Panel registry (maps panel IDs to panels)
+    /// Panel registry (maps panel IDs to dockable panels)
     private var panelRegistry: [UUID: any DockablePanel] = [:]
 
     /// Root view controller (either split or tab group)
@@ -24,14 +24,18 @@ open class DockContainerViewController: NSViewController {
 
     // MARK: - Initialization
 
-    public init(rootNode: DockNode? = nil) {
-        // Default to an empty tab group
-        self.rootNode = rootNode ?? .tabGroup(TabGroupNode())
+    public init(rootPanel: Panel? = nil) {
+        // Default to an empty tab-style group
+        self.rootPanel = rootPanel ?? Panel(
+            content: .group(PanelGroup(style: .tabs))
+        )
         super.init(nibName: nil, bundle: nil)
     }
 
     public required init?(coder: NSCoder) {
-        self.rootNode = .tabGroup(TabGroupNode())
+        self.rootPanel = Panel(
+            content: .group(PanelGroup(style: .tabs))
+        )
         super.init(coder: coder)
     }
 
@@ -50,7 +54,7 @@ open class DockContainerViewController: NSViewController {
 
     // MARK: - Layout Building
 
-    /// Rebuild the entire layout from the root node
+    /// Rebuild the entire layout from the root panel
     public func rebuildLayout() {
         // Remove existing root
         rootViewController?.view.removeFromSuperview()
@@ -58,7 +62,7 @@ open class DockContainerViewController: NSViewController {
         rootViewController = nil
 
         // Build new root
-        rootViewController = createViewController(for: rootNode)
+        rootViewController = createViewController(for: rootPanel)
 
         if let rootVC = rootViewController {
             addChild(rootVC)
@@ -74,42 +78,51 @@ open class DockContainerViewController: NSViewController {
         }
     }
 
-    /// Create view controller for a dock node
-    private func createViewController(for node: DockNode) -> NSViewController {
-        switch node {
-        case .split(let splitNode):
-            let splitVC = DockSplitViewController(splitNode: splitNode)
-            splitVC.dockDelegate = self
-            splitVC.tabGroupDelegate = self  // Set tab group delegate for children
-            return splitVC
-
-        case .tabGroup(let tabGroupNode):
-            let tabGroupVC = DockTabGroupViewController(tabGroupNode: tabGroupNode)
+    /// Create view controller for a panel
+    private func createViewController(for panel: Panel) -> NSViewController {
+        switch panel.content {
+        case .content:
+            // Leaf content panel — wrap in a single-child tab group for display
+            let wrapperPanel = Panel(
+                content: .group(PanelGroup(
+                    children: [panel],
+                    activeIndex: 0,
+                    style: .tabs
+                ))
+            )
+            let tabGroupVC = DockTabGroupViewController(panel: wrapperPanel)
+            tabGroupVC.panelProvider = { [weak self] id in self?.panelRegistry[id] }
             tabGroupVC.delegate = self
             return tabGroupVC
 
-        case .stageHost(let stageHostNode):
-            // Create a nested stage host view controller (Version 3 feature)
-            let layoutNode = StageHostLayoutNode(
-                id: stageHostNode.id,
-                title: stageHostNode.title,
-                iconName: stageHostNode.iconName,
-                activeStageIndex: stageHostNode.activeStageIndex,
-                stages: stageHostNode.stages,
-                displayMode: stageHostNode.displayMode
-            )
-            let hostVC = DockStageHostViewController(
-                layoutNode: layoutNode,
-                panelProvider: { [weak self] id in
+        case .group(let group):
+            switch group.style {
+            case .split:
+                let splitVC = DockSplitViewController(panel: panel)
+                splitVC.dockDelegate = self
+                splitVC.tabGroupDelegate = self
+                splitVC.panelProvider = { [weak self] id in
                     self?.panelRegistry[id]
                 }
-            )
-            return hostVC
+                return splitVC
+
+            case .tabs, .thumbnails:
+                let tabGroupVC = DockTabGroupViewController(panel: panel)
+                tabGroupVC.panelProvider = { [weak self] id in self?.panelRegistry[id] }
+                tabGroupVC.delegate = self
+                return tabGroupVC
+
+            case .stages:
+                let hostVC = DockStageHostViewController(
+                    panel: panel,
+                    panelProvider: { [weak self] id in
+                        self?.panelRegistry[id]
+                    }
+                )
+                return hostVC
+            }
         }
     }
-
-    // Note: Delegates are now set in createViewController methods, not here.
-    // Split view children get their delegates set when created by DockSplitViewController.
 
     // MARK: - Panel Management
 
@@ -118,17 +131,26 @@ open class DockContainerViewController: NSViewController {
         // Register the panel
         panelRegistry[panel.panelId] = panel
 
-        // Find target tab group
+        // Find target group
         if let targetGroupId = groupId,
-           let tabGroup = findTabGroup(withId: targetGroupId) {
+           let tabGroup = findTabGroupController(withId: targetGroupId) {
             tabGroup.addTab(from: panel, activate: activate)
-        } else if let firstTabGroup = findFirstTabGroup() {
+        } else if let firstTabGroup = findFirstTabGroupController() {
             // Add to first available tab group
             firstTabGroup.addTab(from: panel, activate: activate)
         } else {
             // Create a new tab group for this panel
-            let tabGroupNode = TabGroupNode(tabs: [DockTab(from: panel)])
-            rootNode = .tabGroup(tabGroupNode)
+            let contentPanel = Panel.contentPanel(
+                id: panel.panelId,
+                title: panel.panelTitle
+            )
+            rootPanel = Panel(
+                content: .group(PanelGroup(
+                    children: [contentPanel],
+                    activeIndex: 0,
+                    style: .tabs
+                ))
+            )
             rebuildLayout()
         }
     }
@@ -137,25 +159,25 @@ open class DockContainerViewController: NSViewController {
     public func removePanel(_ panelId: UUID) {
         panelRegistry.removeValue(forKey: panelId)
 
-        // Find and remove from tab groups
-        removeTab(withId: panelId, from: &rootNode)
+        // Find and remove from tree
+        removeChild(withId: panelId, from: &rootPanel)
         rebuildLayout()
     }
 
-    /// Find a tab group by ID
-    public func findTabGroup(withId id: UUID) -> DockTabGroupViewController? {
-        return findTabGroupController(withId: id, in: rootViewController)
+    /// Find a tab group controller by ID
+    public func findTabGroupController(withId id: UUID) -> DockTabGroupViewController? {
+        return findTabGroupControllerImpl(withId: id, in: rootViewController)
     }
 
-    private func findTabGroupController(withId id: UUID, in controller: NSViewController?) -> DockTabGroupViewController? {
+    private func findTabGroupControllerImpl(withId id: UUID, in controller: NSViewController?) -> DockTabGroupViewController? {
         if let tabGroup = controller as? DockTabGroupViewController,
-           tabGroup.tabGroupNode.id == id {
+           tabGroup.panel.id == id {
             return tabGroup
         }
 
         if let splitVC = controller as? DockSplitViewController {
             for item in splitVC.splitViewItems {
-                if let found = findTabGroupController(withId: id, in: item.viewController) {
+                if let found = findTabGroupControllerImpl(withId: id, in: item.viewController) {
                     return found
                 }
             }
@@ -164,19 +186,19 @@ open class DockContainerViewController: NSViewController {
         return nil
     }
 
-    /// Find the first tab group in the hierarchy
-    private func findFirstTabGroup() -> DockTabGroupViewController? {
-        return findFirstTabGroupController(in: rootViewController)
+    /// Find the first tab group controller in the hierarchy
+    private func findFirstTabGroupController() -> DockTabGroupViewController? {
+        return findFirstTabGroupControllerImpl(in: rootViewController)
     }
 
-    private func findFirstTabGroupController(in controller: NSViewController?) -> DockTabGroupViewController? {
+    private func findFirstTabGroupControllerImpl(in controller: NSViewController?) -> DockTabGroupViewController? {
         if let tabGroup = controller as? DockTabGroupViewController {
             return tabGroup
         }
 
         if let splitVC = controller as? DockSplitViewController {
             for item in splitVC.splitViewItems {
-                if let found = findFirstTabGroupController(in: item.viewController) {
+                if let found = findFirstTabGroupControllerImpl(in: item.viewController) {
                     return found
                 }
             }
@@ -207,43 +229,54 @@ open class DockContainerViewController: NSViewController {
         }
     }
 
-    // MARK: - Node Manipulation
+    // MARK: - Panel Tree Manipulation
 
-    /// Remove a tab from the node tree
-    private func removeTab(withId tabId: UUID, from node: inout DockNode) {
-        switch node {
-        case .tabGroup(var tabGroupNode):
-            tabGroupNode.removeTab(withId: tabId)
-            node = .tabGroup(tabGroupNode)
-
-        case .split(var splitNode):
-            for i in 0..<splitNode.children.count {
-                removeTab(withId: tabId, from: &splitNode.children[i])
-            }
-            // Clean up empty children
-            splitNode.children.removeAll { child in
-                if case .tabGroup(let tg) = child, tg.tabs.isEmpty {
-                    return true
-                }
-                return false
-            }
-            // If only one child remains, promote it
-            if splitNode.children.count == 1 {
-                node = splitNode.children[0]
-            } else {
-                node = .split(splitNode)
-            }
-
-        case .stageHost:
-            // Stage hosts manage their own tabs internally
+    /// Remove a child panel from the panel tree
+    private func removeChild(withId childId: UUID, from panel: inout Panel) {
+        switch panel.content {
+        case .content:
+            // Leaf — nothing to remove from
             break
+
+        case .group(var group):
+            switch group.style {
+            case .tabs, .thumbnails:
+                group.children.removeAll { $0.id == childId }
+                if group.activeIndex >= group.children.count {
+                    group.activeIndex = max(0, group.children.count - 1)
+                }
+                group.recalculateProportions()
+                panel.content = .group(group)
+
+            case .split:
+                for i in 0..<group.children.count {
+                    removeChild(withId: childId, from: &group.children[i])
+                }
+                // Clean up empty children
+                group.children.removeAll { child in
+                    if case .group(let g) = child.content, g.children.isEmpty {
+                        return true
+                    }
+                    return child.isContent == false && child.isEmpty
+                }
+                // If only one child remains, promote it
+                if group.children.count == 1 {
+                    panel = group.children[0]
+                } else {
+                    group.recalculateProportions()
+                    panel.content = .group(group)
+                }
+
+            case .stages:
+                // Stage hosts manage their own children internally
+                break
+            }
         }
     }
 
     // MARK: - Drag Observers
 
     private func setupDragObservers() {
-        // Register for drag notifications to show/hide global drop overlay
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleDragBegan(_:)),
@@ -270,7 +303,6 @@ open class DockContainerViewController: NSViewController {
     }
 
     private func showDropOverlays(_ show: Bool) {
-        // Show drop overlays on all tab groups
         showDropOverlaysRecursively(in: rootViewController, show: show)
     }
 
@@ -290,30 +322,25 @@ open class DockContainerViewController: NSViewController {
 
     /// Save the current layout
     public func saveLayout() {
-        // Build windows array: main window content + floating windows
-        var windowStates: [WindowState] = []
+        var rootPanels: [Panel] = []
 
-        // Main window content (index 0 is treated as main for backward compatibility)
-        let mainWindowState = WindowState(
-            id: UUID(),
-            frame: view.window?.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600),
-            isFullScreen: view.window?.styleMask.contains(.fullScreen) ?? false,
-            rootNode: DockLayoutNode.from(rootNode)
-        )
-        windowStates.append(mainWindowState)
+        // Main window content
+        var mainPanel = rootPanel
+        mainPanel.isTopLevelWindow = true
+        mainPanel.frame = view.window?.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600)
+        mainPanel.isFullScreen = view.window?.styleMask.contains(.fullScreen) ?? false
+        rootPanels.append(mainPanel)
 
         // Floating windows
         for window in floatingWindows.values {
-            let windowState = WindowState(
-                id: window.windowId,
-                frame: window.frame,
-                isFullScreen: window.styleMask.contains(.fullScreen),
-                rootNode: DockLayoutNode.from(window.rootNode)
-            )
-            windowStates.append(windowState)
+            var windowPanel = window.rootPanel
+            windowPanel.isTopLevelWindow = true
+            windowPanel.frame = window.frame
+            windowPanel.isFullScreen = window.styleMask.contains(.fullScreen)
+            rootPanels.append(windowPanel)
         }
 
-        let layout = DockLayout(windows: windowStates)
+        let layout = DockLayout(panels: rootPanels)
         layout.save()
     }
 
@@ -325,27 +352,27 @@ open class DockContainerViewController: NSViewController {
         }
         floatingWindows.removeAll()
 
-        guard !layout.windows.isEmpty else { return }
+        guard !layout.panels.isEmpty else { return }
 
-        // First window is treated as main content
-        let mainWindowState = layout.windows[0]
-        rootNode = restoreNode(from: mainWindowState.rootNode)
+        // First panel is treated as main content
+        let mainPanel = layout.panels[0]
+        rootPanel = restorePanel(mainPanel)
         rebuildLayout()
 
-        // Remaining windows become floating windows
-        for windowState in layout.windows.dropFirst() {
-            let restoredNode = restoreNode(from: windowState.rootNode)
+        // Remaining panels become floating windows
+        for windowPanel in layout.panels.dropFirst() {
+            let restoredPanel = restorePanel(windowPanel)
             let window = DockWindow(
-                id: windowState.id,
-                rootNode: restoredNode,
-                frame: windowState.frame,
+                id: windowPanel.id,
+                rootPanel: restoredPanel,
+                frame: windowPanel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600),
                 layoutManager: nil
             )
             window.dockDelegate = self
             floatingWindows[window.windowId] = window
 
             // Handle full-screen state
-            if windowState.isFullScreen && !window.styleMask.contains(.fullScreen) {
+            if windowPanel.isFullScreen == true && !window.styleMask.contains(.fullScreen) {
                 window.toggleFullScreen(nil)
             }
 
@@ -353,107 +380,83 @@ open class DockContainerViewController: NSViewController {
         }
     }
 
-    private func restoreNode(from layoutNode: DockLayoutNode) -> DockNode {
-        switch layoutNode {
-        case .split(let splitLayout):
-            let children = splitLayout.children.map { restoreNode(from: $0) }
-            let splitNode = SplitNode(
-                id: splitLayout.id,
-                axis: splitLayout.axis,
-                children: children,
-                proportions: splitLayout.proportions
-            )
-            return .split(splitNode)
+    /// Restore a panel, resolving any content panels to registered dockable panels
+    private func restorePanel(_ panel: Panel) -> Panel {
+        switch panel.content {
+        case .content:
+            // Leaf content — just return as-is (panelProvider resolves at render time)
+            return panel
 
-        case .tabGroup(let tabGroupLayout):
-            return .tabGroup(restoreTabGroupNode(from: tabGroupLayout))
-
-        case .stageHost(let stageHostLayout):
-            return .stageHost(StageHostNode(from: stageHostLayout))
+        case .group(var group):
+            group.children = group.children.map { restorePanel($0) }
+            var restored = panel
+            restored.content = .group(group)
+            return restored
         }
-    }
-
-    private func restoreTabGroupNode(from layout: TabGroupLayoutNode) -> TabGroupNode {
-        var tabs: [DockTab] = []
-        for tabState in layout.tabs {
-            // Try to find existing panel
-            if let panel = panelRegistry[tabState.id] {
-                tabs.append(DockTab(from: panel))
-            } else {
-                // Create placeholder tab
-                tabs.append(DockTab(
-                    id: tabState.id,
-                    title: tabState.title,
-                    iconName: tabState.iconName
-                ))
-            }
-        }
-        return TabGroupNode(id: layout.id, tabs: tabs, activeTabIndex: layout.activeTabIndex, displayMode: layout.displayMode)
     }
 }
 
 // MARK: - DockTabGroupViewControllerDelegate
 
 extension DockContainerViewController: DockTabGroupViewControllerDelegate {
-    public func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachTab tab: DockTab, at screenPoint: NSPoint) {
-        guard let panel = tab.panel else { return }
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachPanel panelId: UUID, at screenPoint: NSPoint) {
+        guard let panel = panelRegistry[panelId] else { return }
 
         // Remove from current location
-        tabGroup.removeTab(withId: tab.id)
+        _ = tabGroup.removeTab(withId: panelId)
 
         // Create floating window
         detachPanel(panel, at: screenPoint)
     }
 
     public func tabGroup(_ tabGroup: DockTabGroupViewController, didReceiveTab tabInfo: DockTabDragInfo, at index: Int) {
-        // Find the panel from another location
+        // Find the panel from registry
         guard let panel = panelRegistry[tabInfo.tabId] else { return }
 
         // Remove from source (model only - view will be handled by insertTab)
-        removeTab(withId: tabInfo.tabId, from: &rootNode)
+        removeChild(withId: tabInfo.tabId, from: &rootPanel)
 
         // Also close any floating window that might contain this tab
-        closeFloatingWindowContaining(tabId: tabInfo.tabId)
+        closeFloatingWindowContaining(childId: tabInfo.tabId)
 
         // Add to target - this updates both model and view
         tabGroup.insertTab(from: panel, at: index, activate: true)
 
-        // Update the model to reflect the new tab in this group
-        updateTabGroupNodeForController(tabGroup)
+        // Update the model to reflect the new child in this group
+        updateGroupPanelForController(tabGroup)
 
         // Don't call rebuildLayout() here - the view is already updated
         // Just clean up any empty groups
         cleanupEmptyGroups()
     }
 
-    /// Update the model to match the controller's tab group
-    private func updateTabGroupNodeForController(_ tabGroup: DockTabGroupViewController) {
-        updateTabGroupNodeInTree(tabGroup.tabGroupNode, in: &rootNode)
+    /// Update the model to match the controller's group panel
+    private func updateGroupPanelForController(_ tabGroup: DockTabGroupViewController) {
+        updateGroupPanelInTree(tabGroup.panel, in: &rootPanel)
     }
 
-    private func updateTabGroupNodeInTree(_ updatedNode: TabGroupNode, in node: inout DockNode) {
-        switch node {
-        case .tabGroup(var tg):
-            if tg.id == updatedNode.id {
-                node = .tabGroup(updatedNode)
-            }
-        case .split(var splitNode):
-            for i in 0..<splitNode.children.count {
-                updateTabGroupNodeInTree(updatedNode, in: &splitNode.children[i])
-            }
-            node = .split(splitNode)
-        case .stageHost:
-            // Stage hosts manage their own tab groups internally
+    private func updateGroupPanelInTree(_ updatedPanel: Panel, in panel: inout Panel) {
+        switch panel.content {
+        case .content:
             break
+        case .group(var group):
+            if panel.id == updatedPanel.id {
+                panel = updatedPanel
+            } else {
+                for i in 0..<group.children.count {
+                    updateGroupPanelInTree(updatedPanel, in: &group.children[i])
+                }
+                panel.content = .group(group)
+            }
         }
     }
 
-    /// Close floating window containing a specific tab
-    private func closeFloatingWindowContaining(tabId: UUID) {
+    /// Close floating window containing a specific child panel
+    private func closeFloatingWindowContaining(childId: UUID) {
         for (windowId, window) in floatingWindows {
-            if window.tabGroupController.tabGroupNode.tabs.contains(where: { $0.id == tabId }) {
-                window.tabGroupController.removeTab(withId: tabId)
-                if window.tabGroupController.tabGroupNode.tabs.isEmpty {
+            if window.containsPanel(childId) {
+                _ = window.removePanel(childId)
+                if window.isEmpty {
                     floatingWindows.removeValue(forKey: windowId)
                     window.close()
                 }
@@ -462,177 +465,215 @@ extension DockContainerViewController: DockTabGroupViewControllerDelegate {
         }
     }
 
-    /// Remove a tab from the view controller hierarchy (not just the model)
-    private func removeTabFromAllControllers(_ tabId: UUID) {
-        removeTabFromController(tabId, in: rootViewController)
+    /// Remove a child panel from all controllers in the view hierarchy
+    private func removeChildFromAllControllers(_ childId: UUID) {
+        removeChildFromController(childId, in: rootViewController)
     }
 
-    private func removeTabFromController(_ tabId: UUID, in controller: NSViewController?) {
+    private func removeChildFromController(_ childId: UUID, in controller: NSViewController?) {
         if let tabGroup = controller as? DockTabGroupViewController {
-            if tabGroup.tabGroupNode.tabs.contains(where: { $0.id == tabId }) {
-                tabGroup.removeTab(withId: tabId)
+            if tabGroup.panel.group?.children.contains(where: { $0.id == childId }) == true {
+                _ = tabGroup.removeTab(withId: childId)
             }
         }
 
         if let splitVC = controller as? DockSplitViewController {
             for item in splitVC.splitViewItems {
-                removeTabFromController(tabId, in: item.viewController)
+                removeChildFromController(childId, in: item.viewController)
             }
         }
     }
 
-    /// Clean up empty tab groups without full rebuild
+    /// Clean up empty groups without full rebuild
     private func cleanupEmptyGroups() {
         var needsRebuild = false
-        cleanupEmptyGroupsInNode(&rootNode, needsRebuild: &needsRebuild)
+        cleanupEmptyGroupsInPanel(&rootPanel, needsRebuild: &needsRebuild)
         if needsRebuild {
             rebuildLayout()
         }
     }
 
-    private func cleanupEmptyGroupsInNode(_ node: inout DockNode, needsRebuild: inout Bool) {
-        switch node {
-        case .tabGroup(let tg):
-            if tg.tabs.isEmpty {
-                needsRebuild = true
-            }
-        case .split(var splitNode):
-            for i in 0..<splitNode.children.count {
-                cleanupEmptyGroupsInNode(&splitNode.children[i], needsRebuild: &needsRebuild)
-            }
-            // Remove empty children
-            let beforeCount = splitNode.children.count
-            splitNode.children.removeAll { child in
-                if case .tabGroup(let tg) = child, tg.tabs.isEmpty {
-                    return true
-                }
-                return false
-            }
-            if splitNode.children.count != beforeCount {
-                needsRebuild = true
-            }
-            // Simplify if only one child
-            if splitNode.children.count == 1 {
-                node = splitNode.children[0]
-                needsRebuild = true
-            } else {
-                node = .split(splitNode)
-            }
-        case .stageHost:
-            // Stage hosts manage their own cleanup
+    private func cleanupEmptyGroupsInPanel(_ panel: inout Panel, needsRebuild: inout Bool) {
+        switch panel.content {
+        case .content:
             break
+
+        case .group(var group):
+            switch group.style {
+            case .tabs, .thumbnails:
+                if group.children.isEmpty {
+                    needsRebuild = true
+                }
+
+            case .split:
+                for i in 0..<group.children.count {
+                    cleanupEmptyGroupsInPanel(&group.children[i], needsRebuild: &needsRebuild)
+                }
+                // Remove empty children
+                let beforeCount = group.children.count
+                group.children.removeAll { child in
+                    if case .group(let g) = child.content, g.children.isEmpty,
+                       g.style == .tabs || g.style == .thumbnails {
+                        return true
+                    }
+                    return false
+                }
+                if group.children.count != beforeCount {
+                    needsRebuild = true
+                }
+                // Simplify if only one child
+                if group.children.count == 1 {
+                    panel = group.children[0]
+                    needsRebuild = true
+                } else {
+                    group.recalculateProportions()
+                    panel.content = .group(group)
+                }
+
+            case .stages:
+                // Stage hosts manage their own cleanup
+                break
+            }
         }
     }
 
-    public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastTab: Bool) {
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastPanel: Bool) {
         // Tab group is now empty - rebuild layout to remove it
-        removeEmptyTabGroup(tabGroup.tabGroupNode.id, from: &rootNode)
+        removeEmptyGroup(tabGroup.panel.id, from: &rootPanel)
         rebuildLayout()
     }
 
-    public func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab) {
-        // Try to get panel from tab directly, or look up from registry
-        guard let panel = tab.panel ?? panelRegistry[tab.id] else {
-            print("Warning: Could not find panel for tab \(tab.id)")
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID) {
+        // Look up the dockable panel from registry
+        guard let panel = panelRegistry[panelId] else {
+            print("Warning: Could not find panel for child \(panelId)")
             return
         }
 
         // Find the tab group in our hierarchy and split it
-        splitTabGroup(tabGroup.tabGroupNode.id, direction: direction, withPanel: panel)
+        splitGroup(tabGroup.panel.id, direction: direction, withPanel: panel)
     }
 
     public func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {
         // Subclass or delegate can override to provide default panel creation
     }
 
-    private func removeEmptyTabGroup(_ groupId: UUID, from node: inout DockNode) {
-        switch node {
-        case .tabGroup(let tg):
-            if tg.id == groupId && tg.tabs.isEmpty {
-                // This will be removed by parent
-            }
-
-        case .split(var splitNode):
-            // Recursively check children
-            for i in 0..<splitNode.children.count {
-                removeEmptyTabGroup(groupId, from: &splitNode.children[i])
-            }
-
-            // Remove empty tab groups
-            splitNode.children.removeAll { child in
-                if case .tabGroup(let tg) = child, tg.tabs.isEmpty {
-                    return true
-                }
-                return false
-            }
-
-            // Simplify if only one child remains
-            if splitNode.children.count == 1 {
-                node = splitNode.children[0]
-            } else if splitNode.children.isEmpty {
-                node = .tabGroup(TabGroupNode())
-            } else {
-                node = .split(splitNode)
-            }
-
-        case .stageHost:
-            // Stage hosts manage their own tab groups
+    private func removeEmptyGroup(_ groupId: UUID, from panel: inout Panel) {
+        switch panel.content {
+        case .content:
             break
+
+        case .group(var group):
+            switch group.style {
+            case .tabs, .thumbnails:
+                if panel.id == groupId && group.children.isEmpty {
+                    // This will be removed by parent
+                }
+
+            case .split:
+                // Recursively check children
+                for i in 0..<group.children.count {
+                    removeEmptyGroup(groupId, from: &group.children[i])
+                }
+
+                // Remove empty tab/thumbnail groups
+                group.children.removeAll { child in
+                    if case .group(let g) = child.content, g.children.isEmpty,
+                       (g.style == .tabs || g.style == .thumbnails) {
+                        return true
+                    }
+                    return false
+                }
+
+                // Simplify if only one child remains
+                if group.children.count == 1 {
+                    panel = group.children[0]
+                } else if group.children.isEmpty {
+                    panel = Panel(content: .group(PanelGroup(style: .tabs)))
+                } else {
+                    group.recalculateProportions()
+                    panel.content = .group(group)
+                }
+
+            case .stages:
+                // Stage hosts manage their own groups
+                break
+            }
         }
     }
 
-    private func splitTabGroup(_ groupId: UUID, direction: DockSplitDirection, withPanel panel: any DockablePanel) {
+    private func splitGroup(_ groupId: UUID, direction: DockSplitDirection, withPanel panel: any DockablePanel) {
         // Remove panel from its current location
-        removeTab(withId: panel.panelId, from: &rootNode)
+        removeChild(withId: panel.panelId, from: &rootPanel)
 
-        // Create new tab for the panel
-        let newTab = DockTab(from: panel)
-        let newTabGroup = TabGroupNode(tabs: [newTab])
-        let newNode = DockNode.tabGroup(newTabGroup)
+        // Create new content panel
+        let newContentPanel = Panel.contentPanel(
+            id: panel.panelId,
+            title: panel.panelTitle
+        )
+        let newGroupPanel = Panel(
+            content: .group(PanelGroup(
+                children: [newContentPanel],
+                activeIndex: 0,
+                style: .tabs
+            ))
+        )
 
         // Find and split the target group
-        splitNodeContainingGroup(groupId, direction: direction, withNewNode: newNode, in: &rootNode)
+        splitPanelContainingGroup(groupId, direction: direction, withNewPanel: newGroupPanel, in: &rootPanel)
 
         rebuildLayout()
     }
 
-    /// Debug helper to describe a node
-    private func describeNode(_ node: DockNode, indent: String = "") -> String {
-        switch node {
-        case .tabGroup(let tg):
-            let tabNames = tg.tabs.map { "\($0.title)(panel:\($0.panel != nil))" }.joined(separator: ", ")
-            return "\(indent)TabGroup(id:\(tg.id.uuidString.prefix(8)), tabs:[\(tabNames)], activeIdx:\(tg.activeTabIndex))"
-        case .split(let split):
-            var result = "\(indent)Split(id:\(split.id.uuidString.prefix(8)), axis:\(split.axis), proportions:\(split.proportions))\n"
-            for (i, child) in split.children.enumerated() {
-                result += "\(indent)  child[\(i)]: \(describeNode(child, indent: indent + "    "))\n"
+    /// Debug helper to describe a panel tree
+    private func describePanel(_ panel: Panel, indent: String = "") -> String {
+        switch panel.content {
+        case .content:
+            return "\(indent)Content(id:\(panel.id.uuidString.prefix(8)), title:\(panel.title ?? "nil"))"
+        case .group(let group):
+            switch group.style {
+            case .tabs, .thumbnails:
+                let childNames = group.children.map { "\($0.title ?? "?")" }.joined(separator: ", ")
+                return "\(indent)\(group.style)(id:\(panel.id.uuidString.prefix(8)), children:[\(childNames)], activeIdx:\(group.activeIndex))"
+            case .split:
+                var result = "\(indent)Split(id:\(panel.id.uuidString.prefix(8)), axis:\(group.axis), proportions:\(group.proportions))\n"
+                for (i, child) in group.children.enumerated() {
+                    result += "\(indent)  child[\(i)]: \(describePanel(child, indent: indent + "    "))\n"
+                }
+                return result
+            case .stages:
+                return "\(indent)StageHost(id:\(panel.id.uuidString.prefix(8)), stages:\(group.children.count))"
             }
-            return result
-        case .stageHost(let stageHost):
-            return "\(indent)StageHost(id:\(stageHost.id.uuidString.prefix(8)), stages:\(stageHost.stages.count))"
         }
     }
 
-    private func splitNodeContainingGroup(_ groupId: UUID, direction: DockSplitDirection, withNewNode newNode: DockNode, in node: inout DockNode) {
-        switch node {
-        case .tabGroup(let tg):
-            if tg.id == groupId {
-                // Replace this node with a split containing both
+    private func splitPanelContainingGroup(_ groupId: UUID, direction: DockSplitDirection, withNewPanel newPanel: Panel, in panel: inout Panel) {
+        switch panel.content {
+        case .content:
+            break
+
+        case .group(var group):
+            if panel.id == groupId && (group.style == .tabs || group.style == .thumbnails) {
+                // Replace this panel with a split containing both
                 let axis: SplitAxis = (direction == .left || direction == .right) ? .horizontal : .vertical
                 let insertFirst = (direction == .left || direction == .top)
-                let children = insertFirst ? [newNode, node] : [node, newNode]
-                node = .split(SplitNode(axis: axis, children: children))
+                let children = insertFirst ? [newPanel, panel] : [panel, newPanel]
+                panel = Panel(
+                    content: .group(PanelGroup(
+                        children: children,
+                        activeIndex: 0,
+                        axis: axis,
+                        proportions: [0.5, 0.5],
+                        style: .split
+                    ))
+                )
+            } else if group.style == .split {
+                for i in 0..<group.children.count {
+                    splitPanelContainingGroup(groupId, direction: direction, withNewPanel: newPanel, in: &group.children[i])
+                }
+                panel.content = .group(group)
             }
-
-        case .split(var splitNode):
-            for i in 0..<splitNode.children.count {
-                splitNodeContainingGroup(groupId, direction: direction, withNewNode: newNode, in: &splitNode.children[i])
-            }
-            node = .split(splitNode)
-
-        case .stageHost:
-            // Cannot split inside a stage host from outside
-            break
+            // .stages — cannot split inside a stage host from outside
         }
     }
 }
@@ -657,12 +698,13 @@ extension DockContainerViewController: DockWindowDelegate {
         floatingWindows.removeValue(forKey: window.windowId)
     }
 
-    public func dockWindow(_ window: DockWindow, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {
+    public func dockWindow(_ window: DockWindow, wantsToDetachPanelId panelId: UUID, at screenPoint: NSPoint) {
         // Detach into a new floating window
+        guard let panel = panelRegistry[panelId] else { return }
         detachPanel(panel, at: screenPoint)
     }
 
-    public func dockWindow(_ window: DockWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {
+    public func dockWindow(_ window: DockWindow, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {
         // Handle split request from floating window - for now just log
         print("[DockContainerVC] Floating window requested split - not implemented")
     }
@@ -672,16 +714,15 @@ extension DockContainerViewController: DockWindowDelegate {
         guard let panel = panelRegistry[tabInfo.tabId] else { return }
 
         // Remove from source - BOTH model AND view controller in main window
-        removeTab(withId: tabInfo.tabId, from: &rootNode)
-        removeTabFromAllControllers(tabInfo.tabId)
+        removeChild(withId: tabInfo.tabId, from: &rootPanel)
+        removeChildFromAllControllers(tabInfo.tabId)
 
         // Also close any floating window that might contain this tab (except this one)
         for (windowId, otherWindow) in floatingWindows where windowId != window.windowId {
-            // Find first tab group in the floating window
-            if let floatingTabGroup = findFirstTabGroupController(in: otherWindow.rootViewController),
-               floatingTabGroup.tabGroupNode.tabs.contains(where: { $0.id == tabInfo.tabId }) {
-                floatingTabGroup.removeTab(withId: tabInfo.tabId)
-                if floatingTabGroup.tabGroupNode.tabs.isEmpty && otherWindow.isEmpty {
+            if let floatingTabGroup = findFirstTabGroupControllerImpl(in: otherWindow.rootViewController),
+               floatingTabGroup.panel.group?.children.contains(where: { $0.id == tabInfo.tabId }) == true {
+                _ = floatingTabGroup.removeTab(withId: tabInfo.tabId)
+                if floatingTabGroup.panel.group?.children.isEmpty == true && otherWindow.isEmpty {
                     floatingWindows.removeValue(forKey: windowId)
                     otherWindow.close()
                 }

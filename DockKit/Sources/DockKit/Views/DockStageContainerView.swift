@@ -40,13 +40,13 @@ public protocol DockStageContainerViewDelegate: AnyObject {
     func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
 
     /// Called when a panel wants to detach (tear off)
-    func stageContainer(_ container: DockStageContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint)
+    func stageContainer(_ container: DockStageContainerView, wantsToDetachPanel panelId: UUID, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint)
 
     /// Called when a split is requested
-    func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
+    func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController)
 
     /// Called when a tab is closed via X button
-    func stageContainer(_ container: DockStageContainerView, didCloseTab tabId: UUID)
+    func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID)
 }
 
 /// Default implementations
@@ -55,13 +55,16 @@ public extension DockStageContainerViewDelegate {
     func stageContainerDidEndSwipeGesture(_ container: DockStageContainerView) {}
     func stageContainer(_ container: DockStageContainerView, didBeginSwipingTo index: Int) {}
     func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
-    func stageContainer(_ container: DockStageContainerView, wantsToDetachTab tab: DockTab, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
-    func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
-    func stageContainer(_ container: DockStageContainerView, didCloseTab tabId: UUID) {}
+    func stageContainer(_ container: DockStageContainerView, wantsToDetachPanel panelId: UUID, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
+    func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {}
+    func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID) {}
 }
 
 /// A container view that hosts multiple stages with swipe gesture navigation
-/// Each stage has its own independent layout tree
+/// Each stage has its own independent layout tree.
+///
+/// Stages are `Panel` objects (children of a stages-style group panel).
+/// Each stage's content can be `.group(...)` with any style (tabs, split, nested stages, etc.)
 public class DockStageContainerView: NSView {
 
     // MARK: - Properties
@@ -74,8 +77,8 @@ public class DockStageContainerView: NSView {
     /// Whether this container is currently bubbling gestures to parent
     private var isBubblingToParent: Bool = false
 
-    /// The stage layouts this container displays
-    private var stages: [Stage] = []
+    /// The stage panels this container displays (children of the stages-style group)
+    private var stages: [Panel] = []
 
     /// Current active stage index
     public private(set) var activeStageIndex: Int = 0
@@ -120,17 +123,17 @@ public class DockStageContainerView: NSView {
     private var timeScale: CGFloat { slowMotionEnabled ? 0.1 : 1.0 }
 
     /// Thumbnail mode - when enabled, all tab groups show thumbnails instead of tabs
-    @available(*, deprecated, message: "Use displayMode instead")
+    @available(*, deprecated, message: "Use groupStyle instead")
     public var thumbnailModeEnabled: Bool {
-        get { displayMode == .thumbnails }
-        set { displayMode = newValue ? .thumbnails : .tabs }
+        get { groupStyle == .thumbnails }
+        set { groupStyle = newValue ? .thumbnails : .tabs }
     }
 
-    /// Display mode for tabs in this container
-    public var displayMode: StageDisplayMode = .tabs {
+    /// Group style for tab groups in this container
+    public var groupStyle: PanelGroupStyle = .tabs {
         didSet {
-            if displayMode != oldValue {
-                updateAllTabGroupDisplayModes()
+            if groupStyle != oldValue {
+                updateAllTabGroupStyles()
             }
         }
     }
@@ -147,25 +150,25 @@ public class DockStageContainerView: NSView {
     /// Rubber band coefficient (Apple uses 0.55)
     private let rubberBandCoefficient: CGFloat = 0.55
 
-    /// Update display mode on all tab group view controllers
-    private func updateAllTabGroupDisplayModes() {
+    /// Update group style on all tab group view controllers
+    private func updateAllTabGroupStyles() {
         // Update all stage view controllers
         for (_, viewController) in stageViewControllers {
-            updateTabGroupDisplayMode(in: viewController, to: displayMode)
+            updateTabGroupStyle(in: viewController, to: groupStyle)
         }
     }
 
-    /// Recursively update display mode in a view controller hierarchy
-    private func updateTabGroupDisplayMode(in viewController: NSViewController, to mode: StageDisplayMode) {
+    /// Recursively update group style in a view controller hierarchy
+    private func updateTabGroupStyle(in viewController: NSViewController, to style: PanelGroupStyle) {
         if let tabGroupVC = viewController as? DockTabGroupViewController {
-            tabGroupVC.setDisplayMode(mode)
+            tabGroupVC.setGroupStyle(style)
         } else if let splitVC = viewController as? DockSplitViewController {
             for child in splitVC.children {
-                updateTabGroupDisplayMode(in: child, to: mode)
+                updateTabGroupStyle(in: child, to: style)
             }
         } else {
             for child in viewController.children {
-                updateTabGroupDisplayMode(in: child, to: mode)
+                updateTabGroupStyle(in: child, to: style)
             }
         }
     }
@@ -319,8 +322,8 @@ public class DockStageContainerView: NSView {
 
     // MARK: - Public API
 
-    /// Set the stages to display
-    public func setStages(_ newStages: [Stage], activeIndex: Int) {
+    /// Set the stages to display (stage panels are children of the stages-style group)
+    public func setStages(_ newStages: [Panel], activeIndex: Int) {
         stages = newStages
         activeStageIndex = max(0, min(activeIndex, stages.count - 1))
 
@@ -348,12 +351,12 @@ public class DockStageContainerView: NSView {
         return stageViewControllers[stageId]
     }
 
-    /// Update a specific stage's layout
-    public func updateStageLayout(_ layout: DockLayoutNode, forStageAt index: Int) {
+    /// Update a specific stage's layout (replace the stage panel)
+    public func updateStageLayout(_ stagePanel: Panel, forStageAt index: Int) {
         guard index >= 0 && index < stages.count else { return }
 
         let stageId = stages[index].id
-        stages[index].layout = layout
+        stages[index] = stagePanel
 
         // Rebuild the view controller for this stage
         if let existingVC = stageViewControllers[stageId],
@@ -362,7 +365,7 @@ public class DockStageContainerView: NSView {
             existingVC.view.removeFromSuperview()
 
             // Create new view controller
-            let newVC = createViewController(for: stages[index].layout)
+            let newVC = createViewController(for: stages[index])
             stageViewControllers[stageId] = newVC
 
             // Add to stage view
@@ -450,7 +453,7 @@ public class DockStageContainerView: NSView {
             stageViews.append(stageView)
 
             // Create view controller for stage layout
-            let vc = createViewController(for: stage.layout)
+            let vc = createViewController(for: stage)
             stageViewControllers[stage.id] = vc
 
             // VC view uses auto layout to fill its container
@@ -499,73 +502,57 @@ public class DockStageContainerView: NSView {
         }
     }
 
-    private func createViewController(for layoutNode: DockLayoutNode) -> NSViewController {
-        switch layoutNode {
-        case .split(let splitNode):
-            let splitVC = DockSplitViewController(splitNode: createSplitNode(from: splitNode))
-            splitVC.tabGroupDelegate = self
-            // Pass swipe gesture delegate for nested stage hosts (Version 3)
-            splitVC.swipeGestureDelegate = self
-            return splitVC
-
-        case .tabGroup(let tabGroupNode):
-            let tabGroupVC = DockTabGroupViewController(tabGroupNode: createTabGroupNode(from: tabGroupNode))
+    /// Create a view controller for a stage panel.
+    /// The stage panel itself may have group content (tabs, split, or nested stages).
+    private func createViewController(for stagePanel: Panel) -> NSViewController {
+        switch stagePanel.content {
+        case .content:
+            // A stage that is just a single content panel — wrap in a tab group
+            let tabGroupPanel = Panel(
+                content: .group(PanelGroup(
+                    children: [stagePanel],
+                    activeIndex: 0,
+                    style: .tabs
+                ))
+            )
+            let tabGroupVC = DockTabGroupViewController(panel: tabGroupPanel)
+            tabGroupVC.panelProvider = { [weak self] id in
+                self?.delegate?.stageContainer(self!, panelForId: id)
+            }
             tabGroupVC.delegate = self
             return tabGroupVC
 
-        case .stageHost(let stageHostNode):
-            // Create a nested stage host view controller (Version 3 feature)
-            let hostVC = DockStageHostViewController(
-                layoutNode: stageHostNode,
-                panelProvider: { [weak self] id in
+        case .group(let group):
+            switch group.style {
+            case .split:
+                let splitVC = DockSplitViewController(panel: stagePanel)
+                splitVC.tabGroupDelegate = self
+                splitVC.panelProvider = { [weak self] id in
                     self?.delegate?.stageContainer(self!, panelForId: id)
                 }
-            )
-            // Connect gesture bubbling - nested host bubbles to this container
-            hostVC.swipeGestureDelegate = self
-            return hostVC
-        }
-    }
+                splitVC.swipeGestureDelegate = self
+                return splitVC
 
-    private func createSplitNode(from layout: SplitLayoutNode) -> SplitNode {
-        let children = layout.children.map { createDockNode(from: $0) }
-        return SplitNode(
-            id: layout.id,
-            axis: layout.axis,
-            children: children,
-            proportions: layout.proportions
-        )
-    }
+            case .tabs, .thumbnails:
+                let tabGroupVC = DockTabGroupViewController(panel: stagePanel)
+                tabGroupVC.panelProvider = { [weak self] id in
+                    self?.delegate?.stageContainer(self!, panelForId: id)
+                }
+                tabGroupVC.delegate = self
+                return tabGroupVC
 
-    private func createTabGroupNode(from layout: TabGroupLayoutNode) -> TabGroupNode {
-        let tabs = layout.tabs.compactMap { tabState -> DockTab? in
-            if let panel = delegate?.stageContainer(self, panelForId: tabState.id) {
-                return DockTab(from: panel, cargo: tabState.cargo)
+            case .stages:
+                // Create a nested stage host view controller (Version 3 feature)
+                let hostVC = DockStageHostViewController(
+                    panel: stagePanel,
+                    panelProvider: { [weak self] id in
+                        self?.delegate?.stageContainer(self!, panelForId: id)
+                    }
+                )
+                // Connect gesture bubbling - nested host bubbles to this container
+                hostVC.swipeGestureDelegate = self
+                return hostVC
             }
-            return DockTab(
-                id: tabState.id,
-                title: tabState.title,
-                iconName: tabState.iconName,
-                panel: nil,
-                cargo: tabState.cargo
-            )
-        }
-        return TabGroupNode(
-            id: layout.id,
-            tabs: tabs,
-            activeTabIndex: layout.activeTabIndex,
-            displayMode: layout.displayMode
-        )
-    }
-
-    private func createDockNode(from layoutNode: DockLayoutNode) -> DockNode {
-        switch layoutNode {
-        case .split(let splitNode):
-            return .split(createSplitNode(from: splitNode))
-        case .tabGroup(let tabGroupNode):
-            return .tabGroup(createTabGroupNode(from: tabGroupNode))
-        case .stageHost(let stageHostNode):
-            return .stageHost(StageHostNode(from: stageHostNode))
         }
     }
 
@@ -591,7 +578,7 @@ public class DockStageContainerView: NSView {
     /// Whether we're in a gesture
     private var isGestureActive: Bool = false
 
-    /// Accumulated gesture amount (0 to ±1 representing full swipe)
+    /// Accumulated gesture amount (0 to +/-1 representing full swipe)
     private var gestureAmount: CGFloat = 0
 
     /// Velocity tracking for flick detection (pixels per second)
@@ -983,20 +970,20 @@ extension DockStageContainerView: DockTabGroupViewControllerDelegate {
         delegate?.stageContainer(self, didReceiveTab: tabInfo, in: tabGroup, at: index)
     }
 
-    public func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachTab tab: DockTab, at screenPoint: NSPoint) {
-        delegate?.stageContainer(self, wantsToDetachTab: tab, from: tabGroup, at: screenPoint)
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachPanel panelId: UUID, at screenPoint: NSPoint) {
+        delegate?.stageContainer(self, wantsToDetachPanel: panelId, from: tabGroup, at: screenPoint)
     }
 
-    public func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab) {
-        delegate?.stageContainer(self, wantsToSplit: direction, withTab: tab, in: tabGroup)
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID) {
+        delegate?.stageContainer(self, wantsToSplit: direction, withPanelId: panelId, in: tabGroup)
     }
 
-    public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseTab tabId: UUID) {
-        delegate?.stageContainer(self, didCloseTab: tabId)
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didClosePanel panelId: UUID) {
+        delegate?.stageContainer(self, didClosePanel: panelId)
     }
 
-    public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastTab: Bool) {
-        // Handled by didCloseTab - this is kept for compatibility
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastPanel: Bool) {
+        // Handled by didClosePanel - this is kept for compatibility
     }
 
     public func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {

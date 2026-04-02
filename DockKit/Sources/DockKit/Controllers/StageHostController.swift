@@ -5,10 +5,10 @@ import AppKit
 /// Delegate for StageHostController events
 public protocol StageHostControllerDelegate: AnyObject {
     /// Layout changed for a specific stage - rebuild that stage's view
-    func controller(_ controller: StageHostController, didUpdateLayout layout: DockLayoutNode, forStageAt index: Int)
+    func controller(_ controller: StageHostController, didUpdateLayout layout: Panel, forStageAt index: Int)
 
     /// Stages list changed - rebuild header and possibly container
-    func controller(_ controller: StageHostController, didUpdateStages stages: [Stage], activeIndex: Int)
+    func controller(_ controller: StageHostController, didUpdateStages stages: [Panel], activeIndex: Int)
 
     /// Active stage changed (swipe/click)
     func controller(_ controller: StageHostController, didSwitchToStage index: Int)
@@ -21,63 +21,79 @@ public protocol StageHostControllerDelegate: AnyObject {
 
 /// Manages stage host state and operations
 /// Used by both DockStageHostView and DockStageHostWindow to eliminate code duplication
+///
+/// The controller operates on a `Panel` whose content is `.group(PanelGroup)` with `style: .stages`.
+/// Each child of that group is a "stage" — itself a Panel (typically with `.group` content representing
+/// the stage's layout tree).
 public class StageHostController {
 
     // MARK: - State
 
-    public private(set) var state: StageHostWindowState
+    /// The root panel (must have .group content with style .stages)
+    public private(set) var panel: Panel
     public var panelProvider: ((UUID) -> (any DockablePanel)?)?
     public weak var delegate: StageHostControllerDelegate?
 
     // MARK: - Computed Properties
 
-    public var activeStageIndex: Int { state.activeStageIndex }
-    public var stages: [Stage] { state.stages }
+    public var activeStageIndex: Int { panel.group?.activeIndex ?? 0 }
+
+    /// The stage children of this stage host
+    public var stages: [Panel] { panel.group?.children ?? [] }
 
     public var isEmpty: Bool {
-        state.stages.allSatisfy { $0.layout.isEmpty }
+        stages.allSatisfy { $0.isEmpty }
     }
 
-    public var displayMode: StageDisplayMode {
-        get { state.displayMode }
-        set { state.displayMode = newValue }
+    public var groupStyle: PanelGroupStyle {
+        get { panel.group?.style ?? .stages }
+        set {
+            guard case .group(var g) = panel.content else { return }
+            g.style = newValue
+            panel.content = .group(g)
+        }
     }
 
     // MARK: - Initialization
 
-    public init(state: StageHostWindowState) {
-        self.state = state
+    public init(panel: Panel) {
+        assert(panel.group?.style == .stages, "StageHostController requires a panel with stages group style")
+        self.panel = panel
     }
 
-    // MARK: - Tab Operations
+    // MARK: - Child Close Operations
 
-    /// Called when a tab is closed via X button
-    /// This is the key method that fixes the empty space bug - it uses removingTab() which calls cleanedUp()
-    public func handleTabClosed(_ tabId: UUID) {
-        guard state.activeStageIndex < state.stages.count else { return }
+    /// Called when a content panel is closed via X button
+    /// This removes the child from the active stage's layout tree using removingChild() which calls cleanedUp()
+    public func handleChildClosed(_ childId: UUID) {
+        guard var group = panel.group,
+              group.activeIndex < group.children.count else { return }
 
-        var stage = state.stages[state.activeStageIndex]
+        var stage = group.children[group.activeIndex]
         var modified = false
-        stage.layout = stage.layout.removingTab(tabId, modified: &modified)
-        // ↑ removingTab() calls cleanedUp() which removes empty nodes!
+        stage = stage.removingChild(childId, modified: &modified)
 
         if modified {
-            state.stages[state.activeStageIndex] = stage
-            delegate?.controller(self, didUpdateLayout: stage.layout, forStageAt: state.activeStageIndex)
+            group.children[group.activeIndex] = stage
+            panel.content = .group(group)
+            delegate?.controller(self, didUpdateLayout: stage, forStageAt: group.activeIndex)
         }
     }
 
     /// Remove a panel from any stage
     @discardableResult
     public func removePanel(_ panelId: UUID) -> Bool {
-        for i in 0..<state.stages.count {
-            var stage = state.stages[i]
+        guard var group = panel.group else { return false }
+
+        for i in 0..<group.children.count {
+            var stage = group.children[i]
             var modified = false
-            stage.layout = stage.layout.removingTab(panelId, modified: &modified)
+            stage = stage.removingChild(panelId, modified: &modified)
             if modified {
-                state.stages[i] = stage
-                if i == state.activeStageIndex {
-                    delegate?.controller(self, didUpdateLayout: stage.layout, forStageAt: i)
+                group.children[i] = stage
+                panel.content = .group(group)
+                if i == activeStageIndex {
+                    delegate?.controller(self, didUpdateLayout: stage, forStageAt: i)
                 }
                 return true
             }
@@ -85,195 +101,243 @@ public class StageHostController {
         return false
     }
 
-    // MARK: - Tab Movement
+    // MARK: - Child Movement
 
-    /// Handle a tab being dropped in a tab group
-    public func handleTabReceived(_ tabId: UUID, in groupId: UUID, at index: Int) {
-        guard state.activeStageIndex < state.stages.count else { return }
+    /// Handle a child panel being dropped in a group
+    public func handleChildReceived(_ childId: UUID, title: String? = nil, iconName: String? = nil, in groupId: UUID, at index: Int) {
+        guard var group = panel.group,
+              group.activeIndex < group.children.count else { return }
 
-        var stage = state.stages[state.activeStageIndex]
-        stage.layout = stage.layout.movingTab(tabId, toGroupId: groupId, at: index)
-        state.stages[state.activeStageIndex] = stage
+        // Find existing panel anywhere in the tree to preserve title/icon
+        let existingPanel = panel.findChildInfo(childId)?.panel
 
-        delegate?.controller(self, didUpdateLayout: stage.layout, forStageAt: state.activeStageIndex)
+        var stage = group.children[group.activeIndex]
+
+        // Remove from current location first (may be in any stage)
+        var modified = false
+        for i in group.children.indices {
+            group.children[i] = group.children[i].removingChildWithoutCleanup(childId, modified: &modified)
+        }
+        stage = group.children[group.activeIndex]
+
+        // Use existing panel data, fall back to drag info, fall back to placeholder
+        let childPanel: Panel
+        if let existing = existingPanel {
+            childPanel = existing
+        } else {
+            childPanel = Panel.contentPanel(id: childId, title: title ?? "Untitled", iconName: iconName)
+        }
+
+        stage = stage.addingChild(childPanel, toGroupId: groupId, at: index, modified: &modified)
+        stage = stage.cleanedUp()
+
+        // Clean up all stages (source stage may have empty groups now)
+        group.children[group.activeIndex] = stage
+        for i in group.children.indices where i != group.activeIndex {
+            group.children[i] = group.children[i].cleanedUp()
+        }
+        panel.content = .group(group)
+
+        delegate?.controller(self, didUpdateLayout: stage, forStageAt: group.activeIndex)
     }
 
-    /// Handle a tab being dropped on a different stage header
-    public func handleTabMovedToStage(_ tabId: UUID, targetStageIndex: Int) {
-        guard let srcIndex = findStageContaining(tabId),
+    /// Handle a child panel being dropped on a different stage header
+    public func handleChildMovedToStage(_ childId: UUID, targetStageIndex: Int) {
+        guard var group = panel.group else { return }
+        guard let srcIndex = findStageContaining(childId),
               srcIndex != targetStageIndex else { return }
 
-        guard let (tabState, newSourceLayout) = extractTab(tabId, from: state.stages[srcIndex].layout) else { return }
+        guard let (childPanel, newSourceStage) = extractChild(childId, from: group.children[srcIndex]) else { return }
 
-        state.stages[srcIndex].layout = newSourceLayout
-        state.stages[targetStageIndex].layout = insertTab(tabState, into: state.stages[targetStageIndex].layout)
-        state.activeStageIndex = targetStageIndex
+        group.children[srcIndex] = newSourceStage
+        group.children[targetStageIndex] = insertChild(childPanel, into: group.children[targetStageIndex])
+        group.activeIndex = targetStageIndex
+        panel.content = .group(group)
 
-        delegate?.controller(self, didUpdateStages: state.stages, activeIndex: targetStageIndex)
+        delegate?.controller(self, didUpdateStages: stages, activeIndex: targetStageIndex)
     }
 
     // MARK: - Split
 
-    /// Handle a split request (tab dropped on edge of a tab group)
-    public func handleSplit(groupId: UUID, direction: DockSplitDirection, withTab tab: DockTab) {
-        guard state.activeStageIndex < state.stages.count else { return }
+    /// Handle a split request (panel dropped on edge of a group)
+    public func handleSplit(groupId: UUID, direction: DockSplitDirection, withPanelId panelId: UUID) {
+        guard var group = panel.group,
+              group.activeIndex < group.children.count else { return }
 
-        var stage = state.stages[state.activeStageIndex]
-        let tabState = TabLayoutState(id: tab.id, title: tab.title, iconName: tab.iconName, cargo: tab.cargo)
-        stage.layout = stage.layout.splitting(groupId: groupId, direction: direction, withTab: tabState)
-        state.stages[state.activeStageIndex] = stage
+        var stage = group.children[group.activeIndex]
 
-        delegate?.controller(self, didUpdateLayout: stage.layout, forStageAt: state.activeStageIndex)
+        // Find the existing panel in the tree to preserve its title/iconName
+        let existingPanel = stage.findChildInfo(panelId)?.panel
+            ?? panel.findChildInfo(panelId)?.panel
+        let childPanel = existingPanel ?? Panel.contentPanel(id: panelId, title: "Untitled")
+
+        // Remove from source location first, then split
+        var modified = false
+        stage = stage.removingChildWithoutCleanup(panelId, modified: &modified)
+        stage = stage.splittingGroup(groupId: groupId, direction: direction, withChild: childPanel, modified: &modified)
+        stage = stage.cleanedUp()
+        group.children[group.activeIndex] = stage
+        panel.content = .group(group)
+
+        delegate?.controller(self, didUpdateLayout: stage, forStageAt: group.activeIndex)
     }
 
     // MARK: - Detach
 
-    /// Handle a tab being torn off to create a new window
-    public func handleDetach(tab: DockTab, at screenPoint: NSPoint) {
-        guard let panel = tab.panel ?? panelProvider?(tab.id) else { return }
+    /// Handle a panel being torn off to create a new window
+    public func handleDetach(panelId: UUID, at screenPoint: NSPoint) {
+        guard let dockablePanel = panelProvider?(panelId) else { return }
 
-        panel.panelWillDetach()
-        handleTabClosed(tab.id)  // Remove from current stage
+        dockablePanel.panelWillDetach()
+        handleChildClosed(panelId)  // Remove from current stage
 
-        delegate?.controller(self, didDetachPanel: panel, at: screenPoint)
+        delegate?.controller(self, didDetachPanel: dockablePanel, at: screenPoint)
     }
 
     // MARK: - Stage Operations
 
     /// Switch to a specific stage
     public func switchToStage(at index: Int) {
-        guard index >= 0 && index < state.stages.count else { return }
-        guard index != state.activeStageIndex else { return }
+        guard var group = panel.group else { return }
+        guard index >= 0 && index < group.children.count else { return }
+        guard index != group.activeIndex else { return }
 
-        state.activeStageIndex = index
+        group.activeIndex = index
+        panel.content = .group(group)
         delegate?.controller(self, didSwitchToStage: index)
     }
 
     /// Add a new empty stage
     @discardableResult
-    public func addNewStage(title: String? = nil, iconName: String? = nil) -> Stage {
-        let stageNumber = state.stages.count + 1
-        let stage = Stage(
+    public func addNewStage(title: String? = nil, iconName: String? = nil) -> Panel {
+        guard var group = panel.group else {
+            fatalError("StageHostController requires a panel with group content")
+        }
+
+        let stageNumber = group.children.count + 1
+        let stage = Panel(
             title: title ?? "Stage \(stageNumber)",
             iconName: iconName,
-            layout: .tabGroup(TabGroupLayoutNode())
+            content: .group(PanelGroup(style: .tabs))
         )
 
-        state.stages.append(stage)
-        state.activeStageIndex = state.stages.count - 1
+        group.children.append(stage)
+        group.activeIndex = group.children.count - 1
+        panel.content = .group(group)
 
-        delegate?.controller(self, didUpdateStages: state.stages, activeIndex: state.activeStageIndex)
+        delegate?.controller(self, didUpdateStages: stages, activeIndex: group.activeIndex)
         return stage
     }
 
     /// Remove a stage at the specified index
     public func removeStage(at index: Int) {
-        guard index >= 0 && index < state.stages.count else { return }
+        guard var group = panel.group else { return }
+        guard index >= 0 && index < group.children.count else { return }
 
-        state.stages.remove(at: index)
+        group.children.remove(at: index)
 
-        // Adjust activeStageIndex
-        if state.stages.isEmpty {
-            state.activeStageIndex = 0
-        } else if state.activeStageIndex >= state.stages.count {
-            state.activeStageIndex = state.stages.count - 1
-        } else if state.activeStageIndex > index {
-            state.activeStageIndex -= 1
+        // Adjust activeIndex
+        if group.children.isEmpty {
+            group.activeIndex = 0
+        } else if group.activeIndex >= group.children.count {
+            group.activeIndex = group.children.count - 1
+        } else if group.activeIndex > index {
+            group.activeIndex -= 1
         }
 
-        delegate?.controller(self, didUpdateStages: state.stages, activeIndex: state.activeStageIndex)
+        panel.content = .group(group)
+        delegate?.controller(self, didUpdateStages: stages, activeIndex: group.activeIndex)
     }
 
-    /// Update the entire state (for reconciliation or external updates)
-    public func updateState(_ newState: StageHostWindowState) {
-        state = newState
-        delegate?.controller(self, didUpdateStages: state.stages, activeIndex: state.activeStageIndex)
+    /// Update the entire panel (for reconciliation or external updates)
+    public func updatePanel(_ newPanel: Panel) {
+        panel = newPanel
+        delegate?.controller(self, didUpdateStages: stages, activeIndex: activeStageIndex)
     }
 
     /// Mark stage switch complete (called after animation finishes)
     public func completeStageSwitch(to index: Int) {
-        state.activeStageIndex = index
+        guard var group = panel.group else { return }
+        group.activeIndex = index
+        panel.content = .group(group)
     }
 
     // MARK: - Queries
 
     /// Check if any stage contains a specific panel
     public func containsPanel(_ panelId: UUID) -> Bool {
-        state.stages.contains { containsPanel(panelId, in: $0.layout) }
+        stages.contains { containsPanel(panelId, in: $0) }
     }
 
     // MARK: - Private Helpers
 
-    private func findStageContaining(_ tabId: UUID) -> Int? {
-        for (index, stage) in state.stages.enumerated() {
-            if containsTab(tabId, in: stage.layout) {
+    private func findStageContaining(_ childId: UUID) -> Int? {
+        for (index, stage) in stages.enumerated() {
+            if containsPanel(childId, in: stage) {
                 return index
             }
         }
         return nil
     }
 
-    private func containsPanel(_ panelId: UUID, in node: DockLayoutNode) -> Bool {
-        switch node {
-        case .tabGroup(let group):
-            return group.tabs.contains { $0.id == panelId }
-        case .split(let split):
-            return split.children.contains { containsPanel(panelId, in: $0) }
-        case .stageHost(let host):
-            return host.stages.contains { containsPanel(panelId, in: $0.layout) }
+    private func containsPanel(_ panelId: UUID, in node: Panel) -> Bool {
+        if node.id == panelId && node.isContent { return true }
+        guard let group = node.group else { return false }
+        return group.children.contains { containsPanel(panelId, in: $0) }
+    }
+
+    private func extractChild(_ childId: UUID, from stagePanel: Panel) -> (Panel, Panel)? {
+        guard case .group(var group) = stagePanel.content else { return nil }
+
+        // Check direct children
+        if let index = group.children.firstIndex(where: { $0.id == childId }) {
+            let child = group.children.remove(at: index)
+            if group.activeIndex >= group.children.count {
+                group.activeIndex = max(0, group.children.count - 1)
+            }
+            var newStage = stagePanel
+            newStage.content = .group(group)
+            return (child, newStage.cleanedUp())
         }
-    }
 
-    private func containsTab(_ tabId: UUID, in node: DockLayoutNode) -> Bool {
-        containsPanel(tabId, in: node)
-    }
-
-    private func extractTab(_ tabId: UUID, from layout: DockLayoutNode) -> (TabLayoutState, DockLayoutNode)? {
-        switch layout {
-        case .tabGroup(var group):
-            guard let index = group.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
-            let tab = group.tabs.remove(at: index)
-            if group.activeTabIndex >= group.tabs.count {
-                group.activeTabIndex = max(0, group.tabs.count - 1)
+        // Recurse into children
+        for (i, childPanel) in group.children.enumerated() {
+            if let (extracted, newChild) = extractChild(childId, from: childPanel) {
+                group.children[i] = newChild
+                var newStage = stagePanel
+                newStage.content = .group(group)
+                return (extracted, newStage.cleanedUp())
             }
-            return (tab, .tabGroup(group).cleanedUp())
-
-        case .split(var split):
-            for (i, child) in split.children.enumerated() {
-                if let (tab, newChild) = extractTab(tabId, from: child) {
-                    split.children[i] = newChild
-                    return (tab, .split(split).cleanedUp())
-                }
-            }
-            return nil
-
-        case .stageHost(var host):
-            for (i, stage) in host.stages.enumerated() {
-                if let (tab, newLayout) = extractTab(tabId, from: stage.layout) {
-                    host.stages[i].layout = newLayout
-                    return (tab, .stageHost(host))
-                }
-            }
-            return nil
         }
+        return nil
     }
 
-    private func insertTab(_ tab: TabLayoutState, into layout: DockLayoutNode) -> DockLayoutNode {
-        switch layout {
-        case .tabGroup(var group):
-            group.tabs.append(tab)
-            group.activeTabIndex = group.tabs.count - 1
-            return .tabGroup(group)
-        case .split(var split):
-            if !split.children.isEmpty {
-                split.children[0] = insertTab(tab, into: split.children[0])
+    private func insertChild(_ child: Panel, into stagePanel: Panel) -> Panel {
+        guard case .group(var group) = stagePanel.content else { return stagePanel }
+
+        switch group.style {
+        case .tabs, .thumbnails:
+            group.children.append(child)
+            group.activeIndex = group.children.count - 1
+            var newStage = stagePanel
+            newStage.content = .group(group)
+            return newStage
+
+        case .split:
+            if !group.children.isEmpty {
+                group.children[0] = insertChild(child, into: group.children[0])
             }
-            return .split(split)
-        case .stageHost(var host):
-            if host.activeStageIndex < host.stages.count {
-                host.stages[host.activeStageIndex].layout = insertTab(tab, into: host.stages[host.activeStageIndex].layout)
+            var newStage = stagePanel
+            newStage.content = .group(group)
+            return newStage
+
+        case .stages:
+            if group.activeIndex < group.children.count {
+                group.children[group.activeIndex] = insertChild(child, into: group.children[group.activeIndex])
             }
-            return .stageHost(host)
+            var newStage = stagePanel
+            newStage.content = .group(group)
+            return newStage
         }
     }
 }

@@ -6,14 +6,14 @@ class ModernTabRenderer: DockTabRenderer {
 
     var tabBarHeight: CGFloat { 40 }
 
-    func createTabView(for tab: DockTab, isSelected: Bool) -> DockTabView {
+    func createTabView(for panel: Panel, isSelected: Bool) -> DockTabView {
         let view = ModernTabView()
-        view.configure(tab: tab, isSelected: isSelected)
+        view.configure(panel: panel, isSelected: isSelected)
         return view
     }
 
-    func updateTabView(_ view: DockTabView, for tab: DockTab, isSelected: Bool) {
-        (view as? ModernTabView)?.configure(tab: tab, isSelected: isSelected)
+    func updateTabView(_ view: DockTabView, for panel: Panel, isSelected: Bool) {
+        (view as? ModernTabView)?.configure(panel: panel, isSelected: isSelected)
     }
 
     func setFocused(_ focused: Bool, on view: DockTabView) {
@@ -139,11 +139,12 @@ class ModernTabView: NSView, DockTabView {
         backgroundLayer.frame = bounds.insetBy(dx: 2, dy: 4)
     }
 
-    func configure(tab: DockTab, isSelected: Bool) {
+    func configure(panel: Panel, isSelected: Bool) {
         self.isSelected = isSelected
 
-        // Set icon with gradient tint
-        if let icon = tab.icon {
+        // Set icon from panel's iconName
+        if let iconName = panel.iconName,
+           let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: panel.title) {
             iconView.image = icon
             iconView.contentTintColor = isSelected ? .controlAccentColor : .secondaryLabelColor
         } else {
@@ -151,7 +152,7 @@ class ModernTabView: NSView, DockTabView {
             iconView.contentTintColor = isSelected ? .controlAccentColor : .tertiaryLabelColor
         }
 
-        titleLabel.stringValue = tab.title
+        titleLabel.stringValue = panel.title ?? ""
 
         updateAppearance()
     }

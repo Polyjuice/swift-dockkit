@@ -7,49 +7,49 @@ import CoreGraphics
 /// These methods return new layout instances (immutable pattern) for use with updateLayout()
 public extension DockLayout {
 
-    // MARK: - Window Operations
+    // MARK: - Panel (Window) Operations
 
-    /// Create a layout with a new window added
-    func addingWindow(_ window: WindowState) -> DockLayout {
+    /// Create a layout with a new root panel added
+    func addingPanel(_ panel: Panel) -> DockLayout {
         var newLayout = self
-        newLayout.windows.append(window)
+        newLayout.panels.append(panel)
         return newLayout
     }
 
-    /// Create a layout with a window removed
-    func removingWindow(_ windowId: UUID) -> DockLayout {
+    /// Create a layout with a root panel removed
+    func removingPanel(_ panelId: UUID) -> DockLayout {
         var newLayout = self
-        newLayout.windows.removeAll { $0.id == windowId }
+        newLayout.panels.removeAll { $0.id == panelId }
         return newLayout
     }
 
-    /// Create a layout with a window's frame updated
-    func updatingWindowFrame(_ windowId: UUID, frame: CGRect) -> DockLayout {
+    /// Create a layout with a root panel's frame updated
+    func updatingPanelFrame(_ panelId: UUID, frame: CGRect) -> DockLayout {
         var newLayout = self
-        if let index = newLayout.windows.firstIndex(where: { $0.id == windowId }) {
-            newLayout.windows[index].frame = frame
+        if let index = newLayout.panels.firstIndex(where: { $0.id == panelId }) {
+            newLayout.panels[index].frame = frame
         }
         return newLayout
     }
 
-    /// Create a layout with a window's fullscreen state updated
-    func updatingWindowFullScreen(_ windowId: UUID, isFullScreen: Bool) -> DockLayout {
+    /// Create a layout with a root panel's fullscreen state updated
+    func updatingPanelFullScreen(_ panelId: UUID, isFullScreen: Bool) -> DockLayout {
         var newLayout = self
-        if let index = newLayout.windows.firstIndex(where: { $0.id == windowId }) {
-            newLayout.windows[index].isFullScreen = isFullScreen
+        if let index = newLayout.panels.firstIndex(where: { $0.id == panelId }) {
+            newLayout.panels[index].isFullScreen = isFullScreen
         }
         return newLayout
     }
 
-    // MARK: - Tab Operations
+    // MARK: - Child Panel Operations
 
-    /// Create a layout with a tab added to a specific group
-    func addingTab(_ tab: TabLayoutState, toGroupId groupId: UUID, at index: Int? = nil) -> DockLayout {
+    /// Create a layout with a content panel added to a specific group
+    func addingChild(_ child: Panel, toGroupId groupId: UUID, at index: Int? = nil) -> DockLayout {
         var newLayout = self
-        for windowIndex in newLayout.windows.indices {
+        for i in newLayout.panels.indices {
             var modified = false
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.addingTab(
-                tab,
+            newLayout.panels[i] = newLayout.panels[i].addingChild(
+                child,
                 toGroupId: groupId,
                 at: index,
                 modified: &modified
@@ -59,56 +59,48 @@ public extension DockLayout {
         return newLayout
     }
 
-    /// Create a layout with a tab removed
-    /// Also removes any windows that become empty as a result
-    func removingTab(_ tabId: UUID) -> DockLayout {
+    /// Create a layout with a panel removed (by ID, anywhere in the tree)
+    /// Also removes any root panels that become empty as a result
+    func removingChild(_ childId: UUID) -> DockLayout {
         var newLayout = self
-        for windowIndex in newLayout.windows.indices {
+        for i in newLayout.panels.indices {
             var modified = false
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.removingTab(
-                tabId,
+            newLayout.panels[i] = newLayout.panels[i].removingChild(
+                childId,
                 modified: &modified
             )
             if modified { break }
         }
-        // Clean up empty windows
-        newLayout.windows.removeAll { window in
-            window.rootNode.isEmpty
-        }
+        // Clean up empty root panels
+        newLayout.panels.removeAll { $0.isEmpty }
         return newLayout
     }
 
-    /// Create a layout with a tab moved between groups
-    func movingTab(_ tabId: UUID, toGroupId: UUID, at index: Int) -> DockLayout {
-        // First find and extract the tab
-        guard let tabInfo = findTab(tabId) else {
-            // Tab not found in layout - this can happen if layout is stale
-            // Return unchanged layout to prevent corruption
-            print("[LAYOUT] Warning: movingTab - tab \(tabId.uuidString.prefix(8)) not found in layout")
+    /// Create a layout with a panel moved between groups
+    func movingChild(_ childId: UUID, toGroupId: UUID, at index: Int) -> DockLayout {
+        // First find and extract the panel
+        guard let childInfo = findChild(childId) else {
+            print("[LAYOUT] Warning: movingChild - panel \(childId.uuidString.prefix(8)) not found in layout")
             return self
         }
 
         // If the source and target group are the same, this is just a reorder
-        // We still need to handle this case properly
-        if tabInfo.groupId == toGroupId {
-            // Check if this is a no-op (moving to same position or adjacent position)
-            // Find current position of the tab
-            if let groupInfo = findTabGroup(toGroupId),
-               let currentIndex = groupInfo.group.tabs.firstIndex(where: { $0.id == tabId }) {
-                // Check if move is effectively a no-op
-                // Moving to same position OR moving to position right after current (which becomes same after remove)
+        if childInfo.groupId == toGroupId {
+            // Check if this is a no-op
+            if let groupInfo = findGroupPanel(toGroupId),
+               let group = groupInfo.panel.group,
+               let currentIndex = group.children.firstIndex(where: { $0.id == childId }) {
                 if currentIndex == index || currentIndex == index - 1 {
-                    // No-op - tab is already at this position
                     return self
                 }
             }
 
-            // Just do a reorder within the same group
+            // Reorder within the same group
             var newLayout = self
-            for windowIndex in newLayout.windows.indices {
+            for i in newLayout.panels.indices {
                 var modified = false
-                newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.reorderingTab(
-                    tabId,
+                newLayout.panels[i] = newLayout.panels[i].reorderingChild(
+                    childId,
                     inGroupId: toGroupId,
                     to: index,
                     modified: &modified
@@ -118,47 +110,42 @@ public extension DockLayout {
             return newLayout
         }
 
-        // For cross-group moves:
-        // First, verify the target group exists
-        guard findTabGroup(toGroupId) != nil else {
-            // Target group not found - this can happen if the layout is stale
-            // (e.g., view has a group ID that doesn't match the JSON layout)
-            print("[LAYOUT] Warning: movingTab - target group \(toGroupId.uuidString.prefix(8)) not found in layout")
+        // Cross-group move
+        guard findGroupPanel(toGroupId) != nil else {
+            print("[LAYOUT] Warning: movingChild - target group \(toGroupId.uuidString.prefix(8)) not found in layout")
             return self
         }
 
-        // 1. Remove WITHOUT cleanup (preserve target group even if source becomes empty)
-        // 2. Add to target
-        // 3. Clean up empty nodes afterwards
+        // 1. Remove WITHOUT cleanup
         var newLayout = self
-        for windowIndex in newLayout.windows.indices {
+        for i in newLayout.panels.indices {
             var modified = false
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.removingTabWithoutCleanup(
-                tabId,
+            newLayout.panels[i] = newLayout.panels[i].removingChildWithoutCleanup(
+                childId,
                 modified: &modified
             )
         }
 
-        // Add to target
-        newLayout = newLayout.addingTab(tabInfo.tab, toGroupId: toGroupId, at: index)
+        // 2. Add to target
+        newLayout = newLayout.addingChild(childInfo.panel, toGroupId: toGroupId, at: index)
 
-        // Now clean up empty nodes
-        for windowIndex in newLayout.windows.indices {
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.cleanedUp()
+        // 3. Clean up empty nodes
+        for i in newLayout.panels.indices {
+            newLayout.panels[i] = newLayout.panels[i].cleanedUp()
         }
 
-        // Remove empty windows
-        newLayout.windows.removeAll { $0.rootNode.isEmpty }
+        // 4. Remove empty root panels
+        newLayout.panels.removeAll { $0.isEmpty }
 
         return newLayout
     }
 
-    /// Create a layout with the active tab changed in a group
-    func settingActiveTab(in groupId: UUID, to index: Int) -> DockLayout {
+    /// Create a layout with the active child changed in a group
+    func settingActiveChild(in groupId: UUID, to index: Int) -> DockLayout {
         var newLayout = self
-        for windowIndex in newLayout.windows.indices {
+        for i in newLayout.panels.indices {
             var modified = false
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.settingActiveTab(
+            newLayout.panels[i] = newLayout.panels[i].settingActiveChild(
                 inGroupId: groupId,
                 to: index,
                 modified: &modified
@@ -170,72 +157,63 @@ public extension DockLayout {
 
     // MARK: - Split Operations
 
-    /// Create a layout with a split created from a tab group
-    /// The existing tab group becomes one child, and a new tab group with the given tab becomes the other
-    /// This function handles:
-    /// 1. Removing the tab from its source location (anywhere in the layout)
-    /// 2. Creating the split with the tab in a new group
-    /// 3. Cleaning up empty groups after the operation
+    /// Create a layout with a group split into two
+    /// The existing group becomes one child, and a new group with the given panel becomes the other
     func splitting(
         groupId: UUID,
         direction: DockSplitDirection,
-        withTab tab: TabLayoutState
+        withChild child: Panel
     ) -> DockLayout {
-        // GUARD: Check if this is a no-op (splitting a single-tab group with its only tab)
-        // This happens when you drag a tab from a single-tab window onto the same window's split zone
-        if let groupInfo = findTabGroup(groupId) {
-            let group = groupInfo.group
-            // If the group has exactly 1 tab AND that tab is the one we're splitting with,
-            // this is a no-op - we'd end up with the same single-tab window
-            if group.tabs.count == 1 && group.tabs.first?.id == tab.id {
-                print("[LAYOUT] No-op: Cannot split single-tab group with its only tab")
+        // GUARD: Check if this is a no-op
+        if let groupInfo = findGroupPanel(groupId),
+           let group = groupInfo.panel.group {
+            if group.children.count == 1 && group.children.first?.id == child.id {
+                print("[LAYOUT] No-op: Cannot split single-child group with its only child")
                 return self
             }
         }
 
         var newLayout = self
 
-        // Step 1: First remove the tab from its current location (if it exists)
-        // This handles the case where we're dragging from a different group
-        for windowIndex in newLayout.windows.indices {
+        // Step 1: Remove the child from its current location
+        for i in newLayout.panels.indices {
             var modified = false
-            // Note: We use removingTabWithoutCleanup to avoid collapsing the tree prematurely
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.removingTabWithoutCleanup(
-                tab.id,
+            newLayout.panels[i] = newLayout.panels[i].removingChildWithoutCleanup(
+                child.id,
                 modified: &modified
             )
         }
 
         // Step 2: Do the split operation
-        for windowIndex in newLayout.windows.indices {
+        for i in newLayout.panels.indices {
             var modified = false
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.splitting(
+            newLayout.panels[i] = newLayout.panels[i].splittingGroup(
                 groupId: groupId,
                 direction: direction,
-                withTab: tab,
+                withChild: child,
                 modified: &modified
             )
             if modified { break }
         }
 
-        // Step 3: Clean up empty nodes AFTER the split
-        for windowIndex in newLayout.windows.indices {
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.cleanedUp()
+        // Step 3: Clean up
+        for i in newLayout.panels.indices {
+            newLayout.panels[i] = newLayout.panels[i].cleanedUp()
         }
 
-        // Step 4: Remove completely empty windows
-        newLayout.windows.removeAll { $0.rootNode.isEmpty }
+        // Step 4: Remove empty root panels
+        newLayout.panels.removeAll { $0.isEmpty }
 
         return newLayout
     }
 
     /// Create a layout with split proportions updated
-    func updatingSplitProportions(_ splitId: UUID, proportions: [CGFloat]) -> DockLayout {
+    func updatingSplitProportions(_ groupId: UUID, proportions: [CGFloat]) -> DockLayout {
         var newLayout = self
-        for windowIndex in newLayout.windows.indices {
+        for i in newLayout.panels.indices {
             var modified = false
-            newLayout.windows[windowIndex].rootNode = newLayout.windows[windowIndex].rootNode.updatingSplitProportions(
-                splitId,
+            newLayout.panels[i] = newLayout.panels[i].updatingSplitProportions(
+                groupId,
                 proportions: proportions,
                 modified: &modified
             )
@@ -246,481 +224,339 @@ public extension DockLayout {
 
     // MARK: - Query Helpers
 
-    /// Find a tab by ID and return its info
-    func findTab(_ tabId: UUID) -> (tab: TabLayoutState, groupId: UUID, windowId: UUID)? {
-        for window in windows {
-            if let result = window.rootNode.findTabInfo(tabId) {
-                return (tab: result.tab, groupId: result.groupId, windowId: window.id)
+    /// Find a content panel by ID and return its info
+    func findChild(_ childId: UUID) -> (panel: Panel, groupId: UUID, rootPanelId: UUID)? {
+        for rootPanel in panels {
+            if let result = rootPanel.findChildInfo(childId) {
+                return (panel: result.panel, groupId: result.groupId, rootPanelId: rootPanel.id)
             }
         }
         return nil
     }
 
-    /// Find a tab group by ID
-    func findTabGroup(_ groupId: UUID) -> (group: TabGroupLayoutNode, windowId: UUID)? {
-        for window in windows {
-            if let group = window.rootNode.findTabGroupNode(groupId) {
-                return (group: group, windowId: window.id)
+    /// Find a group panel by its ID
+    func findGroupPanel(_ groupId: UUID) -> (panel: Panel, rootPanelId: UUID)? {
+        for rootPanel in panels {
+            if let found = rootPanel.findPanel(byId: groupId), found.isGroup {
+                return (panel: found, rootPanelId: rootPanel.id)
             }
         }
         return nil
     }
 
-    /// Get all tab IDs in the layout
-    func getAllTabIds() -> Set<UUID> {
+    /// Get all content panel IDs in the layout
+    func getAllContentIds() -> Set<UUID> {
         var ids = Set<UUID>()
-        for window in windows {
-            ids.formUnion(window.rootNode.allTabIds())
+        for panel in panels {
+            ids.formUnion(panel.allContentIds())
         }
         return ids
     }
 
-    /// Get all tab group IDs in the layout
-    func getAllTabGroupIds() -> Set<UUID> {
+    /// Get all group panel IDs in the layout
+    func getAllGroupIds() -> Set<UUID> {
         var ids = Set<UUID>()
-        for window in windows {
-            collectTabGroupIds(from: window.rootNode, into: &ids)
+        for panel in panels {
+            for group in panel.allGroups() {
+                ids.insert(group.id)
+            }
         }
         return ids
-    }
-
-    /// Helper to collect tab group IDs from a node tree
-    private func collectTabGroupIds(from node: DockLayoutNode, into ids: inout Set<UUID>) {
-        switch node {
-        case .tabGroup(let tabGroup):
-            ids.insert(tabGroup.id)
-        case .split(let split):
-            for child in split.children {
-                collectTabGroupIds(from: child, into: &ids)
-            }
-        case .stageHost(let stageHost):
-            // Collect from all stages in the nested host
-            for stage in stageHost.stages {
-                collectTabGroupIds(from: stage.layout, into: &ids)
-            }
-        }
     }
 }
 
-// MARK: - DockLayoutNode Mutation Helpers
+// MARK: - Panel Mutation Helpers (recursive)
 
-extension DockLayoutNode {
+extension Panel {
 
-    /// Add a tab to a specific group
-    func addingTab(_ tab: TabLayoutState, toGroupId groupId: UUID, at index: Int?, modified: inout Bool) -> DockLayoutNode {
-        switch self {
-        case .tabGroup(var tabGroup):
-            if tabGroup.id == groupId {
-                let insertIndex = index ?? tabGroup.tabs.count
-                tabGroup.tabs.insert(tab, at: min(insertIndex, tabGroup.tabs.count))
-                modified = true
-                return .tabGroup(tabGroup)
-            }
-            return self
+    /// Add a child to a specific group
+    func addingChild(_ child: Panel, toGroupId groupId: UUID, at index: Int?, modified: inout Bool) -> Panel {
+        guard case .group(var group) = content else { return self }
 
-        case .split(var split):
-            split.children = split.children.map { child in
-                child.addingTab(tab, toGroupId: groupId, at: index, modified: &modified)
-            }
-            return .split(split)
-
-        case .stageHost(var stageHost):
-            // Recurse into all stages
-            stageHost.stages = stageHost.stages.map { stage in
-                var d = stage
-                d.layout = d.layout.addingTab(tab, toGroupId: groupId, at: index, modified: &modified)
-                return d
-            }
-            return .stageHost(stageHost)
+        if id == groupId {
+            let insertIndex = index ?? group.children.count
+            group.children.insert(child, at: min(insertIndex, group.children.count))
+            group.recalculateProportions()
+            modified = true
+            var newPanel = self
+            newPanel.content = .group(group)
+            return newPanel
         }
+
+        // Recurse into children
+        group.children = group.children.map { $0.addingChild(child, toGroupId: groupId, at: index, modified: &modified) }
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel
     }
 
-    /// Remove a tab from the tree (with automatic cleanup)
-    func removingTab(_ tabId: UUID, modified: inout Bool) -> DockLayoutNode {
-        switch self {
-        case .tabGroup(var tabGroup):
-            let originalCount = tabGroup.tabs.count
-            tabGroup.tabs.removeAll { $0.id == tabId }
-            if tabGroup.tabs.count != originalCount {
-                modified = true
-                // Adjust active tab index if needed
-                if tabGroup.activeTabIndex >= tabGroup.tabs.count {
-                    tabGroup.activeTabIndex = max(0, tabGroup.tabs.count - 1)
-                }
-            }
-            return .tabGroup(tabGroup)
+    /// Remove a child from the tree (with automatic cleanup)
+    func removingChild(_ childId: UUID, modified: inout Bool) -> Panel {
+        guard case .group(var group) = content else { return self }
 
-        case .split(var split):
-            split.children = split.children.map { child in
-                child.removingTab(tabId, modified: &modified)
+        let originalCount = group.children.count
+        group.children.removeAll { $0.id == childId }
+        if group.children.count != originalCount {
+            modified = true
+            if group.activeIndex >= group.children.count {
+                group.activeIndex = max(0, group.children.count - 1)
             }
-            // Clean up empty children and collapse if needed
-            return DockLayoutNode.split(split).cleanedUp()
-
-        case .stageHost(var stageHost):
-            stageHost.stages = stageHost.stages.map { stage in
-                var d = stage
-                d.layout = d.layout.removingTab(tabId, modified: &modified)
-                return d
-            }
-            return .stageHost(stageHost)
+            group.recalculateProportions()
         }
+
+        // Recurse into remaining children
+        group.children = group.children.map { $0.removingChild(childId, modified: &modified) }
+
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel.cleanedUp()
     }
 
-    /// Remove a tab from the tree WITHOUT triggering cleanup
-    /// Used when we need to remove a tab but preserve the tree structure for subsequent operations
-    func removingTabWithoutCleanup(_ tabId: UUID, modified: inout Bool) -> DockLayoutNode {
-        switch self {
-        case .tabGroup(var tabGroup):
-            let originalCount = tabGroup.tabs.count
-            tabGroup.tabs.removeAll { $0.id == tabId }
-            if tabGroup.tabs.count != originalCount {
-                modified = true
-                // Adjust active tab index if needed
-                if tabGroup.activeTabIndex >= tabGroup.tabs.count {
-                    tabGroup.activeTabIndex = max(0, tabGroup.tabs.count - 1)
-                }
-            }
-            return .tabGroup(tabGroup)
+    /// Remove a child WITHOUT triggering cleanup
+    func removingChildWithoutCleanup(_ childId: UUID, modified: inout Bool) -> Panel {
+        guard case .group(var group) = content else { return self }
 
-        case .split(var split):
-            split.children = split.children.map { child in
-                child.removingTabWithoutCleanup(tabId, modified: &modified)
+        let originalCount = group.children.count
+        group.children.removeAll { $0.id == childId }
+        if group.children.count != originalCount {
+            modified = true
+            if group.activeIndex >= group.children.count {
+                group.activeIndex = max(0, group.children.count - 1)
             }
-            return .split(split)
-
-        case .stageHost(var stageHost):
-            stageHost.stages = stageHost.stages.map { stage in
-                var d = stage
-                d.layout = d.layout.removingTabWithoutCleanup(tabId, modified: &modified)
-                return d
-            }
-            return .stageHost(stageHost)
         }
+
+        // Recurse into remaining children
+        group.children = group.children.map { $0.removingChildWithoutCleanup(childId, modified: &modified) }
+
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel
     }
 
-    /// Clean up empty tab groups/splits and collapse splits with single children
-    public func cleanedUp() -> DockLayoutNode {
-        switch self {
-        case .tabGroup:
-            return self
+    /// Clean up empty groups and collapse groups with single children
+    func cleanedUp() -> Panel {
+        guard case .group(var group) = content else { return self }
 
-        case .split(var split):
-            // Recursively clean children first
-            split.children = split.children.map { $0.cleanedUp() }
+        // Recursively clean children first
+        group.children = group.children.map { $0.cleanedUp() }
 
-            // Remove empty nodes (empty tab groups OR empty splits)
-            // A split is empty if it has no children or all children are empty
-            split.children.removeAll { child in
-                child.isEmpty
+        // Remove empty children
+        group.children.removeAll { $0.isEmpty }
+
+        // For split-style groups: collapse if only one child remains
+        if group.style == .split {
+            if group.children.count == 1 {
+                return group.children[0]
             }
-
-            // Collapse if only one child remains
-            if split.children.count == 1 {
-                return split.children[0]
+            if group.children.isEmpty {
+                var newPanel = self
+                newPanel.content = .group(PanelGroup(style: .tabs))
+                return newPanel
             }
-
-            // If no children remain, return empty tab group
-            if split.children.isEmpty {
-                return .tabGroup(TabGroupLayoutNode())
-            }
-
-            // Adjust proportions if children were removed
-            if split.proportions.count != split.children.count {
-                let equalProportion = 1.0 / CGFloat(split.children.count)
-                split.proportions = Array(repeating: equalProportion, count: split.children.count)
-            }
-
-            return .split(split)
-
-        case .stageHost(var stageHost):
-            // Clean up all stages
-            stageHost.stages = stageHost.stages.map { stage in
-                var d = stage
-                d.layout = d.layout.cleanedUp()
-                return d
-            }
-            return .stageHost(stageHost)
         }
+
+        // Adjust proportions if children were removed
+        if group.proportions.count != group.children.count {
+            group.recalculateProportions()
+        }
+
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel
     }
 
-    /// Set active tab in a group
-    func settingActiveTab(inGroupId groupId: UUID, to index: Int, modified: inout Bool) -> DockLayoutNode {
-        switch self {
-        case .tabGroup(var tabGroup):
-            if tabGroup.id == groupId {
-                tabGroup.activeTabIndex = min(index, max(0, tabGroup.tabs.count - 1))
-                modified = true
-                return .tabGroup(tabGroup)
-            }
-            return self
+    /// Set active child in a group
+    func settingActiveChild(inGroupId groupId: UUID, to index: Int, modified: inout Bool) -> Panel {
+        guard case .group(var group) = content else { return self }
 
-        case .split(var split):
-            split.children = split.children.map { child in
-                child.settingActiveTab(inGroupId: groupId, to: index, modified: &modified)
-            }
-            return .split(split)
-
-        case .stageHost(var stageHost):
-            stageHost.stages = stageHost.stages.map { stage in
-                var d = stage
-                d.layout = d.layout.settingActiveTab(inGroupId: groupId, to: index, modified: &modified)
-                return d
-            }
-            return .stageHost(stageHost)
+        if id == groupId {
+            group.activeIndex = min(index, max(0, group.children.count - 1))
+            modified = true
+            var newPanel = self
+            newPanel.content = .group(group)
+            return newPanel
         }
+
+        group.children = group.children.map { $0.settingActiveChild(inGroupId: groupId, to: index, modified: &modified) }
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel
     }
 
-    /// Reorder a tab within the same group
-    /// The target index represents the FINAL desired position in the result array
-    func reorderingTab(_ tabId: UUID, inGroupId groupId: UUID, to index: Int, modified: inout Bool) -> DockLayoutNode {
-        switch self {
-        case .tabGroup(var tabGroup):
-            if tabGroup.id == groupId,
-               let currentIndex = tabGroup.tabs.firstIndex(where: { $0.id == tabId }) {
-                // Remove and reinsert at new position
-                let tab = tabGroup.tabs.remove(at: currentIndex)
-                // The target index represents the FINAL position we want the tab at
-                // Since we removed the tab, the array is now one element shorter
-                // - If moving backward (target < current): use target index as-is
-                // - If moving forward (target > current): use target index as-is
-                //   because target represents final position, not insertion point
-                // Just clamp to valid range
-                let safeIndex = min(max(0, index), tabGroup.tabs.count)
-                tabGroup.tabs.insert(tab, at: safeIndex)
+    /// Reorder a child within the same group
+    func reorderingChild(_ childId: UUID, inGroupId groupId: UUID, to index: Int, modified: inout Bool) -> Panel {
+        guard case .group(var group) = content else { return self }
 
-                // Update active tab index if it was affected
-                if tabGroup.activeTabIndex == currentIndex {
-                    tabGroup.activeTabIndex = safeIndex
-                } else if currentIndex < tabGroup.activeTabIndex && safeIndex >= tabGroup.activeTabIndex {
-                    tabGroup.activeTabIndex -= 1
-                } else if currentIndex > tabGroup.activeTabIndex && safeIndex <= tabGroup.activeTabIndex {
-                    tabGroup.activeTabIndex += 1
-                }
+        if id == groupId,
+           let currentIndex = group.children.firstIndex(where: { $0.id == childId }) {
+            let child = group.children.remove(at: currentIndex)
+            let safeIndex = min(max(0, index), group.children.count)
+            group.children.insert(child, at: safeIndex)
 
-                modified = true
-                return .tabGroup(tabGroup)
+            // Update active index if affected
+            if group.activeIndex == currentIndex {
+                group.activeIndex = safeIndex
+            } else if currentIndex < group.activeIndex && safeIndex >= group.activeIndex {
+                group.activeIndex -= 1
+            } else if currentIndex > group.activeIndex && safeIndex <= group.activeIndex {
+                group.activeIndex += 1
             }
-            return self
 
-        case .split(var split):
-            split.children = split.children.map { child in
-                child.reorderingTab(tabId, inGroupId: groupId, to: index, modified: &modified)
-            }
-            return .split(split)
-
-        case .stageHost(var stageHost):
-            stageHost.stages = stageHost.stages.map { stage in
-                var d = stage
-                d.layout = d.layout.reorderingTab(tabId, inGroupId: groupId, to: index, modified: &modified)
-                return d
-            }
-            return .stageHost(stageHost)
+            modified = true
+            var newPanel = self
+            newPanel.content = .group(group)
+            return newPanel
         }
+
+        group.children = group.children.map { $0.reorderingChild(childId, inGroupId: groupId, to: index, modified: &modified) }
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel
     }
 
-    /// Split a tab group into a split node
-    func splitting(
+    /// Split a group into a split-style group
+    func splittingGroup(
         groupId: UUID,
         direction: DockSplitDirection,
-        withTab tab: TabLayoutState,
+        withChild child: Panel,
         modified: inout Bool
-    ) -> DockLayoutNode {
-        switch self {
-        case .tabGroup(var tabGroup):
-            if tabGroup.id == groupId {
-                // Remove the tab from the source group if it exists there
-                // (this handles the case where we're splitting with an existing tab from this group)
-                tabGroup.tabs.removeAll { $0.id == tab.id }
+    ) -> Panel {
+        guard case .group(var group) = content else { return self }
 
-                // Adjust active tab index if needed
-                if tabGroup.activeTabIndex >= tabGroup.tabs.count {
-                    tabGroup.activeTabIndex = max(0, tabGroup.tabs.count - 1)
-                }
+        if id == groupId {
+            // Remove the child from this group if it's already here
+            group.children.removeAll { $0.id == child.id }
+            if group.activeIndex >= group.children.count {
+                group.activeIndex = max(0, group.children.count - 1)
+            }
 
-                // Create new tab group for the dropped tab
-                let newTabGroup = TabGroupLayoutNode(
-                    id: UUID(),
-                    tabs: [tab],
-                    activeTabIndex: 0
-                )
-
-                // Determine axis and order
-                let axis: SplitAxis = (direction == .left || direction == .right) ? .horizontal : .vertical
-                let insertFirst = (direction == .left || direction == .top)
-
-                // Use the modified tabGroup (with tab removed) as the source
-                let sourceNode = DockLayoutNode.tabGroup(tabGroup)
-                let children: [DockLayoutNode] = insertFirst
-                    ? [.tabGroup(newTabGroup), sourceNode]
-                    : [sourceNode, .tabGroup(newTabGroup)]
-
-                modified = true
-                return .split(SplitLayoutNode(
-                    id: UUID(),
-                    axis: axis,
-                    children: children,
-                    proportions: [0.5, 0.5]
+            // Create new group for the dropped panel
+            let newGroup = Panel(
+                content: .group(PanelGroup(
+                    children: [child],
+                    activeIndex: 0,
+                    style: group.style == .split ? .tabs : group.style
                 ))
-            }
-            return self
+            )
 
-        case .split(var split):
-            split.children = split.children.map { child in
-                child.splitting(groupId: groupId, direction: direction, withTab: tab, modified: &modified)
-            }
-            return .split(split)
+            // Wrap current group as a panel
+            var sourcePanel = self
+            sourcePanel.content = .group(group)
 
-        case .stageHost(var stageHost):
-            stageHost.stages = stageHost.stages.map { stage in
-                var d = stage
-                d.layout = d.layout.splitting(groupId: groupId, direction: direction, withTab: tab, modified: &modified)
-                return d
-            }
-            return .stageHost(stageHost)
+            // Determine axis and order
+            let axis: SplitAxis = (direction == .left || direction == .right) ? .horizontal : .vertical
+            let insertFirst = (direction == .left || direction == .top)
+
+            let children: [Panel] = insertFirst
+                ? [newGroup, sourcePanel]
+                : [sourcePanel, newGroup]
+
+            modified = true
+            // Return a new split-style panel wrapping both
+            return Panel(
+                id: UUID(),
+                content: .group(PanelGroup(
+                    children: children,
+                    activeIndex: 0,
+                    axis: axis,
+                    proportions: [0.5, 0.5],
+                    style: .split
+                ))
+            )
         }
+
+        // Recurse into children
+        group.children = group.children.map { $0.splittingGroup(groupId: groupId, direction: direction, withChild: child, modified: &modified) }
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel
     }
 
     /// Update split proportions
-    func updatingSplitProportions(_ splitId: UUID, proportions: [CGFloat], modified: inout Bool) -> DockLayoutNode {
-        switch self {
-        case .tabGroup:
-            return self
+    func updatingSplitProportions(_ groupId: UUID, proportions: [CGFloat], modified: inout Bool) -> Panel {
+        guard case .group(var group) = content else { return self }
 
-        case .split(var split):
-            if split.id == splitId && proportions.count == split.proportions.count {
-                split.proportions = proportions
-                modified = true
-                return .split(split)
-            }
-            split.children = split.children.map { child in
-                child.updatingSplitProportions(splitId, proportions: proportions, modified: &modified)
-            }
-            return .split(split)
-
-        case .stageHost(var stageHost):
-            stageHost.stages = stageHost.stages.map { stage in
-                var d = stage
-                d.layout = d.layout.updatingSplitProportions(splitId, proportions: proportions, modified: &modified)
-                return d
-            }
-            return .stageHost(stageHost)
+        if id == groupId && group.style == .split && proportions.count == group.proportions.count {
+            group.proportions = proportions
+            modified = true
+            var newPanel = self
+            newPanel.content = .group(group)
+            return newPanel
         }
+
+        group.children = group.children.map { $0.updatingSplitProportions(groupId, proportions: proportions, modified: &modified) }
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel
     }
 
     // MARK: - Query Helpers
 
-    /// Find a tab by ID (returns tab and its group ID)
-    func findTabInfo(_ tabId: UUID) -> (tab: TabLayoutState, groupId: UUID)? {
-        switch self {
-        case .tabGroup(let tabGroup):
-            if let tab = tabGroup.tabs.first(where: { $0.id == tabId }) {
-                return (tab: tab, groupId: tabGroup.id)
-            }
-            return nil
+    /// Find a child panel by ID (returns panel and its parent group ID)
+    func findChildInfo(_ childId: UUID) -> (panel: Panel, groupId: UUID)? {
+        guard case .group(let group) = content else { return nil }
 
-        case .split(let split):
-            for child in split.children {
-                if let result = child.findTabInfo(tabId) {
-                    return result
-                }
-            }
-            return nil
-
-        case .stageHost(let stageHost):
-            for stage in stageHost.stages {
-                if let result = stage.layout.findTabInfo(tabId) {
-                    return result
-                }
-            }
-            return nil
-        }
-    }
-
-    /// Find a tab group by ID
-    func findTabGroupNode(_ groupId: UUID) -> TabGroupLayoutNode? {
-        switch self {
-        case .tabGroup(let tabGroup):
-            return tabGroup.id == groupId ? tabGroup : nil
-
-        case .split(let split):
-            for child in split.children {
-                if let result = child.findTabGroupNode(groupId) {
-                    return result
-                }
-            }
-            return nil
-
-        case .stageHost(let stageHost):
-            for stage in stageHost.stages {
-                if let result = stage.layout.findTabGroupNode(groupId) {
-                    return result
-                }
-            }
-            return nil
-        }
-    }
-
-    // MARK: - Convenience Methods (without modified parameter)
-
-    /// Move a tab to a different group (convenience method)
-    public func movingTab(_ tabId: UUID, toGroupId: UUID, at index: Int) -> DockLayoutNode {
-        // First find the tab info
-        guard let tabInfo = findTabInfo(tabId) else { return self }
-
-        // Remove from source, add to target
-        var modified = false
-        var result = removingTabWithoutCleanup(tabId, modified: &modified)
-        result = result.addingTab(tabInfo.tab, toGroupId: toGroupId, at: index, modified: &modified)
-        return result.cleanedUp()
-    }
-
-    /// Split a tab group (convenience method)
-    public func splitting(groupId: UUID, direction: DockSplitDirection, withTab tab: TabLayoutState) -> DockLayoutNode {
-        // GUARD: Check if this is a no-op (splitting a single-tab group with its only tab)
-        if let group = findTabGroupNode(groupId) {
-            if group.tabs.count == 1 && group.tabs.first?.id == tab.id {
-                return self
-            }
+        // Check direct children
+        if let child = group.children.first(where: { $0.id == childId }) {
+            return (panel: child, groupId: id)
         }
 
-        var modified = false
-        var result = removingTabWithoutCleanup(tab.id, modified: &modified)
-        result = result.splitting(groupId: groupId, direction: direction, withTab: tab, modified: &modified)
-        return result.cleanedUp()
+        // Recurse into children
+        for child in group.children {
+            if let result = child.findChildInfo(childId) {
+                return result
+            }
+        }
+        return nil
+    }
+
+    /// Find a group panel by ID within this tree
+    func findGroupPanel(_ groupId: UUID) -> Panel? {
+        if id == groupId && isGroup { return self }
+        guard case .group(let group) = content else { return nil }
+        for child in group.children {
+            if let found = child.findGroupPanel(groupId) { return found }
+        }
+        return nil
     }
 }
 
 // MARK: - Factory Methods
 
-public extension WindowState {
-    /// Create a simple window with a single tab group
-    static func simple(
+public extension Panel {
+    /// Create a simple window panel with a tab group
+    static func simpleWindow(
         id: UUID = UUID(),
         frame: CGRect = CGRect(x: 100, y: 100, width: 800, height: 600),
-        tabs: [TabLayoutState] = [],
-        activeTabIndex: Int = 0
-    ) -> WindowState {
-        WindowState(
+        children: [Panel] = [],
+        activeIndex: Int = 0
+    ) -> Panel {
+        Panel(
             id: id,
+            content: .group(PanelGroup(
+                children: children,
+                activeIndex: activeIndex,
+                style: .tabs
+            )),
+            isTopLevelWindow: true,
             frame: frame,
-            isFullScreen: false,
-            rootNode: .tabGroup(TabGroupLayoutNode(
-                id: UUID(),
-                tabs: tabs,
-                activeTabIndex: activeTabIndex
-            ))
+            isFullScreen: false
         )
     }
-}
 
-public extension TabLayoutState {
-    /// Create a tab state from basic info
-    static func create(
-        id: UUID,
+    /// Create a content panel (leaf)
+    static func contentPanel(
+        id: UUID = UUID(),
         title: String,
-        iconName: String? = nil
-    ) -> TabLayoutState {
-        TabLayoutState(id: id, title: title, iconName: iconName)
+        iconName: String? = nil,
+        cargo: [String: AnyCodable]? = nil
+    ) -> Panel {
+        Panel(
+            id: id,
+            title: title,
+            iconName: iconName,
+            cargo: cargo,
+            content: .content
+        )
     }
 }

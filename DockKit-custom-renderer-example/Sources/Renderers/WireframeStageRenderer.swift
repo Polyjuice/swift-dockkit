@@ -7,13 +7,13 @@ class WireframeStageRenderer: DockStageRenderer {
 
     var headerHeight: CGFloat { 44 }
 
-    func createStageView(for stage: Stage, index: Int, isActive: Bool) -> DockStageView {
+    func createStageView(for stage: Panel, index: Int, isActive: Bool) -> DockStageView {
         let view = WireframeStageView(stage: stage, index: index)
         view.setActive(isActive)
         return view
     }
 
-    func updateStageView(_ view: DockStageView, for stage: Stage, index: Int, isActive: Bool) {
+    func updateStageView(_ view: DockStageView, for stage: Panel, index: Int, isActive: Bool) {
         (view as? WireframeStageView)?.setActive(isActive)
     }
 
@@ -30,6 +30,7 @@ class WireframeStageRenderer: DockStageRenderer {
 
 class WireframeStageView: NSView, DockStageView {
     var onSelect: ((Int) -> Void)?
+    var onClose: (() -> Void)?
     var stageIndex: Int
 
     private var titleLabel: NSTextField!
@@ -38,7 +39,7 @@ class WireframeStageView: NSView, DockStageView {
     private var isSwipeTarget: Bool = false
     private var isHovering: Bool = false
 
-    init(stage: Stage, index: Int) {
+    init(stage: Panel, index: Int) {
         self.stageIndex = index
         super.init(frame: .zero)
         setupUI(stage: stage, index: index)
@@ -48,7 +49,7 @@ class WireframeStageView: NSView, DockStageView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setupUI(stage: Stage, index: Int) {
+    private func setupUI(stage: Panel, index: Int) {
         wantsLayer = true
         layer?.backgroundColor = NSColor.white.cgColor
         layer?.borderColor = NSColor.black.cgColor
@@ -66,7 +67,7 @@ class WireframeStageView: NSView, DockStageView {
         addSubview(indexLabel)
 
         // Title
-        titleLabel = NSTextField(labelWithString: (stage.title ?? "DESKTOP").uppercased())
+        titleLabel = NSTextField(labelWithString: (stage.title ?? "STAGE").uppercased())
         titleLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
         titleLabel.textColor = .black
         titleLabel.alignment = .center

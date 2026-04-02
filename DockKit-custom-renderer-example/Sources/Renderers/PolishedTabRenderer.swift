@@ -7,14 +7,14 @@ class PolishedTabRenderer: DockTabRenderer {
 
     var tabBarHeight: CGFloat { 44 }
 
-    func createTabView(for tab: DockTab, isSelected: Bool) -> DockTabView {
+    func createTabView(for panel: Panel, isSelected: Bool) -> DockTabView {
         let view = PolishedTabView()
-        view.configure(tab: tab, isSelected: isSelected)
+        view.configure(panel: panel, isSelected: isSelected)
         return view
     }
 
-    func updateTabView(_ view: DockTabView, for tab: DockTab, isSelected: Bool) {
-        (view as? PolishedTabView)?.configure(tab: tab, isSelected: isSelected)
+    func updateTabView(_ view: DockTabView, for panel: Panel, isSelected: Bool) {
+        (view as? PolishedTabView)?.configure(panel: panel, isSelected: isSelected)
     }
 
     func setFocused(_ focused: Bool, on view: DockTabView) {
@@ -164,18 +164,19 @@ class PolishedTabView: NSView, DockTabView {
         highlightLayer.frame = backgroundView.frame
     }
 
-    func configure(tab: DockTab, isSelected: Bool) {
+    func configure(panel: Panel, isSelected: Bool) {
         self.isSelected = isSelected
 
-        // Set icon with color
-        if let icon = tab.icon {
+        // Set icon from panel's iconName
+        if let iconName = panel.iconName,
+           let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: panel.title) {
             iconView.image = icon
         } else {
             iconView.image = NSImage(systemSymbolName: "doc.fill", accessibilityDescription: nil)
         }
         iconView.contentTintColor = isSelected ? .controlAccentColor : .tertiaryLabelColor
 
-        titleLabel.stringValue = tab.title
+        titleLabel.stringValue = panel.title ?? ""
 
         updateAppearance()
     }

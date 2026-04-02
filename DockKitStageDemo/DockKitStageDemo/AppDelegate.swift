@@ -37,17 +37,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let designStage = createDesignStage(with: designPanels)
         let notesStage = createNotesStage(with: notesPanels)
 
-        // Create the stage host state
-        let stageHostState = StageHostWindowState(
-            frame: NSRect(x: 100, y: 100, width: 1200, height: 800),
-            activeStageIndex: 0,
-            stages: [codingStage, designStage, notesStage]
+        // Create the root panel with stages group style
+        let rootPanel = Panel(
+            content: .group(PanelGroup(
+                children: [codingStage, designStage, notesStage],
+                activeIndex: 0,
+                style: .stages
+            )),
+            isTopLevelWindow: true,
+            frame: CGRect(x: 100, y: 100, width: 1200, height: 800),
+            isFullScreen: false
         )
 
         // Create the window with panel provider available during init
         stageWindow = DockStageHostWindow(
-            stageHostState: stageHostState,
-            frame: stageHostState.frame,
+            panel: rootPanel,
+            frame: NSRect(x: 100, y: 100, width: 1200, height: 800),
             panelProvider: { [weak self] id in
                 self?.panelRegistry[id]
             }
@@ -107,83 +112,98 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
+    // MARK: - Helper: Content Panel from DockablePanel
+
+    private func contentPanel(for dockable: any DockablePanel) -> Panel {
+        Panel.contentPanel(id: dockable.panelId, title: dockable.panelTitle)
+    }
+
+    // MARK: - Helper: Tabs Group Panel
+
+    private func tabsGroup(from dockables: [any DockablePanel], activeIndex: Int = 0) -> Panel {
+        Panel(content: .group(PanelGroup(
+            children: dockables.map { contentPanel(for: $0) },
+            activeIndex: activeIndex,
+            style: .tabs
+        )))
+    }
+
     // MARK: - Nested Stage Host Creation (Version 3 Feature)
 
     /// Create a nested stage host containing multiple project workspaces
-    private func createNestedProjectsHost(with panels: [any DockablePanel]) -> StageHostLayoutNode {
-        // Project A: editor + terminal
+    private func createNestedProjectsHost(with panels: [any DockablePanel]) -> Panel {
+        // Project A: editor + terminal (vertical split)
         let projectAEditor = panels[0]
         let projectATerminal = panels[1]
-        let projectALayout = SplitLayoutNode(
-            axis: .vertical,
+        let projectALayout = Panel(content: .group(PanelGroup(
             children: [
-                .tabGroup(TabGroupLayoutNode(
-                    tabs: [TabLayoutState(id: projectAEditor.panelId, title: projectAEditor.panelTitle)],
-                    activeTabIndex: 0
-                )),
-                .tabGroup(TabGroupLayoutNode(
-                    tabs: [TabLayoutState(id: projectATerminal.panelId, title: projectATerminal.panelTitle)],
-                    activeTabIndex: 0
-                ))
+                tabsGroup(from: [projectAEditor]),
+                tabsGroup(from: [projectATerminal])
             ],
-            proportions: [0.7, 0.3]
-        )
+            axis: .vertical,
+            proportions: [0.7, 0.3],
+            style: .split
+        )))
 
-        // Project B: editor + terminal
+        // Project B: editor + terminal (vertical split)
         let projectBEditor = panels[2]
         let projectBTerminal = panels[3]
-        let projectBLayout = SplitLayoutNode(
-            axis: .vertical,
+        let projectBLayout = Panel(content: .group(PanelGroup(
             children: [
-                .tabGroup(TabGroupLayoutNode(
-                    tabs: [TabLayoutState(id: projectBEditor.panelId, title: projectBEditor.panelTitle)],
-                    activeTabIndex: 0
-                )),
-                .tabGroup(TabGroupLayoutNode(
-                    tabs: [TabLayoutState(id: projectBTerminal.panelId, title: projectBTerminal.panelTitle)],
-                    activeTabIndex: 0
-                ))
+                tabsGroup(from: [projectBEditor]),
+                tabsGroup(from: [projectBTerminal])
             ],
-            proportions: [0.7, 0.3]
-        )
+            axis: .vertical,
+            proportions: [0.7, 0.3],
+            style: .split
+        )))
 
-        // Project C: editor + terminal
+        // Project C: editor + terminal (vertical split)
         let projectCEditor = panels[4]
         let projectCTerminal = panels[5]
-        let projectCLayout = SplitLayoutNode(
-            axis: .vertical,
+        let projectCLayout = Panel(content: .group(PanelGroup(
             children: [
-                .tabGroup(TabGroupLayoutNode(
-                    tabs: [TabLayoutState(id: projectCEditor.panelId, title: projectCEditor.panelTitle)],
-                    activeTabIndex: 0
-                )),
-                .tabGroup(TabGroupLayoutNode(
-                    tabs: [TabLayoutState(id: projectCTerminal.panelId, title: projectCTerminal.panelTitle)],
-                    activeTabIndex: 0
-                ))
+                tabsGroup(from: [projectCEditor]),
+                tabsGroup(from: [projectCTerminal])
             ],
-            proportions: [0.7, 0.3]
+            axis: .vertical,
+            proportions: [0.7, 0.3],
+            style: .split
+        )))
+
+        // Create nested stages for each project -- each "stage" is a Panel
+        // whose content is the project's layout (a group)
+        let projectAStage = Panel(
+            title: "Project A",
+            iconName: "a.circle.fill",
+            content: projectALayout.content
+        )
+        let projectBStage = Panel(
+            title: "Project B",
+            iconName: "b.circle.fill",
+            content: projectBLayout.content
+        )
+        let projectCStage = Panel(
+            title: "Project C",
+            iconName: "c.circle.fill",
+            content: projectCLayout.content
         )
 
-        // Create nested stages for each project
-        let projectStages = [
-            Stage(title: "Project A", iconName: "a.circle.fill", layout: .split(projectALayout)),
-            Stage(title: "Project B", iconName: "b.circle.fill", layout: .split(projectBLayout)),
-            Stage(title: "Project C", iconName: "c.circle.fill", layout: .split(projectCLayout))
-        ]
-
-        return StageHostLayoutNode(
+        // The nested stage host is a Panel with .group(style: .stages)
+        return Panel(
             title: "Projects",
             iconName: "folder.fill.badge.gearshape",
-            activeStageIndex: 0,
-            stages: projectStages,
-            displayMode: .thumbnails
+            content: .group(PanelGroup(
+                children: [projectAStage, projectBStage, projectCStage],
+                activeIndex: 0,
+                style: .stages
+            ))
         )
     }
 
     // MARK: - Stage Layout Creation
 
-    private func createCodingStage(with panels: [any DockablePanel], nestedProjectsHost: StageHostLayoutNode) -> Stage {
+    private func createCodingStage(with panels: [any DockablePanel], nestedProjectsHost: Panel) -> Panel {
         // Layout: [Explorer | [Nested Projects Host] / [Terminal, Console]] | Git
         // The nested projects host replaces the editor tabs, showing a swipeable workspace
         let explorer = panels[0]
@@ -191,55 +211,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let git = panels[4]
         let console = panels[5]
 
-        let explorerGroup = TabGroupLayoutNode(
-            tabs: [TabLayoutState(id: explorer.panelId, title: explorer.panelTitle)],
-            activeTabIndex: 0
-        )
+        let explorerGroup = tabsGroup(from: [explorer])
 
         // Terminal and Console share bottom area as tabs
-        let bottomGroup = TabGroupLayoutNode(
-            tabs: [
-                TabLayoutState(id: terminal.panelId, title: terminal.panelTitle),
-                TabLayoutState(id: console.panelId, title: console.panelTitle)
-            ],
-            activeTabIndex: 1  // Start with Console active to see cursor logs
-        )
+        let bottomGroup = Panel(content: .group(PanelGroup(
+            children: [contentPanel(for: terminal), contentPanel(for: console)],
+            activeIndex: 1,  // Start with Console active to see cursor logs
+            style: .tabs
+        )))
 
-        let gitGroup = TabGroupLayoutNode(
-            tabs: [TabLayoutState(id: git.panelId, title: git.panelTitle)],
-            activeTabIndex: 0
-        )
+        let gitGroup = tabsGroup(from: [git])
 
         // Center area: Nested stage host on top, terminal/console on bottom
         // The nested host allows swiping between Project A, B, C workspaces
-        let centerArea = SplitLayoutNode(
-            axis: .vertical,
+        let centerArea = Panel(content: .group(PanelGroup(
             children: [
-                .stageHost(nestedProjectsHost),  // Version 3: Nested stage host!
-                .tabGroup(bottomGroup)
+                nestedProjectsHost,  // Version 3: Nested stage host!
+                bottomGroup
             ],
-            proportions: [0.7, 0.3]
-        )
+            axis: .vertical,
+            proportions: [0.7, 0.3],
+            style: .split
+        )))
 
         // Main split: Explorer | Center Area (with nested host) | Git
-        let mainSplit = SplitLayoutNode(
-            axis: .horizontal,
+        let mainSplit = Panel(content: .group(PanelGroup(
             children: [
-                .tabGroup(explorerGroup),
-                .split(centerArea),
-                .tabGroup(gitGroup)
+                explorerGroup,
+                centerArea,
+                gitGroup
             ],
-            proportions: [0.2, 0.6, 0.2]
-        )
+            axis: .horizontal,
+            proportions: [0.2, 0.6, 0.2],
+            style: .split
+        )))
 
-        return Stage(
+        return Panel(
             title: "Coding",
             iconName: "chevron.left.forwardslash.chevron.right",
-            layout: .split(mainSplit)
+            content: mainSplit.content
         )
     }
 
-    private func createDesignStage(with panels: [any DockablePanel]) -> Stage {
+    private func createDesignStage(with panels: [any DockablePanel]) -> Panel {
         // Layout: [Layers | [Canvas1, Canvas2] | Colors / Assets]
         let canvas1 = panels[0]
         let canvas2 = panels[1]
@@ -247,97 +261,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let colors = panels[3]
         let assets = panels[4]
 
-        let layersGroup = TabGroupLayoutNode(
-            tabs: [TabLayoutState(id: layers.panelId, title: layers.panelTitle)],
-            activeTabIndex: 0
-        )
-
-        let canvasGroup = TabGroupLayoutNode(
-            tabs: [
-                TabLayoutState(id: canvas1.panelId, title: canvas1.panelTitle),
-                TabLayoutState(id: canvas2.panelId, title: canvas2.panelTitle)
-            ],
-            activeTabIndex: 0
-        )
-
-        let colorsGroup = TabGroupLayoutNode(
-            tabs: [TabLayoutState(id: colors.panelId, title: colors.panelTitle)],
-            activeTabIndex: 0
-        )
-
-        let assetsGroup = TabGroupLayoutNode(
-            tabs: [TabLayoutState(id: assets.panelId, title: assets.panelTitle)],
-            activeTabIndex: 0
-        )
+        let layersGroup = tabsGroup(from: [layers])
+        let canvasGroup = tabsGroup(from: [canvas1, canvas2])
+        let colorsGroup = tabsGroup(from: [colors])
+        let assetsGroup = tabsGroup(from: [assets])
 
         // Right sidebar: Colors on top, Assets on bottom
-        let rightSidebar = SplitLayoutNode(
+        let rightSidebar = Panel(content: .group(PanelGroup(
+            children: [colorsGroup, assetsGroup],
             axis: .vertical,
-            children: [
-                .tabGroup(colorsGroup),
-                .tabGroup(assetsGroup)
-            ],
-            proportions: [0.5, 0.5]
-        )
+            proportions: [0.5, 0.5],
+            style: .split
+        )))
 
         // Main split: Layers | Canvas | Right Sidebar
-        let mainSplit = SplitLayoutNode(
+        let mainSplit = Panel(content: .group(PanelGroup(
+            children: [layersGroup, canvasGroup, rightSidebar],
             axis: .horizontal,
-            children: [
-                .tabGroup(layersGroup),
-                .tabGroup(canvasGroup),
-                .split(rightSidebar)
-            ],
-            proportions: [0.15, 0.65, 0.2]
-        )
+            proportions: [0.15, 0.65, 0.2],
+            style: .split
+        )))
 
-        return Stage(
+        return Panel(
             title: "Design",
             iconName: "paintbrush.fill",
-            layout: .split(mainSplit)
+            content: mainSplit.content
         )
     }
 
-    private func createNotesStage(with panels: [any DockablePanel]) -> Stage {
+    private func createNotesStage(with panels: [any DockablePanel]) -> Panel {
         // Layout: [Notes List | [Note Editor 1, Note Editor 2] | Tags]
         let notesList = panels[0]
         let noteEditor1 = panels[1]
         let noteEditor2 = panels[2]
         let tags = panels[3]
 
-        let notesListGroup = TabGroupLayoutNode(
-            tabs: [TabLayoutState(id: notesList.panelId, title: notesList.panelTitle)],
-            activeTabIndex: 0
-        )
-
-        let editorsGroup = TabGroupLayoutNode(
-            tabs: [
-                TabLayoutState(id: noteEditor1.panelId, title: noteEditor1.panelTitle),
-                TabLayoutState(id: noteEditor2.panelId, title: noteEditor2.panelTitle)
-            ],
-            activeTabIndex: 0
-        )
-
-        let tagsGroup = TabGroupLayoutNode(
-            tabs: [TabLayoutState(id: tags.panelId, title: tags.panelTitle)],
-            activeTabIndex: 0
-        )
+        let notesListGroup = tabsGroup(from: [notesList])
+        let editorsGroup = tabsGroup(from: [noteEditor1, noteEditor2])
+        let tagsGroup = tabsGroup(from: [tags])
 
         // Main split: Notes List | Editors | Tags
-        let mainSplit = SplitLayoutNode(
+        let mainSplit = Panel(content: .group(PanelGroup(
+            children: [notesListGroup, editorsGroup, tagsGroup],
             axis: .horizontal,
-            children: [
-                .tabGroup(notesListGroup),
-                .tabGroup(editorsGroup),
-                .tabGroup(tagsGroup)
-            ],
-            proportions: [0.2, 0.6, 0.2]
-        )
+            proportions: [0.2, 0.6, 0.2],
+            style: .split
+        )))
 
-        return Stage(
+        return Panel(
             title: "Notes",
             iconName: "note.text",
-            layout: .split(mainSplit)
+            content: mainSplit.content
         )
     }
 
@@ -420,7 +394,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func previousStage(_ sender: Any?) {
         guard let window = stageWindow else { return }
-        let current = window.stageHostState.activeStageIndex
+        let current = window.controller.activeStageIndex
         if current > 0 {
             window.switchToStage(at: current - 1, animated: true)
         }
@@ -428,8 +402,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func nextStage(_ sender: Any?) {
         guard let window = stageWindow else { return }
-        let current = window.stageHostState.activeStageIndex
-        if current < window.stageHostState.stages.count - 1 {
+        let current = window.controller.activeStageIndex
+        if current < window.controller.stages.count - 1 {
             window.switchToStage(at: current + 1, animated: true)
         }
     }

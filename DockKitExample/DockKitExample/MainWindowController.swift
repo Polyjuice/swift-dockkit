@@ -54,64 +54,65 @@ class MainWindowController: NSWindowController {
         // [Explorer | [Editor1, Editor2] | Inspector]
         //           [      Console       ]
 
-        let explorerGroup = TabGroupLayoutNode(
-            id: UUID(),
-            tabs: [TabLayoutState(id: explorer.panelId, title: explorer.panelTitle)],
-            activeTabIndex: 0
+        let explorerGroup = Panel(
+            content: .group(PanelGroup(
+                children: [Panel.contentPanel(id: explorer.panelId, title: explorer.panelTitle)],
+                activeIndex: 0,
+                style: .tabs
+            ))
         )
 
-        let editorGroup = TabGroupLayoutNode(
-            id: UUID(),
-            tabs: [
-                TabLayoutState(id: editor1.panelId, title: editor1.panelTitle),
-                TabLayoutState(id: editor2.panelId, title: editor2.panelTitle)
-            ],
-            activeTabIndex: 0
+        let editorGroup = Panel(
+            content: .group(PanelGroup(
+                children: [
+                    Panel.contentPanel(id: editor1.panelId, title: editor1.panelTitle),
+                    Panel.contentPanel(id: editor2.panelId, title: editor2.panelTitle)
+                ],
+                activeIndex: 0,
+                style: .tabs
+            ))
         )
 
-        let consoleGroup = TabGroupLayoutNode(
-            id: UUID(),
-            tabs: [TabLayoutState(id: console.panelId, title: console.panelTitle)],
-            activeTabIndex: 0
+        let consoleGroup = Panel(
+            content: .group(PanelGroup(
+                children: [Panel.contentPanel(id: console.panelId, title: console.panelTitle)],
+                activeIndex: 0,
+                style: .tabs
+            ))
         )
 
-        let inspectorGroup = TabGroupLayoutNode(
-            id: UUID(),
-            tabs: [TabLayoutState(id: inspector.panelId, title: inspector.panelTitle)],
-            activeTabIndex: 0
+        let inspectorGroup = Panel(
+            content: .group(PanelGroup(
+                children: [Panel.contentPanel(id: inspector.panelId, title: inspector.panelTitle)],
+                activeIndex: 0,
+                style: .tabs
+            ))
         )
 
         // Top row: Explorer | Editors | Inspector
-        let topRow = SplitLayoutNode(
-            id: UUID(),
-            axis: .horizontal,
-            children: [
-                .tabGroup(explorerGroup),
-                .tabGroup(editorGroup),
-                .tabGroup(inspectorGroup)
-            ],
-            proportions: [0.2, 0.6, 0.2]
+        let topRow = Panel(
+            content: .group(PanelGroup(
+                children: [explorerGroup, editorGroup, inspectorGroup],
+                axis: .horizontal,
+                proportions: [0.2, 0.6, 0.2],
+                style: .split
+            ))
         )
 
         // Main split: Top row / Console
-        let mainSplit = SplitLayoutNode(
-            id: UUID(),
-            axis: .vertical,
-            children: [
-                .split(topRow),
-                .tabGroup(consoleGroup)
-            ],
-            proportions: [0.75, 0.25]
+        let windowPanel = Panel(
+            content: .group(PanelGroup(
+                children: [topRow, consoleGroup],
+                axis: .vertical,
+                proportions: [0.75, 0.25],
+                style: .split
+            )),
+            isTopLevelWindow: true,
+            frame: window?.frame ?? CGRect(x: 100, y: 100, width: 1200, height: 800),
+            isFullScreen: false
         )
 
-        let windowState = WindowState(
-            id: UUID(),
-            frame: window?.frame ?? NSRect(x: 100, y: 100, width: 1200, height: 800),
-            isFullScreen: false,
-            rootNode: .split(mainSplit)
-        )
-
-        let layout = DockLayout(windows: [windowState])
+        let layout = DockLayout(panels: [windowPanel])
         layoutManager.updateLayout(layout)
     }
 
@@ -145,9 +146,16 @@ class MainWindowController: NSWindowController {
         let editor = createPanel(type: .editor)
         panelRegistry[editor.panelId] = editor
 
-        let tabGroup = TabGroupNode(tabs: [DockTab(from: editor)])
+        let contentPanel = Panel.contentPanel(id: editor.panelId, title: editor.panelTitle)
+        let rootPanel = Panel(
+            content: .group(PanelGroup(
+                children: [contentPanel],
+                activeIndex: 0,
+                style: .tabs
+            ))
+        )
         layoutManager.createWindow(
-            rootNode: .tabGroup(tabGroup),
+            rootPanel: rootPanel,
             frame: NSRect(x: 150, y: 150, width: 800, height: 600)
         )
     }

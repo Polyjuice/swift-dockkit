@@ -6,13 +6,13 @@ class ModernStageRenderer: DockStageRenderer {
 
     var headerHeight: CGFloat { 56 }
 
-    func createStageView(for stage: Stage, index: Int, isActive: Bool) -> DockStageView {
+    func createStageView(for stage: Panel, index: Int, isActive: Bool) -> DockStageView {
         let view = ModernStageIndicator()
         view.configure(stage: stage, index: index, isActive: isActive)
         return view
     }
 
-    func updateStageView(_ view: DockStageView, for stage: Stage, index: Int, isActive: Bool) {
+    func updateStageView(_ view: DockStageView, for stage: Panel, index: Int, isActive: Bool) {
         (view as? ModernStageIndicator)?.configure(stage: stage, index: index, isActive: isActive)
     }
 
@@ -29,6 +29,7 @@ class ModernStageRenderer: DockStageRenderer {
 
 class ModernStageIndicator: NSView, DockStageView {
     var onSelect: ((Int) -> Void)?
+    var onClose: (() -> Void)?
     var stageIndex: Int = 0
 
     var thumbnail: NSImage? {
@@ -166,7 +167,7 @@ class ModernStageIndicator: NSView, DockStageView {
         glowLayer.frame = bounds.insetBy(dx: 0, dy: 0)
     }
 
-    func configure(stage: Stage, index: Int, isActive: Bool) {
+    func configure(stage: Panel, index: Int, isActive: Bool) {
         self.stageIndex = index
         self.isActive = isActive
 

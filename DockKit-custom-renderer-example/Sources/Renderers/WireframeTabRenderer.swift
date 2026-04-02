@@ -7,14 +7,14 @@ class WireframeTabRenderer: DockTabRenderer {
 
     var tabBarHeight: CGFloat { 36 }
 
-    func createTabView(for tab: DockTab, isSelected: Bool) -> DockTabView {
+    func createTabView(for panel: Panel, isSelected: Bool) -> DockTabView {
         let view = WireframeTabView()
-        view.configure(tab: tab, isSelected: isSelected)
+        view.configure(panel: panel, isSelected: isSelected)
         return view
     }
 
-    func updateTabView(_ view: DockTabView, for tab: DockTab, isSelected: Bool) {
-        (view as? WireframeTabView)?.configure(tab: tab, isSelected: isSelected)
+    func updateTabView(_ view: DockTabView, for panel: Panel, isSelected: Bool) {
+        (view as? WireframeTabView)?.configure(panel: panel, isSelected: isSelected)
     }
 
     func setFocused(_ focused: Bool, on view: DockTabView) {
@@ -118,9 +118,9 @@ class WireframeTabView: NSView, DockTabView {
         addTrackingArea(trackingArea)
     }
 
-    func configure(tab: DockTab, isSelected: Bool) {
+    func configure(panel: Panel, isSelected: Bool) {
         self.isSelected = isSelected
-        titleLabel.stringValue = tab.title.uppercased()  // Uppercase for wireframe look
+        titleLabel.stringValue = (panel.title ?? "").uppercased()  // Uppercase for wireframe look
         updateAppearance()
     }
 

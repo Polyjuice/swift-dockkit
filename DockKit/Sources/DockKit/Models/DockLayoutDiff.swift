@@ -5,44 +5,44 @@ import Foundation
 /// Represents the difference between two DockLayout states
 /// Used to determine minimal view hierarchy changes needed
 public struct DockLayoutDiff {
-    /// Windows that were added
-    public var addedWindowIds: Set<UUID>
+    /// Root panels that were added
+    public var addedPanelIds: Set<UUID>
 
-    /// Windows that were removed
-    public var removedWindowIds: Set<UUID>
+    /// Root panels that were removed
+    public var removedPanelIds: Set<UUID>
 
-    /// Windows that were modified (frame, fullscreen, or content changes)
-    public var modifiedWindows: [UUID: WindowModification]
+    /// Root panels that were modified (frame, fullscreen, or content changes)
+    public var modifiedPanels: [UUID: PanelModification]
 
-    /// Tabs that moved between groups (within or across windows)
-    public var movedTabs: [TabMove]
+    /// Content panels that moved between groups (within or across root panels)
+    public var movedChildren: [ChildMove]
 
     /// Whether there are any changes
     public var isEmpty: Bool {
-        return addedWindowIds.isEmpty &&
-               removedWindowIds.isEmpty &&
-               modifiedWindows.isEmpty &&
-               movedTabs.isEmpty
+        return addedPanelIds.isEmpty &&
+               removedPanelIds.isEmpty &&
+               modifiedPanels.isEmpty &&
+               movedChildren.isEmpty
     }
 
     public init(
-        addedWindowIds: Set<UUID> = [],
-        removedWindowIds: Set<UUID> = [],
-        modifiedWindows: [UUID: WindowModification] = [:],
-        movedTabs: [TabMove] = []
+        addedPanelIds: Set<UUID> = [],
+        removedPanelIds: Set<UUID> = [],
+        modifiedPanels: [UUID: PanelModification] = [:],
+        movedChildren: [ChildMove] = []
     ) {
-        self.addedWindowIds = addedWindowIds
-        self.removedWindowIds = removedWindowIds
-        self.modifiedWindows = modifiedWindows
-        self.movedTabs = movedTabs
+        self.addedPanelIds = addedPanelIds
+        self.removedPanelIds = removedPanelIds
+        self.modifiedPanels = modifiedPanels
+        self.movedChildren = movedChildren
     }
 }
 
-// MARK: - Window Modification
+// MARK: - Panel Modification
 
-/// Describes changes to a specific window
-public struct WindowModification {
-    public let windowId: UUID
+/// Describes changes to a specific root panel
+public struct PanelModification {
+    public let panelId: UUID
 
     /// Frame change details (if changed)
     public var frameChanged: Bool
@@ -50,16 +50,16 @@ public struct WindowModification {
     /// Full-screen state changed
     public var fullScreenChanged: Bool
 
-    /// Changes to the node tree inside this window
+    /// Changes to the panel tree inside this root panel
     public var nodeChanges: NodeChanges
 
     public init(
-        windowId: UUID,
+        panelId: UUID,
         frameChanged: Bool = false,
         fullScreenChanged: Bool = false,
         nodeChanges: NodeChanges = NodeChanges()
     ) {
-        self.windowId = windowId
+        self.panelId = panelId
         self.frameChanged = frameChanged
         self.fullScreenChanged = fullScreenChanged
         self.nodeChanges = nodeChanges
@@ -73,75 +73,80 @@ public struct WindowModification {
 
 // MARK: - Node Changes
 
-/// Changes to the node tree within a window
+/// Changes to the panel tree within a root panel
 public struct NodeChanges {
-    /// Node IDs that were removed from the tree
-    public var removedNodeIds: Set<UUID>
+    /// Panel IDs that were removed from the tree
+    public var removedPanelIds: Set<UUID>
 
-    /// New nodes that were added (keyed by ID)
-    public var addedNodes: [UUID: DockLayoutNode]
+    /// New panels that were added (keyed by ID)
+    public var addedPanels: [UUID: Panel]
 
-    /// Nodes that were modified in place
+    /// Panels that were modified in place
     public var modifiedNodes: [UUID: NodeModification]
 
     public init(
-        removedNodeIds: Set<UUID> = [],
-        addedNodes: [UUID: DockLayoutNode] = [:],
+        removedPanelIds: Set<UUID> = [],
+        addedPanels: [UUID: Panel] = [:],
         modifiedNodes: [UUID: NodeModification] = [:]
     ) {
-        self.removedNodeIds = removedNodeIds
-        self.addedNodes = addedNodes
+        self.removedPanelIds = removedPanelIds
+        self.addedPanels = addedPanels
         self.modifiedNodes = modifiedNodes
     }
 
     /// Whether there are any node changes
     public var hasChanges: Bool {
-        return !removedNodeIds.isEmpty ||
-               !addedNodes.isEmpty ||
+        return !removedPanelIds.isEmpty ||
+               !addedPanels.isEmpty ||
                !modifiedNodes.isEmpty
     }
 }
 
 // MARK: - Node Modification
 
-/// Describes changes to a specific node
+/// Describes changes to a specific panel node
 public struct NodeModification {
-    public let nodeId: UUID
+    public let panelId: UUID
 
-    /// For split nodes: proportions changed
+    /// For split groups: proportions changed
     public var proportionsChanged: Bool
 
-    /// For split nodes: axis changed (horizontal <-> vertical)
+    /// For split groups: axis changed
     public var axisChanged: Bool
 
-    /// For split nodes: children were reordered
+    /// Children were reordered
     public var childrenReordered: Bool
 
-    /// For tab groups: active tab index changed
-    public var activeTabChanged: Bool
+    /// For tabs/stages groups: active index changed
+    public var activeChildChanged: Bool
 
-    /// For tab groups: tabs were added, removed, or reordered
-    public var tabsChanged: Bool
+    /// Children were added, removed, or reordered
+    public var childrenChanged: Bool
 
-    /// Specific tab changes for tab groups
-    public var tabChanges: TabChanges?
+    /// Style changed (e.g., tabs -> split)
+    public var styleChanged: Bool
+
+    /// Specific child changes
+    public var childChanges: ChildChanges?
 
     public init(
-        nodeId: UUID,
+        panelId: UUID,
         proportionsChanged: Bool = false,
         axisChanged: Bool = false,
         childrenReordered: Bool = false,
-        activeTabChanged: Bool = false,
-        tabsChanged: Bool = false,
-        tabChanges: TabChanges? = nil
+        activeChildChanged: Bool = false,
+        childrenChanged: Bool = false,
+        styleChanged: Bool = false,
+        childChanges: ChildChanges? = nil
     ) {
-        self.nodeId = nodeId
+        self.panelId = panelId
         self.proportionsChanged = proportionsChanged
         self.axisChanged = axisChanged
         self.childrenReordered = childrenReordered
-        self.activeTabChanged = activeTabChanged
-        self.tabsChanged = tabsChanged
-        self.tabChanges = tabChanges
+        self.activeChildChanged = activeChildChanged
+        self.childrenChanged = childrenChanged
+        self.styleChanged = styleChanged
+        self.childChanges = childChanges
     }
 
     /// Whether there are any changes
@@ -149,86 +154,87 @@ public struct NodeModification {
         return proportionsChanged ||
                axisChanged ||
                childrenReordered ||
-               activeTabChanged ||
-               tabsChanged
+               activeChildChanged ||
+               childrenChanged ||
+               styleChanged
     }
 }
 
-// MARK: - Tab Changes
+// MARK: - Child Changes
 
-/// Detailed changes to tabs within a tab group
-public struct TabChanges {
-    /// Tab IDs that were added to this group
-    public var addedTabIds: [UUID]
+/// Detailed changes to children within a group
+public struct ChildChanges {
+    /// Child IDs that were added to this group
+    public var addedChildIds: [UUID]
 
-    /// Tab IDs that were removed from this group
-    public var removedTabIds: [UUID]
+    /// Child IDs that were removed from this group
+    public var removedChildIds: [UUID]
 
-    /// Tabs that were reordered (mapping from old index to new index)
-    public var reorderedTabs: [(tabId: UUID, fromIndex: Int, toIndex: Int)]
+    /// Children that were reordered
+    public var reorderedChildren: [(childId: UUID, fromIndex: Int, toIndex: Int)]
 
     public init(
-        addedTabIds: [UUID] = [],
-        removedTabIds: [UUID] = [],
-        reorderedTabs: [(tabId: UUID, fromIndex: Int, toIndex: Int)] = []
+        addedChildIds: [UUID] = [],
+        removedChildIds: [UUID] = [],
+        reorderedChildren: [(childId: UUID, fromIndex: Int, toIndex: Int)] = []
     ) {
-        self.addedTabIds = addedTabIds
-        self.removedTabIds = removedTabIds
-        self.reorderedTabs = reorderedTabs
+        self.addedChildIds = addedChildIds
+        self.removedChildIds = removedChildIds
+        self.reorderedChildren = reorderedChildren
     }
 
     public var hasChanges: Bool {
-        return !addedTabIds.isEmpty ||
-               !removedTabIds.isEmpty ||
-               !reorderedTabs.isEmpty
+        return !addedChildIds.isEmpty ||
+               !removedChildIds.isEmpty ||
+               !reorderedChildren.isEmpty
     }
 }
 
-// MARK: - Tab Move
+// MARK: - Child Move
 
-/// Describes a tab moving between groups (possibly across windows)
-public struct TabMove {
-    public let tabId: UUID
+/// Describes a panel moving between groups
+public struct ChildMove {
+    public let childId: UUID
 
-    /// Source window (nil if from external source)
-    public let fromWindowId: UUID?
+    /// Source root panel (nil if from external source)
+    public let fromRootPanelId: UUID?
 
-    /// Source tab group
+    /// Source group
     public let fromGroupId: UUID?
 
     /// Source index in the group
     public let fromIndex: Int?
 
-    /// Target window
-    public let toWindowId: UUID
+    /// Target root panel
+    public let toRootPanelId: UUID
 
-    /// Target tab group
+    /// Target group
     public let toGroupId: UUID
 
     /// Target index in the group
     public let toIndex: Int
 
     public init(
-        tabId: UUID,
-        fromWindowId: UUID?,
+        childId: UUID,
+        fromRootPanelId: UUID?,
         fromGroupId: UUID?,
         fromIndex: Int?,
-        toWindowId: UUID,
+        toRootPanelId: UUID,
         toGroupId: UUID,
         toIndex: Int
     ) {
-        self.tabId = tabId
-        self.fromWindowId = fromWindowId
+        self.childId = childId
+        self.fromRootPanelId = fromRootPanelId
         self.fromGroupId = fromGroupId
         self.fromIndex = fromIndex
-        self.toWindowId = toWindowId
+        self.toRootPanelId = toRootPanelId
         self.toGroupId = toGroupId
         self.toIndex = toIndex
     }
 
-    /// Whether this is a move within the same window
-    public var isWithinSameWindow: Bool {
-        return fromWindowId == toWindowId
+    /// Whether this is a move within the same root panel
+    public var isWithinSameRootPanel: Bool {
+        return fromRootPanelId == toRootPanelId
     }
 
     /// Whether this is a move within the same group (just reordering)
@@ -244,35 +250,35 @@ public extension DockLayoutDiff {
     static func compute(from currentLayout: DockLayout, to targetLayout: DockLayout) -> DockLayoutDiff {
         var diff = DockLayoutDiff()
 
-        let currentWindowIds = Set(currentLayout.windows.map { $0.id })
-        let targetWindowIds = Set(targetLayout.windows.map { $0.id })
+        let currentIds = Set(currentLayout.panels.map { $0.id })
+        let targetIds = Set(targetLayout.panels.map { $0.id })
 
-        // Find added and removed windows
-        diff.addedWindowIds = targetWindowIds.subtracting(currentWindowIds)
-        diff.removedWindowIds = currentWindowIds.subtracting(targetWindowIds)
+        // Find added and removed root panels
+        diff.addedPanelIds = targetIds.subtracting(currentIds)
+        diff.removedPanelIds = currentIds.subtracting(targetIds)
 
-        // Build lookup maps for existing windows
-        let currentWindowsById = Dictionary(uniqueKeysWithValues: currentLayout.windows.map { ($0.id, $0) })
-        let targetWindowsById = Dictionary(uniqueKeysWithValues: targetLayout.windows.map { ($0.id, $0) })
+        // Build lookup maps
+        let currentById = Dictionary(uniqueKeysWithValues: currentLayout.panels.map { ($0.id, $0) })
+        let targetById = Dictionary(uniqueKeysWithValues: targetLayout.panels.map { ($0.id, $0) })
 
-        // Compare windows that exist in both
-        let commonWindowIds = currentWindowIds.intersection(targetWindowIds)
-        for windowId in commonWindowIds {
-            guard let currentWindow = currentWindowsById[windowId],
-                  let targetWindow = targetWindowsById[windowId] else { continue }
+        // Compare panels that exist in both
+        let commonIds = currentIds.intersection(targetIds)
+        for panelId in commonIds {
+            guard let currentPanel = currentById[panelId],
+                  let targetPanel = targetById[panelId] else { continue }
 
-            let modification = computeWindowModification(
-                current: currentWindow,
-                target: targetWindow
+            let modification = computePanelModification(
+                current: currentPanel,
+                target: targetPanel
             )
 
             if modification.hasChanges {
-                diff.modifiedWindows[windowId] = modification
+                diff.modifiedPanels[panelId] = modification
             }
         }
 
-        // Detect tab moves across windows
-        diff.movedTabs = detectTabMoves(
+        // Detect child moves across groups
+        diff.movedChildren = detectChildMoves(
             currentLayout: currentLayout,
             targetLayout: targetLayout
         )
@@ -280,12 +286,12 @@ public extension DockLayoutDiff {
         return diff
     }
 
-    /// Compute modification for a single window
-    private static func computeWindowModification(
-        current: WindowState,
-        target: WindowState
-    ) -> WindowModification {
-        var modification = WindowModification(windowId: current.id)
+    /// Compute modification for a single root panel
+    private static func computePanelModification(
+        current: Panel,
+        target: Panel
+    ) -> PanelModification {
+        var modification = PanelModification(panelId: current.id)
 
         // Check frame change
         modification.frameChanged = current.frame != target.frame
@@ -293,45 +299,45 @@ public extension DockLayoutDiff {
         // Check fullscreen change
         modification.fullScreenChanged = current.isFullScreen != target.isFullScreen
 
-        // Compute node tree changes
+        // Compute tree changes
         modification.nodeChanges = computeNodeChanges(
-            current: current.rootNode,
-            target: target.rootNode
+            current: current,
+            target: target
         )
 
         return modification
     }
 
-    /// Compute changes between two node trees
+    /// Compute changes between two panel trees
     private static func computeNodeChanges(
-        current: DockLayoutNode,
-        target: DockLayoutNode
+        current: Panel,
+        target: Panel
     ) -> NodeChanges {
         var changes = NodeChanges()
 
         // Flatten both trees
-        let currentNodes = current.flattenNodes()
-        let targetNodes = target.flattenNodes()
+        let currentPanels = current.flattenPanels()
+        let targetPanels = target.flattenPanels()
 
-        let currentIds = Set(currentNodes.keys)
-        let targetIds = Set(targetNodes.keys)
+        let currentIds = Set(currentPanels.keys)
+        let targetIds = Set(targetPanels.keys)
 
-        // Removed nodes
-        changes.removedNodeIds = currentIds.subtracting(targetIds)
+        // Removed panels
+        changes.removedPanelIds = currentIds.subtracting(targetIds)
 
-        // Added nodes
+        // Added panels
         for id in targetIds.subtracting(currentIds) {
-            if let node = targetNodes[id] {
-                changes.addedNodes[id] = node
+            if let panel = targetPanels[id] {
+                changes.addedPanels[id] = panel
             }
         }
 
-        // Modified nodes (exist in both)
+        // Modified panels (exist in both)
         for id in currentIds.intersection(targetIds) {
-            guard let currentNode = currentNodes[id],
-                  let targetNode = targetNodes[id] else { continue }
+            guard let currentPanel = currentPanels[id],
+                  let targetPanel = targetPanels[id] else { continue }
 
-            if let modification = computeNodeModification(current: currentNode, target: targetNode) {
+            if let modification = computeNodeModification(current: currentPanel, target: targetPanel) {
                 changes.modifiedNodes[id] = modification
             }
         }
@@ -339,130 +345,104 @@ public extension DockLayoutDiff {
         return changes
     }
 
-    /// Compute modification for a single node
+    /// Compute modification for a single panel node
     private static func computeNodeModification(
-        current: DockLayoutNode,
-        target: DockLayoutNode
+        current: Panel,
+        target: Panel
     ) -> NodeModification? {
-        switch (current, target) {
-        case (.split(let currentSplit), .split(let targetSplit)):
-            var mod = NodeModification(nodeId: currentSplit.id)
-
-            mod.axisChanged = currentSplit.axis != targetSplit.axis
-            mod.proportionsChanged = currentSplit.proportions != targetSplit.proportions
-
-            // Check if children order changed
-            let currentChildIds = currentSplit.children.map { nodeId(for: $0) }
-            let targetChildIds = targetSplit.children.map { nodeId(for: $0) }
-            mod.childrenReordered = currentChildIds != targetChildIds
-
-            return mod.hasChanges ? mod : nil
-
-        case (.tabGroup(let currentGroup), .tabGroup(let targetGroup)):
-            var mod = NodeModification(nodeId: currentGroup.id)
-
-            mod.activeTabChanged = currentGroup.activeTabIndex != targetGroup.activeTabIndex
-
-            // Check tab changes
-            let currentTabIds = currentGroup.tabs.map { $0.id }
-            let targetTabIds = targetGroup.tabs.map { $0.id }
-
-            if currentTabIds != targetTabIds {
-                mod.tabsChanged = true
-                mod.tabChanges = computeTabChanges(
-                    currentTabs: currentGroup.tabs,
-                    targetTabs: targetGroup.tabs
-                )
-            }
-
-            return mod.hasChanges ? mod : nil
-
-        default:
-            // Type changed - this will be handled as remove + add
+        // Both must be groups to compare structurally
+        guard case .group(let currentGroup) = current.content,
+              case .group(let targetGroup) = target.content else {
+            // If content type changed, handled as remove + add
             return nil
         }
+
+        var mod = NodeModification(panelId: current.id)
+
+        mod.styleChanged = currentGroup.style != targetGroup.style
+        mod.axisChanged = currentGroup.axis != targetGroup.axis
+        mod.proportionsChanged = currentGroup.proportions != targetGroup.proportions
+        mod.activeChildChanged = currentGroup.activeIndex != targetGroup.activeIndex
+
+        // Check child changes
+        let currentChildIds = currentGroup.children.map { $0.id }
+        let targetChildIds = targetGroup.children.map { $0.id }
+
+        if currentChildIds != targetChildIds {
+            mod.childrenChanged = true
+            mod.childrenReordered = Set(currentChildIds) == Set(targetChildIds) && currentChildIds != targetChildIds
+            mod.childChanges = computeChildChanges(
+                currentChildren: currentGroup.children,
+                targetChildren: targetGroup.children
+            )
+        }
+
+        return mod.hasChanges ? mod : nil
     }
 
-    /// Compute detailed tab changes
-    private static func computeTabChanges(
-        currentTabs: [TabLayoutState],
-        targetTabs: [TabLayoutState]
-    ) -> TabChanges {
-        var changes = TabChanges()
+    /// Compute detailed child changes
+    private static func computeChildChanges(
+        currentChildren: [Panel],
+        targetChildren: [Panel]
+    ) -> ChildChanges {
+        var changes = ChildChanges()
 
-        let currentTabIds = Set(currentTabs.map { $0.id })
-        let targetTabIds = Set(targetTabs.map { $0.id })
+        let currentIds = Set(currentChildren.map { $0.id })
+        let targetIds = Set(targetChildren.map { $0.id })
 
-        // Added tabs
-        changes.addedTabIds = Array(targetTabIds.subtracting(currentTabIds))
+        changes.addedChildIds = Array(targetIds.subtracting(currentIds))
+        changes.removedChildIds = Array(currentIds.subtracting(targetIds))
 
-        // Removed tabs
-        changes.removedTabIds = Array(currentTabIds.subtracting(targetTabIds))
-
-        // Reordered tabs (tabs that exist in both but at different indices)
-        let commonTabIds = currentTabIds.intersection(targetTabIds)
-        for tabId in commonTabIds {
-            if let currentIndex = currentTabs.firstIndex(where: { $0.id == tabId }),
-               let targetIndex = targetTabs.firstIndex(where: { $0.id == tabId }),
+        let commonIds = currentIds.intersection(targetIds)
+        for childId in commonIds {
+            if let currentIndex = currentChildren.firstIndex(where: { $0.id == childId }),
+               let targetIndex = targetChildren.firstIndex(where: { $0.id == childId }),
                currentIndex != targetIndex {
-                changes.reorderedTabs.append((tabId: tabId, fromIndex: currentIndex, toIndex: targetIndex))
+                changes.reorderedChildren.append((childId: childId, fromIndex: currentIndex, toIndex: targetIndex))
             }
         }
 
         return changes
     }
 
-    /// Get node ID from a DockLayoutNode
-    private static func nodeId(for node: DockLayoutNode) -> UUID {
-        switch node {
-        case .split(let n): return n.id
-        case .tabGroup(let n): return n.id
-        case .stageHost(let n): return n.id
-        }
-    }
-
-    /// Detect tabs that moved between different tab groups
-    private static func detectTabMoves(
+    /// Detect children that moved between different groups
+    private static func detectChildMoves(
         currentLayout: DockLayout,
         targetLayout: DockLayout
-    ) -> [TabMove] {
-        var moves: [TabMove] = []
+    ) -> [ChildMove] {
+        var moves: [ChildMove] = []
 
-        // Build maps of tab locations
-        var currentTabLocations: [UUID: (windowId: UUID, groupId: UUID, index: Int)] = [:]
-        var targetTabLocations: [UUID: (windowId: UUID, groupId: UUID, index: Int)] = [:]
+        var currentLocations: [UUID: (rootPanelId: UUID, groupId: UUID, index: Int)] = [:]
+        var targetLocations: [UUID: (rootPanelId: UUID, groupId: UUID, index: Int)] = [:]
 
-        for window in currentLayout.windows {
-            collectTabLocations(node: window.rootNode, windowId: window.id, into: &currentTabLocations)
+        for rootPanel in currentLayout.panels {
+            collectChildLocations(panel: rootPanel, rootPanelId: rootPanel.id, into: &currentLocations)
         }
 
-        for window in targetLayout.windows {
-            collectTabLocations(node: window.rootNode, windowId: window.id, into: &targetTabLocations)
+        for rootPanel in targetLayout.panels {
+            collectChildLocations(panel: rootPanel, rootPanelId: rootPanel.id, into: &targetLocations)
         }
 
-        // Find tabs that moved to different groups
-        for (tabId, targetLocation) in targetTabLocations {
-            if let currentLocation = currentTabLocations[tabId] {
-                // Tab exists in both - check if it moved to a different group
+        for (childId, targetLocation) in targetLocations {
+            if let currentLocation = currentLocations[childId] {
                 if currentLocation.groupId != targetLocation.groupId {
-                    moves.append(TabMove(
-                        tabId: tabId,
-                        fromWindowId: currentLocation.windowId,
+                    moves.append(ChildMove(
+                        childId: childId,
+                        fromRootPanelId: currentLocation.rootPanelId,
                         fromGroupId: currentLocation.groupId,
                         fromIndex: currentLocation.index,
-                        toWindowId: targetLocation.windowId,
+                        toRootPanelId: targetLocation.rootPanelId,
                         toGroupId: targetLocation.groupId,
                         toIndex: targetLocation.index
                     ))
                 }
             } else {
-                // Tab is new (appeared from nowhere) - could be from external source
-                moves.append(TabMove(
-                    tabId: tabId,
-                    fromWindowId: nil,
+                moves.append(ChildMove(
+                    childId: childId,
+                    fromRootPanelId: nil,
                     fromGroupId: nil,
                     fromIndex: nil,
-                    toWindowId: targetLocation.windowId,
+                    toRootPanelId: targetLocation.rootPanelId,
                     toGroupId: targetLocation.groupId,
                     toIndex: targetLocation.index
                 ))
@@ -472,26 +452,20 @@ public extension DockLayoutDiff {
         return moves
     }
 
-    /// Collect tab locations from a node tree
-    private static func collectTabLocations(
-        node: DockLayoutNode,
-        windowId: UUID,
-        into locations: inout [UUID: (windowId: UUID, groupId: UUID, index: Int)]
+    /// Collect content panel locations from a panel tree
+    private static func collectChildLocations(
+        panel: Panel,
+        rootPanelId: UUID,
+        into locations: inout [UUID: (rootPanelId: UUID, groupId: UUID, index: Int)]
     ) {
-        switch node {
-        case .tabGroup(let tabGroup):
-            for (index, tab) in tabGroup.tabs.enumerated() {
-                locations[tab.id] = (windowId: windowId, groupId: tabGroup.id, index: index)
-            }
+        guard case .group(let group) = panel.content else { return }
 
-        case .split(let split):
-            for child in split.children {
-                collectTabLocations(node: child, windowId: windowId, into: &locations)
-            }
-
-        case .stageHost(let stageHost):
-            for stage in stageHost.stages {
-                collectTabLocations(node: stage.layout, windowId: windowId, into: &locations)
+        for (index, child) in group.children.enumerated() {
+            if child.isContent {
+                locations[child.id] = (rootPanelId: rootPanelId, groupId: panel.id, index: index)
+            } else {
+                // Recurse into child groups
+                collectChildLocations(panel: child, rootPanelId: rootPanelId, into: &locations)
             }
         }
     }
@@ -503,27 +477,27 @@ extension DockLayoutDiff: CustomDebugStringConvertible {
     public var debugDescription: String {
         var lines: [String] = ["DockLayoutDiff:"]
 
-        if !addedWindowIds.isEmpty {
-            lines.append("  Added windows: \(addedWindowIds.map { $0.uuidString.prefix(8) })")
+        if !addedPanelIds.isEmpty {
+            lines.append("  Added panels: \(addedPanelIds.map { $0.uuidString.prefix(8) })")
         }
 
-        if !removedWindowIds.isEmpty {
-            lines.append("  Removed windows: \(removedWindowIds.map { $0.uuidString.prefix(8) })")
+        if !removedPanelIds.isEmpty {
+            lines.append("  Removed panels: \(removedPanelIds.map { $0.uuidString.prefix(8) })")
         }
 
-        if !modifiedWindows.isEmpty {
-            lines.append("  Modified windows:")
-            for (id, mod) in modifiedWindows {
+        if !modifiedPanels.isEmpty {
+            lines.append("  Modified panels:")
+            for (id, mod) in modifiedPanels {
                 lines.append("    \(id.uuidString.prefix(8)): frame=\(mod.frameChanged), fullscreen=\(mod.fullScreenChanged), nodes=\(mod.nodeChanges.hasChanges)")
             }
         }
 
-        if !movedTabs.isEmpty {
-            lines.append("  Moved tabs:")
-            for move in movedTabs {
+        if !movedChildren.isEmpty {
+            lines.append("  Moved children:")
+            for move in movedChildren {
                 let from = move.fromGroupId.map { String($0.uuidString.prefix(8)) } ?? "external"
                 let to = String(move.toGroupId.uuidString.prefix(8))
-                lines.append("    \(move.tabId.uuidString.prefix(8)): \(from) -> \(to)[\(move.toIndex)]")
+                lines.append("    \(move.childId.uuidString.prefix(8)): \(from) -> \(to)[\(move.toIndex)]")
             }
         }
 
