@@ -182,6 +182,11 @@ public class DockStageHostView: NSView {
         headerView.setStages(controller.stages, activeIndex: controller.activeStageIndex)
         containerView.setStages(controller.stages, activeIndex: controller.activeStageIndex)
 
+        // Apply header style from model
+        if controller.effectiveHeaderStyle == .thumbnails {
+            headerView.setThumbnailMode(true)
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self = self else { return }
             let thumbnails = self.containerView.captureStageThumbnails()

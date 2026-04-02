@@ -42,7 +42,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             content: .group(PanelGroup(
                 children: [codingStage, designStage, notesStage],
                 activeIndex: 0,
-                style: .stages
+                style: .stages,
+                headerStyle: .thumbnails
             )),
             isTopLevelWindow: true,
             frame: CGRect(x: 100, y: 100, width: 1200, height: 800),
@@ -196,7 +197,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             content: .group(PanelGroup(
                 children: [projectAStage, projectBStage, projectCStage],
                 activeIndex: 0,
-                style: .stages
+                style: .stages,
+                headerStyle: .thumbnails
             ))
         )
     }

@@ -54,6 +54,19 @@ public class StageHostController {
         }
     }
 
+    public var effectiveHeaderStyle: PanelHeaderStyle {
+        panel.group?.effectiveHeaderStyle ?? .tabs
+    }
+
+    public var headerStyle: PanelHeaderStyle? {
+        get { panel.group?.headerStyle }
+        set {
+            guard case .group(var g) = panel.content else { return }
+            g.headerStyle = newValue
+            panel.content = .group(g)
+        }
+    }
+
     // MARK: - Initialization
 
     public init(panel: Panel) {

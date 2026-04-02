@@ -10,6 +10,13 @@ public enum PanelGroupStyle: String, Codable, CaseIterable {
     case split          // All children visible, divided by axis
 }
 
+/// How a group's header/indicator chrome is rendered
+/// Separate from PanelGroupStyle so stages can use thumbnail previews in their header
+public enum PanelHeaderStyle: String, Codable {
+    case tabs           // Text tab buttons (default for .tabs and .stages styles)
+    case thumbnails     // Thumbnail preview images (default for .thumbnails style)
+}
+
 // MARK: - Split Axis
 
 /// Axis for split orientation
@@ -78,8 +85,12 @@ public struct PanelGroup: Codable {
     /// Determines which attributes are active for rendering
     public var style: PanelGroupStyle
 
+    /// How the header/indicator chrome renders (nil = use default for style)
+    /// Stages default to .tabs, thumbnails default to .thumbnails
+    public var headerStyle: PanelHeaderStyle?
+
     private enum CodingKeys: String, CodingKey {
-        case children, activeIndex, axis, proportions, style
+        case children, activeIndex, axis, proportions, style, headerStyle
     }
 
     public init(
@@ -87,12 +98,14 @@ public struct PanelGroup: Codable {
         activeIndex: Int = 0,
         axis: SplitAxis = .horizontal,
         proportions: [CGFloat]? = nil,
-        style: PanelGroupStyle = .tabs
+        style: PanelGroupStyle = .tabs,
+        headerStyle: PanelHeaderStyle? = nil
     ) {
         self.children = children
         self.activeIndex = activeIndex
         self.axis = axis
         self.style = style
+        self.headerStyle = headerStyle
 
         // If proportions not provided, distribute equally
         if let proportions = proportions, proportions.count == children.count {
@@ -113,6 +126,15 @@ public struct PanelGroup: Codable {
     public var activeChild: Panel? {
         guard activeIndex >= 0 && activeIndex < children.count else { return nil }
         return children[activeIndex]
+    }
+
+    /// The effective header style (resolved from explicit headerStyle or style default)
+    public var effectiveHeaderStyle: PanelHeaderStyle {
+        if let explicit = headerStyle { return explicit }
+        switch style {
+        case .thumbnails: return .thumbnails
+        case .tabs, .stages, .split: return .tabs
+        }
     }
 }
 
