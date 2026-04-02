@@ -171,9 +171,21 @@ public class DockSplitViewController: NSSplitViewController {
         }
     }
 
+    /// Tracks layout passes to apply proportions until they stabilize
+    /// Nested splits need multiple passes because parent resizes affect children
+    private var layoutPassCount = 0
+    private static let maxProportionPasses = 5
+
     public override func viewDidAppear() {
         super.viewDidAppear()
         applyProportions()
+    }
+
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+        if layoutPassCount < Self.maxProportionPasses {
+            applyProportions()
+        }
     }
 
     /// Apply stored proportions to split view
@@ -183,6 +195,10 @@ public class DockSplitViewController: NSSplitViewController {
 
         let totalSize = group.axis == .horizontal ?
             splitView.bounds.width : splitView.bounds.height
+
+        guard totalSize > 0 else { return }
+
+        layoutPassCount += 1
 
         var position: CGFloat = 0
         for (index, proportion) in group.proportions.dropLast().enumerated() {

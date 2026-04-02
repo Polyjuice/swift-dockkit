@@ -184,7 +184,8 @@ public class DockStageHostView: NSView {
 
         // Apply header style from model
         if controller.effectiveHeaderStyle == .thumbnails {
-            headerView.setThumbnailMode(true)
+            let newHeight = headerView.setThumbnailMode(true)
+            headerHeightConstraint.constant = newHeight
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in

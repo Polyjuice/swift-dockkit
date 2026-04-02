@@ -284,7 +284,8 @@ public class DockStageHostWindow: NSWindow {
 
         // Apply header style from model
         if controller.effectiveHeaderStyle == .thumbnails {
-            headerView.setThumbnailMode(true)
+            let newHeight = headerView.setThumbnailMode(true)
+            headerHeightConstraint.constant = newHeight
         }
 
         // Capture thumbnails after a brief delay (for initial thumbnail mode)
