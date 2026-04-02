@@ -135,6 +135,7 @@ public struct StageHostNode: Identifiable {
     public var activeStageIndex: Int
     public var stages: [Stage]
     public var displayMode: StageDisplayMode
+    public var cargo: [String: AnyCodable]?
 
     public init(
         id: UUID = UUID(),
@@ -142,7 +143,8 @@ public struct StageHostNode: Identifiable {
         iconName: String? = nil,
         activeStageIndex: Int = 0,
         stages: [Stage] = [],
-        displayMode: StageDisplayMode = .thumbnails
+        displayMode: StageDisplayMode = .thumbnails,
+        cargo: [String: AnyCodable]? = nil
     ) {
         self.id = id
         self.title = title
@@ -150,6 +152,7 @@ public struct StageHostNode: Identifiable {
         self.activeStageIndex = activeStageIndex
         self.stages = stages
         self.displayMode = displayMode
+        self.cargo = cargo
     }
 
     /// Create from a layout node
@@ -160,6 +163,7 @@ public struct StageHostNode: Identifiable {
         self.activeStageIndex = layoutNode.activeStageIndex
         self.stages = layoutNode.stages
         self.displayMode = layoutNode.displayMode
+        self.cargo = layoutNode.cargo
     }
 
     /// Convert to a StageHostWindowState for view creation
@@ -169,7 +173,8 @@ public struct StageHostNode: Identifiable {
             frame: frame,
             activeStageIndex: activeStageIndex,
             stages: stages,
-            displayMode: displayMode
+            displayMode: displayMode,
+            cargo: cargo
         )
     }
 }

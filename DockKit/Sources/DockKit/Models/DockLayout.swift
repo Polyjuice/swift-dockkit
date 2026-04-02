@@ -182,9 +182,10 @@ public struct StageHostLayoutNode: Codable {
     public var activeStageIndex: Int
     public var stages: [Stage]
     public var displayMode: StageDisplayMode
+    public var cargo: [String: AnyCodable]?
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, iconName, activeStageIndex, stages, displayMode
+        case id, title, iconName, activeStageIndex, stages, displayMode, cargo
     }
 
     public init(
@@ -193,7 +194,8 @@ public struct StageHostLayoutNode: Codable {
         iconName: String? = nil,
         activeStageIndex: Int = 0,
         stages: [Stage] = [],
-        displayMode: StageDisplayMode = .thumbnails
+        displayMode: StageDisplayMode = .thumbnails,
+        cargo: [String: AnyCodable]? = nil
     ) {
         self.id = id
         self.title = title
@@ -201,6 +203,7 @@ public struct StageHostLayoutNode: Codable {
         self.activeStageIndex = activeStageIndex
         self.stages = stages
         self.displayMode = displayMode
+        self.cargo = cargo
     }
 
     public init(from decoder: Decoder) throws {
@@ -211,6 +214,7 @@ public struct StageHostLayoutNode: Codable {
         activeStageIndex = try container.decode(Int.self, forKey: .activeStageIndex)
         stages = try container.decode([Stage].self, forKey: .stages)
         displayMode = try container.decodeIfPresent(StageDisplayMode.self, forKey: .displayMode) ?? .thumbnails
+        cargo = try container.decodeIfPresent([String: AnyCodable].self, forKey: .cargo)
     }
 
     /// Create from a StageHostWindowState
@@ -221,6 +225,7 @@ public struct StageHostLayoutNode: Codable {
         self.activeStageIndex = state.activeStageIndex
         self.stages = state.stages
         self.displayMode = state.displayMode
+        self.cargo = state.cargo
     }
 
     /// Convert to a StageHostWindowState
@@ -230,7 +235,8 @@ public struct StageHostLayoutNode: Codable {
             frame: frame,
             activeStageIndex: activeStageIndex,
             stages: stages,
-            displayMode: displayMode
+            displayMode: displayMode,
+            cargo: cargo
         )
     }
 }
@@ -278,7 +284,8 @@ public extension DockLayoutNode {
                 iconName: stageHostNode.iconName,
                 activeStageIndex: stageHostNode.activeStageIndex,
                 stages: stageHostNode.stages,
-                displayMode: stageHostNode.displayMode
+                displayMode: stageHostNode.displayMode,
+                cargo: stageHostNode.cargo
             ))
         }
     }

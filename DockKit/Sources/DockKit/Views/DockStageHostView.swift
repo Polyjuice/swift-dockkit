@@ -16,6 +16,15 @@ public protocol DockStageHostViewDelegate: AnyObject {
 
     /// Called when a split is requested
     func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
+
+    /// Called when the user requests to close a stage (via close button).
+    func stageHostView(_ view: DockStageHostView, didRequestCloseStageAt index: Int)
+
+    /// Called when the user requests to close a tab (via close button).
+    func stageHostView(_ view: DockStageHostView, didRequestCloseTab tabId: UUID)
+
+    /// Called when the user requests a new stage (via + button).
+    func stageHostViewDidRequestNewStage(_ view: DockStageHostView)
 }
 
 /// Default implementations
@@ -25,6 +34,15 @@ public extension DockStageHostViewDelegate {
     func stageHostView(_ view: DockStageHostView, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool { true }
     func stageHostView(_ view: DockStageHostView, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow) {}
     func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
+    func stageHostView(_ view: DockStageHostView, didRequestCloseStageAt index: Int) {
+        view.controller.removeStage(at: index)
+    }
+    func stageHostView(_ view: DockStageHostView, didRequestCloseTab tabId: UUID) {
+        view.controller.handleTabClosed(tabId)
+    }
+    func stageHostViewDidRequestNewStage(_ view: DockStageHostView) {
+        view.addNewStage()
+    }
 }
 
 /// A view that hosts multiple stages with swipe gesture navigation.
@@ -142,7 +160,7 @@ public class DockStageHostView: NSView {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(containerView)
 
-        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockStageHeaderView.thumbnailHeaderHeight)
+        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockStageHeaderView.headerHeight)
 
         NSLayoutConstraint.activate([
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -365,7 +383,7 @@ extension DockStageHostView: DockStageHeaderViewDelegate {
     }
 
     public func stageHeaderDidRequestNewStage(_ header: DockStageHeaderView) {
-        addNewStage()
+        delegate?.stageHostViewDidRequestNewStage(self)
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt targetIndex: Int) {
@@ -373,7 +391,7 @@ extension DockStageHostView: DockStageHeaderViewDelegate {
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didCloseStageAt index: Int) {
-        controller.removeStage(at: index)
+        delegate?.stageHostView(self, didRequestCloseStageAt: index)
     }
 }
 
@@ -421,6 +439,6 @@ extension DockStageHostView: DockStageContainerViewDelegate {
     }
 
     public func stageContainer(_ container: DockStageContainerView, didCloseTab tabId: UUID) {
-        controller.handleTabClosed(tabId)
+        delegate?.stageHostView(self, didRequestCloseTab: tabId)
     }
 }

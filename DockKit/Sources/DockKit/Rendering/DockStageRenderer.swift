@@ -86,6 +86,9 @@ public protocol DockStageView: NSView {
     /// The parameter is the stage index
     var onSelect: ((Int) -> Void)? { get set }
 
+    /// Called when the stage close button is clicked
+    var onClose: (() -> Void)? { get set }
+
     /// The index of this stage view
     var stageIndex: Int { get set }
 }
@@ -94,6 +97,11 @@ public protocol DockStageView: NSView {
 /// Custom implementations should provide their own stored properties
 extension DockStageView {
     public var onSelect: ((Int) -> Void)? {
+        get { nil }
+        set { }
+    }
+
+    public var onClose: (() -> Void)? {
         get { nil }
         set { }
     }

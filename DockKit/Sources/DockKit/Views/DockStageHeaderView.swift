@@ -99,8 +99,8 @@ public class DockStageHeaderView: NSView {
     /// Height of the header in thumbnail mode
     public static let thumbnailHeaderHeight: CGFloat = 96
 
-    /// Current thumbnail mode state (default: true for thumbnail mode)
-    private var isThumbnailMode: Bool = true
+    /// Current thumbnail mode state (default: false for normal tab mode)
+    private var isThumbnailMode: Bool = false
 
     /// Add stage button (+)
     private var addStageButton: NSButton!
@@ -139,8 +139,8 @@ public class DockStageHeaderView: NSView {
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
-        // Default to thumbnail mode height
-        stackHeightConstraint = stackView.heightAnchor.constraint(equalToConstant: DockStageButton.thumbnailHeight)
+        // Default to normal tab height
+        stackHeightConstraint = stackView.heightAnchor.constraint(equalToConstant: 28)
 
         // Add stage button (+) - styled like Mission Control
         addStageButton = NSButton(frame: .zero)
@@ -191,7 +191,7 @@ public class DockStageHeaderView: NSView {
 
         thumbnailSwitch = NSSwitch()
         thumbnailSwitch.controlSize = .mini
-        thumbnailSwitch.state = .on  // Default to thumbnail mode
+        thumbnailSwitch.state = .off  // Default to normal tab mode
         thumbnailSwitch.target = self
         thumbnailSwitch.action = #selector(thumbnailToggled(_:))
         thumbnailSwitch.translatesAutoresizingMaskIntoConstraints = false
@@ -423,6 +423,9 @@ public class DockStageHeaderView: NSView {
     public func setThumbnailMode(_ enabled: Bool) -> CGFloat {
         isThumbnailMode = enabled
 
+        // Sync the debug toggle switch
+        thumbnailSwitch?.state = enabled ? .on : .off
+
         // Update stack view height
         stackHeightConstraint.constant = enabled ? DockStageButton.thumbnailHeight : 28
 
@@ -538,6 +541,12 @@ public class DockStageHeaderView: NSView {
             let view = renderer.createStageView(for: stage, index: index, isActive: index == activeIndex)
             view.onSelect = { [weak self] idx in
                 self?.handleStageSelected(at: idx)
+            }
+            view.onClose = { [weak self] in
+                guard let self = self else { return }
+                if self.delegate?.stageHeader(self, shouldCloseStageAt: index) ?? true {
+                    self.delegate?.stageHeader(self, didCloseStageAt: index)
+                }
             }
             view.stageIndex = index
             customStageViews.append(view)

@@ -9,17 +9,33 @@ public struct Stage: Codable, Identifiable {
     public var title: String?
     public var iconName: String?
     public var layout: DockLayoutNode
+    public var cargo: [String: AnyCodable]?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, iconName, layout, cargo
+    }
 
     public init(
         id: UUID = UUID(),
         title: String? = nil,
         iconName: String? = nil,
-        layout: DockLayoutNode
+        layout: DockLayoutNode,
+        cargo: [String: AnyCodable]? = nil
     ) {
         self.id = id
         self.title = title
         self.iconName = iconName
         self.layout = layout
+        self.cargo = cargo
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        iconName = try container.decodeIfPresent(String.self, forKey: .iconName)
+        layout = try container.decode(DockLayoutNode.self, forKey: .layout)
+        cargo = try container.decodeIfPresent([String: AnyCodable].self, forKey: .cargo)
     }
 }
 
@@ -35,8 +51,11 @@ public struct StageHostWindowState: Codable, Identifiable {
     /// Controls whether to use tabs, thumbnails, or custom renderer
     public var displayMode: StageDisplayMode
 
+    /// Opaque cargo owned by the governor (e.g. stage host type metadata)
+    public var cargo: [String: AnyCodable]?
+
     private enum CodingKeys: String, CodingKey {
-        case id, frame, isFullScreen, activeStageIndex, stages, displayMode
+        case id, frame, isFullScreen, activeStageIndex, stages, displayMode, cargo
     }
 
     public init(
@@ -45,7 +64,8 @@ public struct StageHostWindowState: Codable, Identifiable {
         isFullScreen: Bool = false,
         activeStageIndex: Int = 0,
         stages: [Stage],
-        displayMode: StageDisplayMode = .thumbnails
+        displayMode: StageDisplayMode = .thumbnails,
+        cargo: [String: AnyCodable]? = nil
     ) {
         self.id = id
         self.frame = frame
@@ -53,6 +73,7 @@ public struct StageHostWindowState: Codable, Identifiable {
         self.activeStageIndex = activeStageIndex
         self.stages = stages
         self.displayMode = displayMode
+        self.cargo = cargo
     }
 
     public init(from decoder: Decoder) throws {
@@ -64,6 +85,7 @@ public struct StageHostWindowState: Codable, Identifiable {
         stages = try container.decode([Stage].self, forKey: .stages)
         // Default to .tabs for backward compatibility
         displayMode = try container.decodeIfPresent(StageDisplayMode.self, forKey: .displayMode) ?? .tabs
+        cargo = try container.decodeIfPresent([String: AnyCodable].self, forKey: .cargo)
     }
 
     /// Get the active stage's layout

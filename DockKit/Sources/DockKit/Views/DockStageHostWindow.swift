@@ -19,6 +19,18 @@ public protocol DockStageHostWindowDelegate: AnyObject {
 
     /// Called when a split is requested
     func stageHostWindow(_ window: DockStageHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController)
+
+    /// Called when the user requests to close a stage (via close button).
+    /// The delegate should handle cleanup (e.g. notify governor) and then update the state.
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseStageAt index: Int)
+
+    /// Called when the user requests to close a tab (via close button).
+    /// The delegate should handle cleanup (e.g. notify governor) and then update the state.
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseTab tabId: UUID)
+
+    /// Called when the user requests a new stage (via + button).
+    /// The delegate should handle creation (e.g. notify governor).
+    func stageHostWindowDidRequestNewStage(_ window: DockStageHostWindow)
 }
 
 /// Default implementations
@@ -29,6 +41,15 @@ public extension DockStageHostWindowDelegate {
     func stageHostWindow(_ window: DockStageHostWindow, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool { true }
     func stageHostWindow(_ window: DockStageHostWindow, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow) {}
     func stageHostWindow(_ window: DockStageHostWindow, wantsToSplit direction: DockSplitDirection, withTab tab: DockTab, in tabGroup: DockTabGroupViewController) {}
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseStageAt index: Int) {
+        window.controller.removeStage(at: index)
+    }
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseTab tabId: UUID) {
+        window.controller.handleTabClosed(tabId)
+    }
+    func stageHostWindowDidRequestNewStage(_ window: DockStageHostWindow) {
+        window.addNewStage()
+    }
 }
 
 /// A window that hosts multiple stages with swipe gesture navigation
@@ -81,6 +102,16 @@ public class DockStageHostWindow: NSWindow {
         }
     }
 
+    /// Apply display mode to header and container views during initialization
+    private func applyDisplayMode(_ mode: StageDisplayMode) {
+        headerView?.displayMode = mode
+        containerView?.displayMode = mode
+
+        let useThumbnails = (mode == .thumbnails)
+        let headerHeight = headerView.setThumbnailMode(useThumbnails)
+        headerHeightConstraint?.constant = headerHeight
+    }
+
     /// Check if window is empty (all stages have no panels)
     public var isEmpty: Bool { controller.isEmpty }
 
@@ -131,6 +162,7 @@ public class DockStageHostWindow: NSWindow {
 
         setupWindow()
         setupViews()
+        applyDisplayMode(stageHostState.displayMode)
         loadStages()
     }
 
@@ -219,8 +251,8 @@ public class DockStageHostWindow: NSWindow {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(containerView)
 
-        // Default to thumbnail mode height
-        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockStageHeaderView.thumbnailHeaderHeight)
+        // Default to normal tab mode height
+        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: DockStageHeaderView.headerHeight)
 
         NSLayoutConstraint.activate([
             headerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
@@ -458,7 +490,7 @@ extension DockStageHostWindow: DockStageHeaderViewDelegate {
     }
 
     public func stageHeaderDidRequestNewStage(_ header: DockStageHeaderView) {
-        addNewStage()
+        stageDelegate?.stageHostWindowDidRequestNewStage(self)
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt targetIndex: Int) {
@@ -466,7 +498,7 @@ extension DockStageHostWindow: DockStageHeaderViewDelegate {
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didCloseStageAt index: Int) {
-        controller.removeStage(at: index)
+        stageDelegate?.stageHostWindow(self, didRequestCloseStageAt: index)
     }
 }
 
@@ -516,7 +548,7 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
     }
 
     public func stageContainer(_ container: DockStageContainerView, didCloseTab tabId: UUID) {
-        controller.handleTabClosed(tabId)
+        stageDelegate?.stageHostWindow(self, didRequestCloseTab: tabId)
     }
 }
 
