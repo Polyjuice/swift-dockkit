@@ -172,11 +172,12 @@ public class DockTabGroupViewController: NSViewController {
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(tabBar)
 
-        // Content container below tab bar
+        // Content container below tab bar (clips content to prevent bleeding)
         contentContainer = NSView()
         contentContainer.wantsLayer = true
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(contentContainer)
+        contentContainer.layer?.masksToBounds = true
 
         // Height depends on group style (28 for tabs, 80 for thumbnails)
         tabBarHeightConstraint = tabBar.heightAnchor.constraint(equalToConstant: heightForGroupStyle(groupStyle))

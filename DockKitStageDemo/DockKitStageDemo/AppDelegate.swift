@@ -232,7 +232,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 bottomGroup
             ],
             axis: .vertical,
-            proportions: [0.7, 0.3],
+            proportions: [0.78, 0.22],
             style: .split
         )))
 
