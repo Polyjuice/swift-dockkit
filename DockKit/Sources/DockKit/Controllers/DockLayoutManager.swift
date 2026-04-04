@@ -374,7 +374,13 @@ public class DockLayoutManager: DockWindowDelegate {
 
 // MARK: - DockLayoutManagerDelegate
 
-/// Delegate for layout manager events
+/// Delegate for layout manager events.
+///
+/// All `didRequest*` methods are **proposals**: DockKit detects a user gesture and asks the
+/// delegate what to do. The delegate is responsible for applying (or rejecting) the change
+/// via the reactive layout model. Default implementations apply the change directly, which
+/// is suitable for demos and simple apps. In production, the delegate typically routes
+/// through an external controller (e.g. a governor) that decides and sends back a new layout.
 public protocol DockLayoutManagerDelegate: AnyObject {
     /// Called when all windows have been closed
     func layoutManagerDidCloseAllWindows(_ manager: DockLayoutManager)
@@ -384,13 +390,74 @@ public protocol DockLayoutManagerDelegate: AnyObject {
 
     /// Called when layout changes (for auto-save, etc.)
     func layoutManagerDidChangeLayout(_ manager: DockLayoutManager)
+
+    // MARK: - Proposals (UI-initiated actions)
+
+    /// User clicked the close button on a tab. The delegate should remove the panel
+    /// from the layout model if appropriate, or ignore to prevent closure.
+    func layoutManager(_ manager: DockLayoutManager,
+                       didRequestClosePanel panelId: UUID,
+                       in groupId: UUID, windowId: UUID)
+
+    /// User clicked the "+" button in a tab group. The delegate should create a panel
+    /// and add it to the layout model, or ignore to do nothing.
+    func layoutManager(_ manager: DockLayoutManager,
+                       didRequestNewPanelIn groupId: UUID,
+                       windowId: UUID)
+
+    /// User dropped a tab into a group. The delegate should apply the move
+    /// to the layout model, or ignore to cancel the move.
+    func layoutManager(_ manager: DockLayoutManager,
+                       didRequestMovePanel panelId: UUID,
+                       toGroup targetGroupId: UUID,
+                       at index: Int, windowId: UUID)
+
+    /// User dropped a tab on a split zone. The delegate should apply the split
+    /// to the layout model, or ignore to cancel.
+    func layoutManager(_ manager: DockLayoutManager,
+                       didRequestSplit direction: DockSplitDirection,
+                       withPanel panelId: UUID,
+                       in groupId: UUID, windowId: UUID)
+
+    /// Called during drag to check if a panel can be dropped in a target group/zone.
+    /// Must be fast (called on every mouse move). Return false to hide the drop zone.
+    func layoutManager(_ manager: DockLayoutManager,
+                       canMovePanel panelId: UUID,
+                       toGroup targetGroupId: UUID,
+                       at zone: DockDropZone) -> Bool
 }
 
-/// Default implementations for optional delegate methods
+/// Default implementations for optional delegate methods.
+/// Proposals apply the change directly — suitable for demos and simple apps.
 public extension DockLayoutManagerDelegate {
     func layoutManagerDidCloseAllWindows(_ manager: DockLayoutManager) {}
     func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {}
     func layoutManagerDidChangeLayout(_ manager: DockLayoutManager) {}
+
+    func layoutManager(_ manager: DockLayoutManager, didRequestClosePanel panelId: UUID, in groupId: UUID, windowId: UUID) {
+        manager.removePanel(panelId)
+    }
+
+    func layoutManager(_ manager: DockLayoutManager, didRequestNewPanelIn groupId: UUID, windowId: UUID) {
+        // No-op — host app must implement to create panels
+    }
+
+    func layoutManager(_ manager: DockLayoutManager, didRequestMovePanel panelId: UUID, toGroup targetGroupId: UUID, at index: Int, windowId: UUID) {
+        let layout = manager.getLayout()
+        let newLayout = layout.movingChild(panelId, toGroupId: targetGroupId, at: index)
+        manager.updateLayout(newLayout)
+    }
+
+    func layoutManager(_ manager: DockLayoutManager, didRequestSplit direction: DockSplitDirection, withPanel panelId: UUID, in groupId: UUID, windowId: UUID) {
+        let layout = manager.getLayout()
+        let child = layout.findChild(panelId)?.panel ?? Panel.contentPanel(id: panelId, title: "Untitled")
+        let newLayout = layout.splitting(groupId: groupId, direction: direction, withChild: child)
+        manager.updateLayout(newLayout)
+    }
+
+    func layoutManager(_ manager: DockLayoutManager, canMovePanel panelId: UUID, toGroup targetGroupId: UUID, at zone: DockDropZone) -> Bool {
+        true
+    }
 }
 
 // MARK: - DockWindowDelegate
@@ -401,15 +468,17 @@ extension DockLayoutManager {
     }
 
     public func dockWindow(_ window: DockWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
-        // Get current layout and compute new layout with child moved
-        let currentLayout = getLayout()
-        let targetGroupId = tabGroup.panel.id
-
-        // Use layout mutation API to move the child
-        let newLayout = currentLayout.movingChild(tabInfo.tabId, toGroupId: targetGroupId, at: index)
-
-        // Apply the new layout
-        updateLayout(newLayout)
+        // Propose the move — delegate decides, or apply default if no delegate
+        if let delegate = delegate {
+            delegate.layoutManager(self, didRequestMovePanel: tabInfo.tabId,
+                                   toGroup: tabGroup.panel.id, at: index,
+                                   windowId: window.windowId)
+        } else {
+            // Default: apply the move directly
+            let layout = getLayout()
+            let newLayout = layout.movingChild(tabInfo.tabId, toGroupId: tabGroup.panel.id, at: index)
+            updateLayout(newLayout)
+        }
     }
 
     public func dockWindow(_ window: DockWindow, wantsToDetachPanelId panelId: UUID, at screenPoint: NSPoint) {
@@ -423,28 +492,39 @@ extension DockLayoutManager {
     }
 
     public func dockWindow(_ window: DockWindow, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {
-        // Get current layout
-        let currentLayout = getLayout()
-        let targetGroupId = tabGroup.panel.id
-
-        // Find the panel info from the layout tree to build the child panel
-        let childPanel: Panel
-        if let info = currentLayout.findChild(panelId) {
-            childPanel = info.panel
+        // Propose the split — delegate decides, or apply default if no delegate
+        if let delegate = delegate {
+            delegate.layoutManager(self, didRequestSplit: direction,
+                                   withPanel: panelId, in: tabGroup.panel.id,
+                                   windowId: window.windowId)
         } else {
-            // Fallback: create a content panel with just the ID
-            childPanel = Panel.contentPanel(id: panelId, title: "Untitled")
+            // Default: apply the split directly
+            let layout = getLayout()
+            let child = layout.findChild(panelId)?.panel ?? Panel.contentPanel(id: panelId, title: "Untitled")
+            let newLayout = layout.splitting(groupId: tabGroup.panel.id, direction: direction, withChild: child)
+            updateLayout(newLayout)
         }
+    }
 
-        // Use layout mutation API to perform the split
-        let newLayout = currentLayout.splitting(
-            groupId: targetGroupId,
-            direction: direction,
-            withChild: childPanel
-        )
+    public func dockWindow(_ window: DockWindow, didRequestClosePanel panelId: UUID, in tabGroup: DockTabGroupViewController) {
+        // Propose close — delegate decides, or apply default if no delegate
+        if let delegate = delegate {
+            delegate.layoutManager(self, didRequestClosePanel: panelId,
+                                   in: tabGroup.panel.id, windowId: window.windowId)
+        } else {
+            // Default: remove the panel
+            removePanel(panelId)
+        }
+    }
 
-        // Apply the new layout
-        updateLayout(newLayout)
+    public func dockWindow(_ window: DockWindow, didRequestNewPanelIn tabGroup: DockTabGroupViewController) {
+        // Propose new panel — delegate decides (no default action without delegate)
+        delegate?.layoutManager(self, didRequestNewPanelIn: tabGroup.panel.id,
+                               windowId: window.windowId)
+    }
+
+    public func dockWindow(_ window: DockWindow, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool {
+        delegate?.layoutManager(self, canMovePanel: panelId, toGroup: tabGroup.panel.id, at: zone) ?? true
     }
 }
 

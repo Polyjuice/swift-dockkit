@@ -19,6 +19,10 @@ public protocol DockDropOverlayViewDelegate: AnyObject {
 public class DockDropOverlayView: NSView {
     public weak var delegate: DockDropOverlayViewDelegate?
 
+    /// Optional validation closure: can this panel be dropped in this zone?
+    /// Set by the tab group controller to route canMovePanel checks through the delegate chain.
+    public var canAcceptPanel: ((UUID, DockDropZone) -> Bool)?
+
     /// Currently highlighted zone
     private var highlightedZone: DockDropZone?
 
@@ -213,8 +217,18 @@ public class DockDropOverlayView: NSView {
 
         let location = convert(sender.draggingLocation, from: nil)
         let zone = zoneAt(point: location)
-        updatePreview(for: zone)
 
+        // Check if the panel can be accepted in this zone
+        if let canAccept = canAcceptPanel,
+           let data = sender.draggingPasteboard.data(forType: .dockTab),
+           let tabInfo = try? JSONDecoder().decode(DockTabDragInfo.self, from: data) {
+            if !canAccept(tabInfo.tabId, zone) {
+                updatePreview(for: nil)
+                return []
+            }
+        }
+
+        updatePreview(for: zone)
         return .move
     }
 
@@ -226,8 +240,18 @@ public class DockDropOverlayView: NSView {
 
         let location = convert(sender.draggingLocation, from: nil)
         let zone = zoneAt(point: location)
-        updatePreview(for: zone)
 
+        // Check if the panel can be accepted in this zone
+        if let canAccept = canAcceptPanel,
+           let data = sender.draggingPasteboard.data(forType: .dockTab),
+           let tabInfo = try? JSONDecoder().decode(DockTabDragInfo.self, from: data) {
+            if !canAccept(tabInfo.tabId, zone) {
+                updatePreview(for: nil)
+                return []
+            }
+        }
+
+        updatePreview(for: zone)
         return .move
     }
 

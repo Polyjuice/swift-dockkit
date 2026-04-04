@@ -8,12 +8,29 @@ public protocol DockTabGroupViewControllerDelegate: AnyObject {
     func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastPanel: Bool)
     func tabGroup(_ tabGroup: DockTabGroupViewController, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID)
     func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController)
+
+    /// User clicked the close button on a tab. This is a **proposal** — the delegate
+    /// decides whether to actually close. Default: calls removeTab on the tab group.
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestClosePanel panelId: UUID, at index: Int)
+
+    /// User clicked the "+" button. This is a **proposal** — the delegate decides
+    /// whether to create a new panel. Default: no-op.
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID)
+
+    /// During drag: can this panel be dropped in this group/zone?
+    /// Must be fast (called on every mouse move). Return false to hide the drop zone.
+    func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool
 }
 
 /// Optional delegate methods
 public extension DockTabGroupViewControllerDelegate {
     func tabGroup(_ tabGroup: DockTabGroupViewController, didClosePanel panelId: UUID) {}
     func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {}
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestClosePanel panelId: UUID, at index: Int) {
+        tabGroup.removeTab(at: index)
+    }
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID) {}
+    func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool { true }
 }
 
 /// A view controller that manages a tab bar and content area
@@ -197,6 +214,10 @@ public class DockTabGroupViewController: NSViewController {
         // Setup drop overlay
         dropOverlay = DockDropOverlayView()
         dropOverlay?.delegate = self
+        dropOverlay?.canAcceptPanel = { [weak self] panelId, zone in
+            guard let self = self else { return true }
+            return self.delegate?.tabGroup(self, canAcceptPanel: panelId, at: zone) ?? true
+        }
         dropOverlay?.translatesAutoresizingMaskIntoConstraints = false
         dropOverlay?.isHidden = true
         if let overlay = dropOverlay {
@@ -612,7 +633,11 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
     }
 
     public func tabBar(_ tabBar: DockTabBarView, didCloseTabAt index: Int) {
-        removeTab(at: index)
+        // Route through proposal — delegate decides whether to actually close
+        guard case .group(let g) = panel.content,
+              index >= 0 && index < g.children.count else { return }
+        let panelId = g.children[index].id
+        delegate?.tabGroup(self, didRequestClosePanel: panelId, at: index)
     }
 
     public func tabBar(_ tabBar: DockTabBarView, didReorderTabFrom fromIndex: Int, to toIndex: Int) {
@@ -647,7 +672,8 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
     }
 
     public func tabBarDidRequestNewTab(_ tabBar: DockTabBarView) {
-        delegate?.tabGroupDidRequestNewTab(self)
+        // Route through proposal — delegate decides whether to create a new panel
+        delegate?.tabGroup(self, didRequestNewPanelIn: panel.id)
     }
 }
 

@@ -1,12 +1,12 @@
 import AppKit
 
-/// Delegate for stage host view events
+/// Delegate for stage host view events.
+///
+/// All `didRequest*` methods are **proposals**: DockKit detects a user gesture and asks the
+/// delegate what to do. Default implementations apply the change directly.
 public protocol DockStageHostViewDelegate: AnyObject {
     /// Called when the active stage changes
     func stageHostView(_ view: DockStageHostView, didSwitchToStageAt index: Int)
-
-    /// Called when a tab is received via drag
-    func stageHostView(_ view: DockStageHostView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
 
     /// Called before a panel is torn off. Return false to prevent tearing.
     func stageHostView(_ view: DockStageHostView, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool
@@ -14,35 +14,74 @@ public protocol DockStageHostViewDelegate: AnyObject {
     /// Called after a panel was torn off into a new window
     func stageHostView(_ view: DockStageHostView, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow)
 
-    /// Called when a split is requested
-    func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController)
+    // MARK: - Proposals
 
-    /// Called when the user requests to close a stage (via close button).
+    /// User dropped a tab into a group. The delegate should apply the move or ignore to cancel.
+    func stageHostView(_ view: DockStageHostView, didRequestMovePanel panelId: UUID,
+                       toGroup targetGroupId: UUID, at index: Int)
+
+    /// User dropped a tab on a split zone. The delegate should apply the split or ignore to cancel.
+    func stageHostView(_ view: DockStageHostView, didRequestSplit direction: DockSplitDirection,
+                       withPanelId panelId: UUID, in groupId: UUID)
+
+    /// User clicked the close button on a stage.
     func stageHostView(_ view: DockStageHostView, didRequestCloseStageAt index: Int)
 
-    /// Called when the user requests to close a tab (via close button).
+    /// User clicked the close button on a tab.
     func stageHostView(_ view: DockStageHostView, didRequestClosePanel panelId: UUID)
 
-    /// Called when the user requests a new stage (via + button).
+    /// User clicked the "+" button on the stage header.
     func stageHostViewDidRequestNewStage(_ view: DockStageHostView)
+
+    /// User clicked the "+" button in a tab bar.
+    func stageHostView(_ view: DockStageHostView, didRequestNewPanelIn groupId: UUID)
+
+    /// Called during drag to check if a panel can be dropped in a target group/zone.
+    func stageHostView(_ view: DockStageHostView, canMovePanel panelId: UUID,
+                       toGroup targetGroupId: UUID, at zone: DockDropZone) -> Bool
+
+    // MARK: - Legacy
+
+    /// Called when a tab is received via drag. Deprecated — use didRequestMovePanel instead.
+    func stageHostView(_ view: DockStageHostView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
+
+    /// Called when a split is requested. Deprecated — use didRequestSplit instead.
+    func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController)
 }
 
 /// Default implementations
 public extension DockStageHostViewDelegate {
     func stageHostView(_ view: DockStageHostView, didSwitchToStageAt index: Int) {}
-    func stageHostView(_ view: DockStageHostView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
     func stageHostView(_ view: DockStageHostView, willTearPanel panel: any DockablePanel, at screenPoint: NSPoint) -> Bool { true }
     func stageHostView(_ view: DockStageHostView, didTearPanel panel: any DockablePanel, to newWindow: DockStageHostWindow) {}
-    func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {}
+
+    func stageHostView(_ view: DockStageHostView, didRequestMovePanel panelId: UUID, toGroup targetGroupId: UUID, at index: Int) {
+        view.controller.handleChildReceived(panelId, in: targetGroupId, at: index)
+    }
+
+    func stageHostView(_ view: DockStageHostView, didRequestSplit direction: DockSplitDirection, withPanelId panelId: UUID, in groupId: UUID) {
+        view.controller.handleSplit(groupId: groupId, direction: direction, withPanelId: panelId)
+    }
+
     func stageHostView(_ view: DockStageHostView, didRequestCloseStageAt index: Int) {
         view.controller.removeStage(at: index)
     }
+
     func stageHostView(_ view: DockStageHostView, didRequestClosePanel panelId: UUID) {
         view.controller.handleChildClosed(panelId)
     }
+
     func stageHostViewDidRequestNewStage(_ view: DockStageHostView) {
         view.addNewStage()
     }
+
+    func stageHostView(_ view: DockStageHostView, didRequestNewPanelIn groupId: UUID) {}
+
+    func stageHostView(_ view: DockStageHostView, canMovePanel panelId: UUID, toGroup targetGroupId: UUID, at zone: DockDropZone) -> Bool { true }
+
+    // Legacy defaults
+    func stageHostView(_ view: DockStageHostView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
+    func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {}
 }
 
 /// A view that hosts multiple stages with swipe gesture navigation.
@@ -383,7 +422,13 @@ extension DockStageHostView: DockStageContainerViewDelegate {
     }
 
     public func stageContainer(_ container: DockStageContainerView, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {
-        controller.handleChildReceived(tabInfo.tabId, title: tabInfo.title, iconName: tabInfo.iconName, in: tabGroup.panel.id, at: index)
+        // Route through proposal — delegate decides whether to apply
+        if let delegate = delegate {
+            delegate.stageHostView(self, didRequestMovePanel: tabInfo.tabId,
+                                   toGroup: tabGroup.panel.id, at: index)
+        } else {
+            controller.handleChildReceived(tabInfo.tabId, title: tabInfo.title, iconName: tabInfo.iconName, in: tabGroup.panel.id, at: index)
+        }
     }
 
     public func stageContainer(_ container: DockStageContainerView, wantsToDetachPanel panelId: UUID, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {
@@ -396,10 +441,24 @@ extension DockStageHostView: DockStageContainerViewDelegate {
     }
 
     public func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {
-        controller.handleSplit(groupId: tabGroup.panel.id, direction: direction, withPanelId: panelId)
+        // Route through proposal — delegate decides whether to apply
+        if let delegate = delegate {
+            delegate.stageHostView(self, didRequestSplit: direction,
+                                   withPanelId: panelId, in: tabGroup.panel.id)
+        } else {
+            controller.handleSplit(groupId: tabGroup.panel.id, direction: direction, withPanelId: panelId)
+        }
     }
 
     public func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID) {
         delegate?.stageHostView(self, didRequestClosePanel: panelId)
+    }
+
+    public func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID) {
+        delegate?.stageHostView(self, didRequestNewPanelIn: groupId)
+    }
+
+    public func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool {
+        delegate?.stageHostView(self, canMovePanel: panelId, toGroup: tabGroup.panel.id, at: zone) ?? true
     }
 }

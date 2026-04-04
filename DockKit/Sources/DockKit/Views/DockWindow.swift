@@ -6,6 +6,17 @@ public protocol DockWindowDelegate: AnyObject {
     func dockWindow(_ window: DockWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int)
     func dockWindow(_ window: DockWindow, wantsToDetachPanelId panelId: UUID, at screenPoint: NSPoint)
     func dockWindow(_ window: DockWindow, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController)
+
+    // MARK: - Proposals
+
+    /// User clicked close on a tab. Route to layout manager for policy decision.
+    func dockWindow(_ window: DockWindow, didRequestClosePanel panelId: UUID, in tabGroup: DockTabGroupViewController)
+
+    /// User clicked "+" in a tab group. Route to layout manager for policy decision.
+    func dockWindow(_ window: DockWindow, didRequestNewPanelIn tabGroup: DockTabGroupViewController)
+
+    /// During drag: can this panel be dropped in this group/zone?
+    func dockWindow(_ window: DockWindow, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool
 }
 
 /// Default implementations
@@ -14,6 +25,9 @@ public extension DockWindowDelegate {
     func dockWindow(_ window: DockWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
     func dockWindow(_ window: DockWindow, wantsToDetachPanelId panelId: UUID, at screenPoint: NSPoint) {}
     func dockWindow(_ window: DockWindow, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {}
+    func dockWindow(_ window: DockWindow, didRequestClosePanel panelId: UUID, in tabGroup: DockTabGroupViewController) {}
+    func dockWindow(_ window: DockWindow, didRequestNewPanelIn tabGroup: DockTabGroupViewController) {}
+    func dockWindow(_ window: DockWindow, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool { true }
 }
 
 /// A dock window that can contain full layout trees (splits + tabs)
@@ -358,6 +372,18 @@ extension DockWindow: DockTabGroupViewControllerDelegate {
 
     public func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {
         // Host app should handle this via delegate
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestClosePanel panelId: UUID, at index: Int) {
+        dockDelegate?.dockWindow(self, didRequestClosePanel: panelId, in: tabGroup)
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID) {
+        dockDelegate?.dockWindow(self, didRequestNewPanelIn: tabGroup)
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool {
+        dockDelegate?.dockWindow(self, canAcceptPanel: panelId, in: tabGroup, at: zone) ?? true
     }
 }
 

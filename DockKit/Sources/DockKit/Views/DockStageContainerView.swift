@@ -47,6 +47,12 @@ public protocol DockStageContainerViewDelegate: AnyObject {
 
     /// Called when a tab is closed via X button
     func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID)
+
+    /// Called when user clicks "+" in a tab bar
+    func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID)
+
+    /// During drag: can this panel be dropped in this group/zone?
+    func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool
 }
 
 /// Default implementations
@@ -58,6 +64,8 @@ public extension DockStageContainerViewDelegate {
     func stageContainer(_ container: DockStageContainerView, wantsToDetachPanel panelId: UUID, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
     func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {}
     func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID) {}
+    func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID) {}
+    func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool { true }
 }
 
 /// A container view that hosts multiple stages with swipe gesture navigation
@@ -987,7 +995,19 @@ extension DockStageContainerView: DockTabGroupViewControllerDelegate {
     }
 
     public func tabGroupDidRequestNewTab(_ tabGroup: DockTabGroupViewController) {
-        // Handle new tab request - could create a new panel
+        // Route through delegate
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID) {
+        delegate?.stageContainer(self, didRequestNewPanelIn: groupId)
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestClosePanel panelId: UUID, at index: Int) {
+        delegate?.stageContainer(self, didClosePanel: panelId)
+    }
+
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool {
+        delegate?.stageContainer(self, canAcceptPanel: panelId, in: tabGroup, at: zone) ?? true
     }
 }
 
