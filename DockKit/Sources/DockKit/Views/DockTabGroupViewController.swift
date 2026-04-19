@@ -492,9 +492,13 @@ public class DockTabGroupViewController: NSViewController {
     // MARK: - Scroll Routing
 
     /// Called by the root view's scrollWheel override.
+    ///
+    /// Always forwarded to the carousel engine — even for a single-tab group.
+    /// With only one position the engine treats any swipe as "past the edge"
+    /// and bubbles to `swipeGestureDelegate` (typically the enclosing stage
+    /// container), so a lone tab still rolls directly into a stage swipe.
     @discardableResult
     func handleCarouselScroll(_ event: NSEvent) -> Bool {
-        guard childPanels.count > 1 || carousel.isGestureActive else { return false }
         return carousel.handleScrollWheel(event)
     }
 
