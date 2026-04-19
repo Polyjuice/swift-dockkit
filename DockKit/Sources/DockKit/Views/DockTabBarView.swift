@@ -51,6 +51,9 @@ public class DockTabBarView: NSView, NSDraggingSource {
         }
     }
 
+    /// Panel provider for resolving DockablePanel instances (used by thumbnail buttons)
+    public var panelProvider: ((UUID) -> (any DockablePanel)?)?
+
     private var panels: [Panel] = []
     private var selectedIndex: Int = 0
     private var tabButtons: [DockTabButton] = []
@@ -247,7 +250,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
         // Create thumbnail buttons
         for (index, panel) in panels.enumerated() {
-            let button = DockThumbnailButton(panel: panel, isSelected: index == selectedIndex, panelProvider: nil)
+            let button = DockThumbnailButton(panel: panel, isSelected: index == selectedIndex, panelProvider: panelProvider)
             button.onSelect = { [weak self] in
                 self?.handleTabSelected(at: index)
             }

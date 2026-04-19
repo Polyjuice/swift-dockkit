@@ -20,6 +20,9 @@ public protocol DockTabGroupViewControllerDelegate: AnyObject {
     /// During drag: can this panel be dropped in this group/zone?
     /// Must be fast (called on every mouse move). Return false to hide the drop zone.
     func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool
+
+    /// Tab was reordered within this group (drag within the same tab bar).
+    func tabGroupDidReorderTab(_ tabGroup: DockTabGroupViewController)
 }
 
 /// Optional delegate methods
@@ -31,6 +34,7 @@ public extension DockTabGroupViewControllerDelegate {
     }
     func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID) {}
     func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool { true }
+    func tabGroupDidReorderTab(_ tabGroup: DockTabGroupViewController) {}
 }
 
 /// A view controller that manages a tab bar and content area
@@ -50,7 +54,9 @@ public class DockTabGroupViewController: NSViewController {
 
     /// Callback to resolve a panel ID to a DockablePanel instance
     /// The host app provides this to supply actual view controllers for content panels
-    public var panelProvider: ((UUID) -> (any DockablePanel)?)?
+    public var panelProvider: ((UUID) -> (any DockablePanel)?)? {
+        didSet { tabBar?.panelProvider = panelProvider }
+    }
 
     /// Local cache of resolved DockablePanel instances, keyed by panel ID
     private var resolvedPanels: [UUID: any DockablePanel] = [:]
@@ -186,6 +192,7 @@ public class DockTabGroupViewController: NSViewController {
         tabBar = DockTabBarView()
         tabBar.groupId = panel.id
         tabBar.delegate = self
+        tabBar.panelProvider = panelProvider
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(tabBar)
 
@@ -660,6 +667,7 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
 
         panel.content = .group(g)
         updateTabBar()
+        delegate?.tabGroupDidReorderTab(self)
     }
 
     public func tabBar(_ tabBar: DockTabBarView, didInitiateTearOff tabIndex: Int, at screenPoint: NSPoint) {

@@ -45,6 +45,12 @@ public protocol DockStageHostWindowDelegate: AnyObject {
     func stageHostWindow(_ window: DockStageHostWindow, canMovePanel panelId: UUID,
                          toGroup targetGroupId: UUID, at zone: DockDropZone) -> Bool
 
+    /// Splitter proportions changed (user dragged a divider). High-frequency — debounce before syncing.
+    func stageHostWindowDidUpdateProportions(_ window: DockStageHostWindow)
+
+    /// Tab was reordered within its group.
+    func stageHostWindowDidReorderTab(_ window: DockStageHostWindow)
+
     // MARK: - Legacy (kept for backward compatibility)
 
     /// Called when a tab is received via drag. Deprecated — use didRequestMovePanel instead.
@@ -88,6 +94,9 @@ public extension DockStageHostWindowDelegate {
     func stageHostWindow(_ window: DockStageHostWindow, canMovePanel panelId: UUID, toGroup targetGroupId: UUID, at zone: DockDropZone) -> Bool {
         true
     }
+
+    func stageHostWindowDidUpdateProportions(_ window: DockStageHostWindow) {}
+    func stageHostWindowDidReorderTab(_ window: DockStageHostWindow) {}
 
     // Legacy defaults
     func stageHostWindow(_ window: DockStageHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
@@ -481,6 +490,9 @@ extension DockStageHostWindow: DockStageHeaderViewDelegate {
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didToggleThumbnailMode enabled: Bool) {
+        // Propagate to tab groups so they switch between text tabs and thumbnail buttons
+        self.groupStyle = enabled ? .thumbnails : .tabs
+
         // Set thumbnail mode on header and get new height
         let newHeight = headerView.setThumbnailMode(enabled)
 
@@ -581,6 +593,14 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
 
     public func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool {
         stageDelegate?.stageHostWindow(self, canMovePanel: panelId, toGroup: tabGroup.panel.id, at: zone) ?? true
+    }
+
+    public func stageContainerDidUpdateProportions(_ container: DockStageContainerView) {
+        stageDelegate?.stageHostWindowDidUpdateProportions(self)
+    }
+
+    public func stageContainerDidReorderTab(_ container: DockStageContainerView) {
+        stageDelegate?.stageHostWindowDidReorderTab(self)
     }
 }
 

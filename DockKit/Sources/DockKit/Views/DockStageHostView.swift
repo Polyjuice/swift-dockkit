@@ -367,6 +367,9 @@ extension DockStageHostView: DockStageHeaderViewDelegate {
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didToggleThumbnailMode enabled: Bool) {
+        // Propagate to tab groups so they switch between text tabs and thumbnail buttons
+        self.groupStyle = enabled ? .thumbnails : .tabs
+
         let newHeight = headerView.setThumbnailMode(enabled)
 
         if enabled {

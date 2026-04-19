@@ -53,6 +53,12 @@ public protocol DockStageContainerViewDelegate: AnyObject {
 
     /// During drag: can this panel be dropped in this group/zone?
     func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool
+
+    /// Splitter proportions changed (user dragged a divider)
+    func stageContainerDidUpdateProportions(_ container: DockStageContainerView)
+
+    /// Tab was reordered within its group
+    func stageContainerDidReorderTab(_ container: DockStageContainerView)
 }
 
 /// Default implementations
@@ -66,6 +72,8 @@ public extension DockStageContainerViewDelegate {
     func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID) {}
     func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID) {}
     func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool { true }
+    func stageContainerDidUpdateProportions(_ container: DockStageContainerView) {}
+    func stageContainerDidReorderTab(_ container: DockStageContainerView) {}
 }
 
 /// A container view that hosts multiple stages with swipe gesture navigation
@@ -534,6 +542,7 @@ public class DockStageContainerView: NSView {
             switch group.style {
             case .split:
                 let splitVC = DockSplitViewController(panel: stagePanel)
+                splitVC.dockDelegate = self
                 splitVC.tabGroupDelegate = self
                 splitVC.panelProvider = { [weak self] id in
                     self?.delegate?.stageContainer(self!, panelForId: id)
@@ -971,6 +980,18 @@ public class DockStageContainerView: NSView {
 
 }
 
+// MARK: - DockSplitViewControllerDelegate
+
+extension DockStageContainerView: DockSplitViewControllerDelegate {
+    public func splitViewController(_ controller: DockSplitViewController, didUpdateProportions proportions: [CGFloat]) {
+        delegate?.stageContainerDidUpdateProportions(self)
+    }
+
+    public func splitViewController(_ controller: DockSplitViewController, childDidBecomeEmpty index: Int) {
+        // Handled by the split VC itself (rebuilds layout)
+    }
+}
+
 // MARK: - DockTabGroupViewControllerDelegate
 
 extension DockStageContainerView: DockTabGroupViewControllerDelegate {
@@ -1008,6 +1029,10 @@ extension DockStageContainerView: DockTabGroupViewControllerDelegate {
 
     public func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool {
         delegate?.stageContainer(self, canAcceptPanel: panelId, in: tabGroup, at: zone) ?? true
+    }
+
+    public func tabGroupDidReorderTab(_ tabGroup: DockTabGroupViewController) {
+        delegate?.stageContainerDidReorderTab(self)
     }
 }
 
