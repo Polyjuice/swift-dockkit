@@ -235,8 +235,23 @@ public class DockStageContainerView: NSView {
         scrollEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self = self else { return event }
 
-            // Only intercept if event is within our bounds
+            // Window-scope guard — never react to events targeted at other windows.
             guard let eventWindow = event.window, eventWindow == self.window else { return event }
+
+            // If we already own an in-progress gesture, route every subsequent event
+            // to ourselves regardless of where the cursor has moved or whether a
+            // nested container now sits under it. Pin releases on gesture end below.
+            if self.isInterceptingHorizontalGesture {
+                self.scrollWheel(with: event)
+                if event.phase == .ended || event.phase == .cancelled ||
+                   event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+                    self.isInterceptingHorizontalGesture = false
+                }
+                return nil
+            }
+
+            // Capture-decision gates: only used to decide whether a *new* gesture
+            // should be owned by this monitor. Once owned (above), they no longer apply.
             let locationInSelf = self.convert(event.locationInWindow, from: nil)
             guard self.bounds.contains(locationInSelf) else { return event }
 
@@ -244,7 +259,6 @@ public class DockStageContainerView: NSView {
             // If so, let the event pass through so the nested container handles it first.
             // The nested container will bubble events up to us when it's at its edge.
             if self.hasNestedContainerAt(point: locationInSelf) {
-                // Don't intercept - let the nested container handle it via its own event monitor
                 return event
             }
 
@@ -254,28 +268,19 @@ public class DockStageContainerView: NSView {
 
             // On gesture begin, decide if this is horizontal-dominant AND shift is held.
             // Stage swipe requires shift — without it, the event passes through so tab
-            // groups can handle two-finger swipes for tab switching.
+            // groups can handle two-finger swipes for tab switching. Once captured,
+            // the short-circuit at the top of the closure takes over for the rest
+            // of the gesture.
             if event.phase == .began {
                 let isHorizontalDominant = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 0.5
                 let hasShift = event.modifierFlags.contains(.shift)
-                self.isInterceptingHorizontalGesture = isHorizontalDominant && hasShift
-            }
-
-            // If intercepting horizontal gesture, process it ourselves
-            if self.isInterceptingHorizontalGesture {
-                self.scrollWheel(with: event)
-
-                // End interception when gesture ends
-                if event.phase == .ended || event.phase == .cancelled ||
-                   event.momentumPhase == .ended || event.momentumPhase == .cancelled {
-                    self.isInterceptingHorizontalGesture = false
+                if isHorizontalDominant && hasShift {
+                    self.isInterceptingHorizontalGesture = true
+                    self.scrollWheel(with: event)
+                    return nil
                 }
-
-                // Return nil to consume the event
-                return nil
             }
 
-            // Let vertical gestures pass through
             return event
         }
     }

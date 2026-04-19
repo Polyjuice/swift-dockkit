@@ -39,13 +39,31 @@ final class DockTabGroupRootView: NSView {
         scrollEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self = self else { return event }
 
-            // Only intercept if the event is in our window and within our bounds.
+            // Window-scope guard — never react to events targeted at other windows.
             guard let eventWindow = event.window, eventWindow == self.window else { return event }
+
+            // If we already own an in-progress gesture, route every subsequent event
+            // to our controller regardless of where the cursor has moved, what
+            // modifiers are held, or whether a nested swipeable now sits under the
+            // cursor. The pin releases on .ended / .cancelled / momentum-end below.
+            if self.isInterceptingHorizontalGesture {
+                if let controller = self.controller {
+                    _ = controller.handleCarouselScroll(event)
+                }
+                if event.phase == .ended || event.phase == .cancelled ||
+                   event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+                    self.isInterceptingHorizontalGesture = false
+                }
+                return nil
+            }
+
+            // Capture-decision gates: only used to decide whether a *new* gesture
+            // should be owned by this monitor. Once owned (above), they no longer apply.
             let locationInSelf = self.convert(event.locationInWindow, from: nil)
             guard self.bounds.contains(locationInSelf) else { return event }
 
             // Shift belongs to stage navigation — let it pass so the stage container's
-            // monitor can handle it. Only reset once the gesture phase ends.
+            // monitor can handle it.
             if event.modifierFlags.contains(.shift) {
                 return event
             }
@@ -60,23 +78,18 @@ final class DockTabGroupRootView: NSView {
             let isGestureEvent = event.phase != [] || event.momentumPhase != []
             guard isGestureEvent else { return event }
 
-            // Decide horizontal-dominance once per gesture at .began
+            // Decide horizontal-dominance once per gesture at .began. Once set, the
+            // short-circuit at the top of the closure takes over for the rest of
+            // the gesture.
             if event.phase == .began {
                 let isHorizontalDominant = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 0.5
-                self.isInterceptingHorizontalGesture = isHorizontalDominant
-            }
-
-            if self.isInterceptingHorizontalGesture {
-                if let controller = self.controller {
-                    _ = controller.handleCarouselScroll(event)
+                if isHorizontalDominant {
+                    self.isInterceptingHorizontalGesture = true
+                    if let controller = self.controller {
+                        _ = controller.handleCarouselScroll(event)
+                    }
+                    return nil
                 }
-
-                if event.phase == .ended || event.phase == .cancelled ||
-                   event.momentumPhase == .ended || event.momentumPhase == .cancelled {
-                    self.isInterceptingHorizontalGesture = false
-                }
-
-                return nil
             }
 
             return event
