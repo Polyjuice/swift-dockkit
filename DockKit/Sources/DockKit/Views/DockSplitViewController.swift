@@ -226,6 +226,7 @@ public class DockSplitViewController: NSSplitViewController {
                 let tabGroupVC = DockTabGroupViewController(panel: childPanel)
                 tabGroupVC.delegate = tabGroupDelegate
                 tabGroupVC.panelProvider = panelProvider
+                tabGroupVC.swipeGestureDelegate = swipeGestureDelegate
                 return tabGroupVC
 
             case .stages:

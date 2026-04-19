@@ -1,5 +1,25 @@
 import AppKit
 
+/// Root NSView for DockTabGroupViewController. Forwards scrollWheel events into
+/// the tab group's swipe engine so plain two-finger horizontal swipes animate
+/// interactively between tabs (matching the stage carousel feel) and bubble to
+/// the parent swipeable when at the edge.
+final class DockTabGroupRootView: NSView {
+    weak var controller: DockTabGroupViewController?
+
+    override func scrollWheel(with event: NSEvent) {
+        // Shift-held swipes belong to stage navigation — don't consume them.
+        if event.modifierFlags.contains(.shift) {
+            super.scrollWheel(with: event)
+            return
+        }
+        if let controller = controller, controller.handleCarouselScroll(event) {
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+}
+
 /// Delegate for tab group events
 public protocol DockTabGroupViewControllerDelegate: AnyObject {
     func tabGroup(_ tabGroup: DockTabGroupViewController, didDetachPanel panelId: UUID, at screenPoint: NSPoint)
@@ -46,6 +66,11 @@ public extension DockTabGroupViewControllerDelegate {
 /// Because `Panel` is a pure Codable struct with no DockablePanel reference,
 /// this controller maintains its own mapping of panel ID → DockablePanel,
 /// resolved via the `panelProvider` callback.
+///
+/// Tab contents are laid out side-by-side inside a clip view so that
+/// two-finger horizontal swipes produce the same interactive carousel animation
+/// as the stage container. At the edge, the swipe bubbles up to
+/// `swipeGestureDelegate` (typically a parent stage container).
 public class DockTabGroupViewController: NSViewController {
     public weak var delegate: DockTabGroupViewControllerDelegate?
 
@@ -58,6 +83,13 @@ public class DockTabGroupViewController: NSViewController {
         didSet { tabBar?.panelProvider = panelProvider }
     }
 
+    /// Parent swipeable carousel — receives bubbled events when this tab group
+    /// reaches its edge. Typically set by the enclosing `DockStageContainerView`
+    /// or `DockSplitViewController`.
+    public weak var swipeGestureDelegate: SwipeGestureDelegate? {
+        didSet { carousel.swipeGestureDelegate = swipeGestureDelegate }
+    }
+
     /// Local cache of resolved DockablePanel instances, keyed by panel ID
     private var resolvedPanels: [UUID: any DockablePanel] = [:]
 
@@ -67,11 +99,23 @@ public class DockTabGroupViewController: NSViewController {
     /// Tab bar height constraint (varies based on group style)
     private var tabBarHeightConstraint: NSLayoutConstraint!
 
-    /// Container for panel content
-    private var contentContainer: NSView!
+    /// Clip view that masks the sliding content.
+    private var clipView: NSView!
 
-    /// Currently displayed panel view controller
-    private var currentPanelVC: NSViewController?
+    /// Sliding content view, width = clipView.width * tabCount.
+    private var contentView: NSView!
+
+    /// Leading constraint on contentView (animated by the swipe engine).
+    private var contentLeadingConstraint: NSLayoutConstraint!
+
+    /// Width constraint on contentView (multiplied by tab count).
+    private var contentWidthConstraint: NSLayoutConstraint?
+
+    /// Per-tab wrapper views laid out side-by-side inside `contentView`.
+    private var tabContentViews: [UUID: NSView] = [:]
+
+    /// Cached view controllers per tab panel ID.
+    private var tabViewControllers: [UUID: NSViewController] = [:]
 
     /// Drop overlay for split drop zones
     private var dropOverlay: DockDropOverlayView?
@@ -81,6 +125,9 @@ public class DockTabGroupViewController: NSViewController {
 
     /// KVO observation for first responder changes
     private var firstResponderObservation: NSKeyValueObservation?
+
+    /// The swipe carousel gesture engine.
+    private let carousel = SwipeCarouselGesture()
 
     public init(panel: Panel = Panel(content: .group(PanelGroup(style: .tabs)))) {
         self.panel = panel
@@ -93,20 +140,22 @@ public class DockTabGroupViewController: NSViewController {
     }
 
     public override func loadView() {
-        view = NSView()
-        view.wantsLayer = true
+        let root = DockTabGroupRootView()
+        root.controller = self
+        root.wantsLayer = true
+        view = root
     }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        setupCarousel()
         setupDragNotifications()
-        updateTabBar()  // Populate tabs on initial load
-        updateContent()
+        rebuildTabContent()
+        updateTabBar()
     }
 
     private func setupDragNotifications() {
-        // Show/hide drop overlay when drags begin/end
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleDragBegan),
@@ -122,12 +171,8 @@ public class DockTabGroupViewController: NSViewController {
     }
 
     @objc private func handleDragBegan(_ notification: Notification) {
-        // Check if we're the source of the drag and only have one tab
-        // In that case, don't show the overlay since dropping on yourself is a no-op
         if let dragInfo = notification.userInfo?["dragInfo"] as? DockTabDragInfo {
-            let children = group?.children ?? []
             if dragInfo.sourceGroupId == panel.id && childPanels.count == 1 {
-                // Don't show overlay - can't drop the only tab on itself
                 return
             }
         }
@@ -145,7 +190,6 @@ public class DockTabGroupViewController: NSViewController {
 
     // MARK: - Convenience Accessors
 
-    /// The PanelGroup for this controller (the panel must have .group content)
     public var group: PanelGroup? {
         get { panel.group }
         set {
@@ -155,12 +199,10 @@ public class DockTabGroupViewController: NSViewController {
         }
     }
 
-    /// The child panels (tabs) in this group
     public var childPanels: [Panel] {
         get { group?.children ?? [] }
     }
 
-    /// The active child index
     public var activeIndex: Int {
         get { group?.activeIndex ?? 0 }
         set {
@@ -170,12 +212,10 @@ public class DockTabGroupViewController: NSViewController {
         }
     }
 
-    /// The currently active child panel
     public var activeChild: Panel? {
         group?.activeChild
     }
 
-    /// The group style (tabs or thumbnails)
     public var groupStyle: PanelGroupStyle {
         get { group?.style ?? .tabs }
         set {
@@ -196,14 +236,21 @@ public class DockTabGroupViewController: NSViewController {
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(tabBar)
 
-        // Content container below tab bar (clips content to prevent bleeding)
-        contentContainer = NSView()
-        contentContainer.wantsLayer = true
-        contentContainer.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(contentContainer)
-        contentContainer.layer?.masksToBounds = true
+        // Clip view below tab bar masks the sliding content
+        clipView = NSView()
+        clipView.wantsLayer = true
+        clipView.layer?.masksToBounds = true
+        clipView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(clipView)
 
-        // Height depends on group style (28 for tabs, 80 for thumbnails)
+        // Sliding content view inside the clip view
+        contentView = NSView()
+        contentView.wantsLayer = true
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        clipView.addSubview(contentView)
+
+        contentLeadingConstraint = contentView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor)
+
         tabBarHeightConstraint = tabBar.heightAnchor.constraint(equalToConstant: heightForGroupStyle(groupStyle))
 
         NSLayoutConstraint.activate([
@@ -212,10 +259,15 @@ public class DockTabGroupViewController: NSViewController {
             tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tabBarHeightConstraint,
 
-            contentContainer.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
-            contentContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            contentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            contentContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            clipView.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            clipView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            clipView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            clipView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            contentView.topAnchor.constraint(equalTo: clipView.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: clipView.bottomAnchor),
+            contentView.heightAnchor.constraint(equalTo: clipView.heightAnchor),
+            contentLeadingConstraint
         ])
 
         // Setup drop overlay
@@ -230,25 +282,39 @@ public class DockTabGroupViewController: NSViewController {
         if let overlay = dropOverlay {
             view.addSubview(overlay)
             NSLayoutConstraint.activate([
-                overlay.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-                overlay.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-                overlay.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-                overlay.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor)
+                overlay.topAnchor.constraint(equalTo: clipView.topAnchor),
+                overlay.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+                overlay.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
+                overlay.bottomAnchor.constraint(equalTo: clipView.bottomAnchor)
             ])
+        }
+    }
+
+    private func setupCarousel() {
+        carousel.clipView = clipView
+        carousel.contentView = contentView
+        carousel.leadingConstraint = contentLeadingConstraint
+        carousel.source = view
+        carousel.positionCount = { [weak self] in self?.childPanels.count ?? 0 }
+        carousel.activePosition = { [weak self] in self?.activeIndex ?? 0 }
+        carousel.didCommitPosition = { [weak self] newIndex in
+            self?.commitActiveIndex(newIndex)
         }
     }
 
     public override func viewDidAppear() {
         super.viewDidAppear()
         setupFocusTracking()
-
-        // Focus the panel content when this tab group becomes visible
         focusPanelContent()
+    }
+
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+        layoutTabContentViews()
     }
 
     // MARK: - Focus Management
 
-    /// Focus the active panel's preferred first responder
     public func focusPanelContent() {
         guard let window = view.window,
               let activeChild = activeChild,
@@ -256,15 +322,12 @@ public class DockTabGroupViewController: NSViewController {
               let responder = dockablePanel.preferredFirstResponder else {
             return
         }
-
-        // Make the panel's preferred view the first responder
         DispatchQueue.main.async {
             window.makeFirstResponder(responder)
         }
     }
 
     private func setupFocusTracking() {
-        // Clean up previous observation
         firstResponderObservation?.invalidate()
         firstResponderObservation = nil
 
@@ -273,14 +336,12 @@ public class DockTabGroupViewController: NSViewController {
             return
         }
 
-        // Observe first responder changes
-        firstResponderObservation = window.observe(\.firstResponder, options: [.new, .initial]) { [weak self] window, _ in
+        firstResponderObservation = window.observe(\.firstResponder, options: [.new, .initial]) { [weak self] _, _ in
             DispatchQueue.main.async {
                 self?.updateFocusIndicator()
             }
         }
 
-        // Also observe window key status
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(windowKeyStatusChanged),
@@ -304,32 +365,23 @@ public class DockTabGroupViewController: NSViewController {
             tabBar.setFocused(false)
             return
         }
-
-        // Check if window is key and if any view in our content container is first responder
         let isWindowKey = window.isKeyWindow
         let hasFocus = isWindowKey && isFirstResponderInContent(window.firstResponder)
-
         tabBar.setFocused(hasFocus)
     }
 
-    /// Check if the given responder is within our content container
     private func isFirstResponderInContent(_ responder: NSResponder?) -> Bool {
         guard let responderView = responder as? NSView else { return false }
-
-        // Check if the responder is our content container or a descendant of it
         var current: NSView? = responderView
-        while let view = current {
-            if view === contentContainer {
-                return true
-            }
-            current = view.superview
+        while let v = current {
+            if v === clipView { return true }
+            current = v.superview
         }
         return false
     }
 
     // MARK: - Panel Resolution
 
-    /// Resolve a DockablePanel for a given panel ID, using cache or panelProvider
     private func resolvePanel(for panelId: UUID) -> (any DockablePanel)? {
         if let cached = resolvedPanels[panelId] {
             return cached
@@ -341,14 +393,12 @@ public class DockTabGroupViewController: NSViewController {
         return nil
     }
 
-    /// Remove a resolved panel from the cache
     private func evictPanel(for panelId: UUID) {
         resolvedPanels.removeValue(forKey: panelId)
     }
 
     // MARK: - Public API
 
-    /// Add a panel as a new tab
     public func addTab(from dockablePanel: any DockablePanel, activate: Bool = true) {
         let childPanel = Panel(
             id: dockablePanel.panelId,
@@ -362,13 +412,13 @@ public class DockTabGroupViewController: NSViewController {
         g.children.append(childPanel)
         panel.content = .group(g)
 
+        rebuildTabContent()
         updateTabBar()
         if activate {
             selectTab(at: childPanels.count - 1)
         }
     }
 
-    /// Insert a panel at a specific index
     public func insertTab(from dockablePanel: any DockablePanel, at index: Int, activate: Bool = true) {
         let childPanel = Panel(
             id: dockablePanel.panelId,
@@ -383,13 +433,13 @@ public class DockTabGroupViewController: NSViewController {
         g.children.insert(childPanel, at: clampedIndex)
         panel.content = .group(g)
 
+        rebuildTabContent()
         updateTabBar()
         if activate {
             selectTab(at: clampedIndex)
         }
     }
 
-    /// Remove a tab by index
     @discardableResult
     public func removeTab(at index: Int) -> Panel? {
         guard case .group(var g) = panel.content,
@@ -397,23 +447,17 @@ public class DockTabGroupViewController: NSViewController {
 
         let removedChild = g.children.remove(at: index)
 
-        // Adjust active index
         if g.activeIndex >= g.children.count {
             g.activeIndex = max(0, g.children.count - 1)
         }
         panel.content = .group(g)
 
-        // Notify delegate about tab closure (for layout model updates)
         delegate?.tabGroup(self, didClosePanel: removedChild.id)
-
-        // Notify the dockable panel
         resolvePanel(for: removedChild.id)?.panelDidResignActive()
-
-        // Remove from cache
         evictPanel(for: removedChild.id)
 
+        rebuildTabContent()
         updateTabBar()
-        updateContent()
 
         if childPanels.isEmpty {
             delegate?.tabGroup(self, didCloseLastPanel: true)
@@ -422,76 +466,81 @@ public class DockTabGroupViewController: NSViewController {
         return removedChild
     }
 
-    /// Remove a tab by ID
     @discardableResult
     public func removeTab(withId id: UUID) -> Panel? {
         guard let index = childPanels.firstIndex(where: { $0.id == id }) else { return nil }
         return removeTab(at: index)
     }
 
-    /// Select a tab by index
+    /// Select a tab by index. Animates the carousel to the new position; model
+    /// and tab-bar state are updated by `commitActiveIndex` via the engine callback.
     public func selectTab(at index: Int) {
-        guard case .group(var g) = panel.content,
-              index >= 0 && index < g.children.count else { return }
-
-        // Notify old tab
-        if let oldChild = g.activeChild {
-            resolvePanel(for: oldChild.id)?.panelDidResignActive()
-        }
-
-        g.activeIndex = index
-        panel.content = .group(g)
-
-        tabBar.selectTab(at: index)
-        updateContent()
-
-        // Notify new tab
-        if let newChild = group?.activeChild {
-            resolvePanel(for: newChild.id)?.panelDidBecomeActive()
-        }
-
-        // Focus the new panel's content
-        focusPanelContent()
+        guard index >= 0, index < childPanels.count else { return }
+        guard index != activeIndex else { return }
+        carousel.animateToPosition(index)
     }
 
-    /// Get the currently active child panel
     public var activeTab: Panel? {
         activeChild
     }
 
-    /// Show/hide the drop overlay
     public func showDropOverlay(_ show: Bool) {
         isShowingDropOverlay = show
         dropOverlay?.isHidden = !show
     }
 
+    // MARK: - Scroll Routing
+
+    /// Called by the root view's scrollWheel override.
+    @discardableResult
+    func handleCarouselScroll(_ event: NSEvent) -> Bool {
+        guard childPanels.count > 1 || carousel.isGestureActive else { return false }
+        return carousel.handleScrollWheel(event)
+    }
+
+    // MARK: - Carousel callbacks
+
+    private func commitActiveIndex(_ newIndex: Int) {
+        guard case .group(var g) = panel.content,
+              newIndex >= 0 && newIndex < g.children.count else { return }
+
+        // If called from a swipe (not explicit selectTab), notify old tab
+        let oldIndex = g.activeIndex
+        if oldIndex != newIndex, let oldChild = g.activeChild {
+            resolvePanel(for: oldChild.id)?.panelDidResignActive()
+        }
+
+        g.activeIndex = newIndex
+        panel.content = .group(g)
+        tabBar.selectTab(at: newIndex)
+
+        if let newChild = group?.activeChild {
+            resolvePanel(for: newChild.id)?.panelDidBecomeActive()
+        }
+        focusPanelContent()
+    }
+
     // MARK: - Reconciliation Support
 
-    /// Reconcile children with a target state (for layout reconciliation)
     public func reconcileTabs(with targetChildren: [Panel], panelProvider: ((UUID) -> (any DockablePanel)?)?) {
         guard case .group(var g) = panel.content else { return }
 
         let currentIds = Set(g.children.map { $0.id })
         let targetIds = Set(targetChildren.map { $0.id })
 
-        // Remove children not in target
         let toRemove = currentIds.subtracting(targetIds)
         for panelId in toRemove {
             _ = removeTab(withId: panelId)
         }
 
-        // Re-read group after removals
         guard case .group(var g2) = panel.content else { return }
 
-        // Add or update children
         for (targetIndex, targetChild) in targetChildren.enumerated() {
             if let existingIndex = g2.children.firstIndex(where: { $0.id == targetChild.id }) {
-                // Child exists - move to correct position if needed
                 if existingIndex != targetIndex && targetIndex < g2.children.count {
                     let moved = g2.children.remove(at: existingIndex)
                     g2.children.insert(moved, at: targetIndex)
                 }
-                // Update title if changed
                 let actualIndex = min(targetIndex, g2.children.count - 1)
                 if actualIndex >= 0 && actualIndex < g2.children.count {
                     g2.children[actualIndex].title = targetChild.title
@@ -499,16 +548,13 @@ public class DockTabGroupViewController: NSViewController {
                     g2.children[actualIndex].cargo = targetChild.cargo
                 }
             } else {
-                // New child - insert and resolve its DockablePanel
                 var newChild = targetChild
-                // Ensure it's a content panel
                 if case .content = newChild.content {} else {
                     newChild.content = .content
                 }
                 let clampedIndex = min(targetIndex, g2.children.count)
                 g2.children.insert(newChild, at: clampedIndex)
 
-                // Resolve and cache the DockablePanel
                 if let resolved = panelProvider?(targetChild.id) {
                     resolvedPanels[targetChild.id] = resolved
                 }
@@ -516,11 +562,10 @@ public class DockTabGroupViewController: NSViewController {
         }
 
         panel.content = .group(g2)
+        rebuildTabContent()
         updateTabBar()
-        updateContent()  // Also update content to show the panel
     }
 
-    /// Insert a child Panel at a specific index (public for reconciliation)
     public func insertChildPanel(_ childPanel: Panel, at index: Int, dockablePanel: (any DockablePanel)? = nil, activate: Bool = true) {
         guard case .group(var g) = panel.content else { return }
 
@@ -532,23 +577,105 @@ public class DockTabGroupViewController: NSViewController {
             resolvedPanels[childPanel.id] = dp
         }
 
+        rebuildTabContent()
         updateTabBar()
         if activate {
             selectTab(at: min(clampedIndex, childPanels.count - 1))
         }
     }
 
-    /// Activate tab at index (for reconciliation)
     public func activateTab(at index: Int) {
         selectTab(at: index)
     }
 
-    /// Update the group style (tabs vs thumbnails)
     public func setGroupStyle(_ style: PanelGroupStyle) {
         guard case .group(var g) = panel.content else { return }
         g.style = style
         panel.content = .group(g)
         updateTabBar()
+    }
+
+    // MARK: - Tab Content Layout
+
+    /// Rebuild the side-by-side layout of per-tab content views and VCs.
+    /// Called on initial load and whenever the tab set changes.
+    private func rebuildTabContent() {
+        let children = childPanels
+        let presentIds = Set(children.map { $0.id })
+
+        // Remove views/VCs for panels no longer present
+        for (id, wrapper) in tabContentViews where !presentIds.contains(id) {
+            wrapper.removeFromSuperview()
+            tabContentViews.removeValue(forKey: id)
+        }
+        for (id, vc) in tabViewControllers where !presentIds.contains(id) {
+            if vc.parent === self { vc.removeFromParent() }
+            if vc.view.superview != nil { vc.view.removeFromSuperview() }
+            tabViewControllers.removeValue(forKey: id)
+        }
+
+        // Ensure a wrapper + VC exists for each current panel
+        for childPanel in children {
+            if tabContentViews[childPanel.id] == nil {
+                let wrapper = NSView()
+                wrapper.wantsLayer = true
+                wrapper.translatesAutoresizingMaskIntoConstraints = true
+                contentView.addSubview(wrapper)
+                tabContentViews[childPanel.id] = wrapper
+            }
+            if tabViewControllers[childPanel.id] == nil,
+               let wrapper = tabContentViews[childPanel.id],
+               let dockablePanel = resolvePanel(for: childPanel.id) {
+                let vc = dockablePanel.panelViewController
+
+                // Detach from any previous parent
+                if vc.parent != nil {
+                    vc.view.removeFromSuperview()
+                    vc.removeFromParent()
+                }
+                addChild(vc)
+                vc.view.translatesAutoresizingMaskIntoConstraints = false
+                wrapper.addSubview(vc.view)
+                NSLayoutConstraint.activate([
+                    vc.view.topAnchor.constraint(equalTo: wrapper.topAnchor),
+                    vc.view.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
+                    vc.view.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+                    vc.view.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor)
+                ])
+                tabViewControllers[childPanel.id] = vc
+            }
+        }
+
+        // Content view width = N * clip width
+        contentWidthConstraint?.isActive = false
+        contentWidthConstraint = nil
+        if !children.isEmpty {
+            contentWidthConstraint = contentView.widthAnchor.constraint(
+                equalTo: clipView.widthAnchor,
+                multiplier: CGFloat(max(1, children.count))
+            )
+            contentWidthConstraint?.isActive = true
+        }
+
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        layoutTabContentViews()
+    }
+
+    /// Position tab wrapper views inside contentView (frame-based horizontal stack).
+    private func layoutTabContentViews() {
+        let children = childPanels
+        let width = clipView.bounds.width
+        let height = clipView.bounds.height
+        guard width > 0, height > 0 else { return }
+
+        for (index, child) in children.enumerated() {
+            guard let wrapper = tabContentViews[child.id] else { continue }
+            wrapper.frame = NSRect(x: CGFloat(index) * width, y: 0, width: width, height: height)
+        }
+
+        // Re-anchor leading constraint if not actively animating
+        carousel.updateContentPositionIfNeeded()
     }
 
     // MARK: - Private
@@ -559,7 +686,6 @@ public class DockTabGroupViewController: NSViewController {
         let style = groupStyle
         tabBar.setTabs(tabPanels, selectedIndex: currentActiveIndex, groupStyle: style)
 
-        // Update height for group style
         let newHeight = heightForGroupStyle(style)
         if tabBarHeightConstraint.constant != newHeight {
             tabBarHeightConstraint.constant = newHeight
@@ -575,60 +701,17 @@ public class DockTabGroupViewController: NSViewController {
             return 80
         }
     }
+}
 
-    private func updateContent() {
-        // Show new panel first (if any)
-        let newPanelVC: NSViewController?
-        if let activeChild = activeChild {
-            if let dockablePanel = resolvePanel(for: activeChild.id) {
-                newPanelVC = dockablePanel.panelViewController
-            } else {
-                newPanelVC = nil
-            }
-        } else {
-            newPanelVC = nil
-        }
+// MARK: - SwipeGestureDelegate (to forward bubbled events from nested carousels)
 
-        // Only update if panel actually changed
-        guard newPanelVC !== currentPanelVC else { return }
+extension DockTabGroupViewController: SwipeGestureDelegate {
+    public func handleBubbledScrollEvent(_ event: NSEvent, from source: NSView) -> Bool {
+        return carousel.handleBubbledScrollEvent(event)
+    }
 
-        // Add new panel before removing old one to avoid empty state
-        if let panelVC = newPanelVC {
-            // IMPORTANT: Remove from any existing parent first
-            // This can happen when stages are rebuilt - the panel's view controller
-            // might still have a parent reference to a deallocated tab group controller
-            if panelVC.parent != nil {
-                panelVC.view.removeFromSuperview()
-                panelVC.removeFromParent()
-            }
-
-            addChild(panelVC)
-            panelVC.view.translatesAutoresizingMaskIntoConstraints = false
-            contentContainer.addSubview(panelVC.view)
-
-            NSLayoutConstraint.activate([
-                panelVC.view.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-                panelVC.view.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-                panelVC.view.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-                panelVC.view.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor)
-            ])
-        }
-
-        // Now remove old panel - use proper child VC lifecycle
-        // IMPORTANT: Only remove the view if it's actually in OUR contentContainer
-        // The view may have already been moved to a different container (different window)
-        if let oldVC = currentPanelVC {
-            // Only remove from superview if it's in our container
-            if oldVC.view.superview === contentContainer {
-                oldVC.view.removeFromSuperview()
-            }
-            // Only remove from parent if we are the parent
-            if oldVC.parent === self {
-                oldVC.removeFromParent()
-            }
-        }
-
-        currentPanelVC = newPanelVC
+    public func nestedContainerDidEndGesture(_ source: NSView) {
+        carousel.nestedDidEnd()
     }
 }
 
@@ -640,7 +723,6 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
     }
 
     public func tabBar(_ tabBar: DockTabBarView, didCloseTabAt index: Int) {
-        // Route through proposal — delegate decides whether to actually close
         guard case .group(let g) = panel.content,
               index >= 0 && index < g.children.count else { return }
         let panelId = g.children[index].id
@@ -656,7 +738,6 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
         let insertIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
         g.children.insert(child, at: insertIndex)
 
-        // Update active index if needed
         if g.activeIndex == fromIndex {
             g.activeIndex = insertIndex
         } else if fromIndex < g.activeIndex && toIndex > g.activeIndex {
@@ -666,6 +747,7 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
         }
 
         panel.content = .group(g)
+        rebuildTabContent()
         updateTabBar()
         delegate?.tabGroupDidReorderTab(self)
     }
@@ -680,7 +762,6 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
     }
 
     public func tabBarDidRequestNewTab(_ tabBar: DockTabBarView) {
-        // Route through proposal — delegate decides whether to create a new panel
         delegate?.tabGroup(self, didRequestNewPanelIn: panel.id)
     }
 }
@@ -689,10 +770,8 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
 
 extension DockTabGroupViewController: DockDropOverlayViewDelegate {
     public func dropOverlay(_ overlay: DockDropOverlayView, didSelectZone zone: DockDropZone, withTab tabInfo: DockTabDragInfo) {
-        // Convert zone to split direction and notify delegate
         switch zone {
         case .center:
-            // Add as tab to this group
             delegate?.tabGroup(self, didReceiveTab: tabInfo, at: children.count)
 
         case .left:
@@ -714,11 +793,9 @@ extension DockTabGroupViewController: DockDropOverlayViewDelegate {
     }
 
     private func findChildId(byId id: UUID) -> UUID? {
-        // Check if the ID matches one of our children
         if childPanels.contains(where: { $0.id == id }) {
             return id
         }
-        // ID might be from another group - delegate will handle
         return nil
     }
 }

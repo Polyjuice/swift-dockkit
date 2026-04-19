@@ -1,20 +1,22 @@
 import AppKit
 
-/// Protocol for handling swipe gestures that bubble up from nested stage hosts.
-/// When a nested stage host is at the edge of its stages, the gesture bubbles
-/// up to the parent stage host.
+/// Protocol for handling swipe gestures that bubble up between swipeable
+/// carousels (tab groups, stage containers, nested stage hosts).
+///
+/// When a source carousel is at the edge of its positions and the user continues
+/// swiping in that direction, the gesture bubbles up to the next enclosing
+/// swipeable container, preserving interactive animation across the boundary.
 public protocol SwipeGestureDelegate: AnyObject {
-    /// Called when a nested container wants to pass a scroll event up the hierarchy.
-    /// The container is at the edge of its stages and cannot handle the gesture.
+    /// Pass a scroll event up the hierarchy because the source is at its edge.
     /// - Parameters:
     ///   - event: The scroll wheel event
-    ///   - container: The container that is passing the event up
+    ///   - source: The view that is passing the event up
     /// - Returns: true if the parent handled the event, false otherwise
-    func handleBubbledScrollEvent(_ event: NSEvent, from container: DockStageContainerView) -> Bool
+    func handleBubbledScrollEvent(_ event: NSEvent, from source: NSView) -> Bool
 
-    /// Called when a nested container's gesture ends and it was bubbling events.
-    /// The parent should finalize any gesture state.
-    func nestedContainerDidEndGesture(_ container: DockStageContainerView)
+    /// Called when the source carousel's gesture ends while it was bubbling.
+    /// The parent should finalize any gesture state it began while bubbling.
+    func nestedContainerDidEndGesture(_ source: NSView)
 }
 
 /// Delegate for stage container events
@@ -250,10 +252,13 @@ public class DockStageContainerView: NSView {
             let isGestureEvent = event.phase != [] || event.momentumPhase != []
             guard isGestureEvent else { return event }
 
-            // On gesture begin, decide if this is horizontal-dominant
+            // On gesture begin, decide if this is horizontal-dominant AND shift is held.
+            // Stage swipe requires shift — without it, the event passes through so tab
+            // groups can handle two-finger swipes for tab switching.
             if event.phase == .began {
                 let isHorizontalDominant = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 0.5
-                self.isInterceptingHorizontalGesture = isHorizontalDominant
+                let hasShift = event.modifierFlags.contains(.shift)
+                self.isInterceptingHorizontalGesture = isHorizontalDominant && hasShift
             }
 
             // If intercepting horizontal gesture, process it ourselves
@@ -536,6 +541,7 @@ public class DockStageContainerView: NSView {
                 self?.delegate?.stageContainer(self!, panelForId: id)
             }
             tabGroupVC.delegate = self
+            tabGroupVC.swipeGestureDelegate = self
             return tabGroupVC
 
         case .group(let group):
@@ -556,6 +562,7 @@ public class DockStageContainerView: NSView {
                     self?.delegate?.stageContainer(self!, panelForId: id)
                 }
                 tabGroupVC.delegate = self
+                tabGroupVC.swipeGestureDelegate = self
                 return tabGroupVC
 
             case .stages:
@@ -623,6 +630,13 @@ public class DockStageContainerView: NSView {
     public override func scrollWheel(with event: NSEvent) {
         // Only handle gesture scroll events (not legacy mouse wheel)
         guard event.phase != [] || event.momentumPhase != [] else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        // Stage swipe requires shift. Without it, let the event continue up the
+        // responder chain so tab groups can handle plain two-finger swipes.
+        if !isGestureActive && !event.modifierFlags.contains(.shift) {
             super.scrollWheel(with: event)
             return
         }
@@ -1039,9 +1053,9 @@ extension DockStageContainerView: DockTabGroupViewControllerDelegate {
 // MARK: - SwipeGestureDelegate (Version 3: Nested Stage Support)
 
 extension DockStageContainerView: SwipeGestureDelegate {
-    /// Handle a scroll event bubbled up from a nested stage container.
-    /// The nested container is at the edge of its stages and cannot handle the gesture.
-    public func handleBubbledScrollEvent(_ event: NSEvent, from container: DockStageContainerView) -> Bool {
+    /// Handle a scroll event bubbled up from a nested swipeable carousel.
+    /// The source is at the edge of its positions and cannot handle the gesture.
+    public func handleBubbledScrollEvent(_ event: NSEvent, from source: NSView) -> Bool {
         // Process the event as if it came directly to us
         // We need to simulate the gesture lifecycle since the nested container
         // is forwarding mid-gesture events
@@ -1121,8 +1135,8 @@ extension DockStageContainerView: SwipeGestureDelegate {
         return true
     }
 
-    /// Called when a nested container's gesture ends.
-    public func nestedContainerDidEndGesture(_ container: DockStageContainerView) {
+    /// Called when a nested carousel's gesture ends while it was bubbling to us.
+    public func nestedContainerDidEndGesture(_ source: NSView) {
         // Finalize our gesture state
         guard isGestureActive else { return }
         isGestureActive = false
