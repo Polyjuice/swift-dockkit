@@ -1,14 +1,117 @@
 import AppKit
 
-/// Root NSView for DockTabGroupViewController. Forwards scrollWheel events into
-/// the tab group's swipe engine so plain two-finger horizontal swipes animate
-/// interactively between tabs (matching the stage carousel feel) and bubble to
-/// the parent swipeable when at the edge.
+/// Root NSView for DockTabGroupViewController. Installs a local scroll-event
+/// monitor so plain two-finger horizontal swipes are intercepted before they
+/// can be consumed by content subviews (webviews, terminals, scroll views),
+/// mirroring the approach `DockStageContainerView` uses for Shift-swipes.
+///
+/// Shift-held swipes are always passed through so the enclosing stage
+/// container can handle them. Events are also passed through when a nested
+/// swipeable carousel (another tab group or stage container) sits under the
+/// mouse, so the innermost carousel handles the gesture first and bubbles
+/// up when it reaches its edge.
 final class DockTabGroupRootView: NSView {
     weak var controller: DockTabGroupViewController?
 
+    private var scrollEventMonitor: Any?
+    private var isInterceptingHorizontalGesture = false
+
+    deinit {
+        if let monitor = scrollEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            setupScrollEventMonitor()
+        } else if let monitor = scrollEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            scrollEventMonitor = nil
+            isInterceptingHorizontalGesture = false
+        }
+    }
+
+    private func setupScrollEventMonitor() {
+        guard scrollEventMonitor == nil else { return }
+
+        scrollEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self = self else { return event }
+
+            // Only intercept if the event is in our window and within our bounds.
+            guard let eventWindow = event.window, eventWindow == self.window else { return event }
+            let locationInSelf = self.convert(event.locationInWindow, from: nil)
+            guard self.bounds.contains(locationInSelf) else { return event }
+
+            // Shift belongs to stage navigation — let it pass so the stage container's
+            // monitor can handle it. Only reset once the gesture phase ends.
+            if event.modifierFlags.contains(.shift) {
+                return event
+            }
+
+            // If there's a nested swipeable carousel under the mouse, let it handle
+            // first. The innermost carousel will bubble back up to us when at its edge.
+            if self.hasNestedSwipeableAt(point: locationInSelf) {
+                return event
+            }
+
+            // Only trackpad gesture events (ignore legacy mouse wheel ticks)
+            let isGestureEvent = event.phase != [] || event.momentumPhase != []
+            guard isGestureEvent else { return event }
+
+            // Decide horizontal-dominance once per gesture at .began
+            if event.phase == .began {
+                let isHorizontalDominant = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 0.5
+                self.isInterceptingHorizontalGesture = isHorizontalDominant
+            }
+
+            if self.isInterceptingHorizontalGesture {
+                if let controller = self.controller {
+                    _ = controller.handleCarouselScroll(event)
+                }
+
+                if event.phase == .ended || event.phase == .cancelled ||
+                   event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+                    self.isInterceptingHorizontalGesture = false
+                }
+
+                return nil
+            }
+
+            return event
+        }
+    }
+
+    /// Returns true if there is a nested swipeable carousel (another tab group
+    /// or a stage container) at the given point in our coordinates.
+    private func hasNestedSwipeableAt(point: NSPoint) -> Bool {
+        return findNestedSwipeableAt(point: point, in: self) != nil
+    }
+
+    private func findNestedSwipeableAt(point: NSPoint, in view: NSView) -> NSView? {
+        for subview in view.subviews {
+            let pointInSubview = subview.convert(point, from: self)
+            guard subview.bounds.contains(pointInSubview) else { continue }
+
+            if let nested = subview as? DockTabGroupRootView, nested !== self {
+                return nested
+            }
+            if subview is DockStageContainerView {
+                return subview
+            }
+
+            if let found = findNestedSwipeableAt(point: point, in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
+
     override func scrollWheel(with event: NSEvent) {
-        // Shift-held swipes belong to stage navigation — don't consume them.
+        // Fallback path — most plain swipes are caught by the monitor above.
+        // This only fires for events that bypass the monitor (e.g., synthesized
+        // events) or land here via responder chain propagation.
         if event.modifierFlags.contains(.shift) {
             super.scrollWheel(with: event)
             return
