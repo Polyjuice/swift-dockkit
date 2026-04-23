@@ -268,6 +268,43 @@ public class StageHostController {
         delegate?.controller(self, didUpdateStages: stages, activeIndex: activeStageIndex)
     }
 
+    /// Back-propagate a live NSSplitView proportion change into the panel tree.
+    ///
+    /// Fired by `DockSplitViewController` after the user drags a divider: the
+    /// split VC has already updated its own local group, but the canonical
+    /// `panel` on this controller is stale. This method walks the tree to the
+    /// matching group and rewrites its `proportions` so `syncStageToGovernor`
+    /// reads the current values.
+    ///
+    /// Pure model write: does NOT trigger a re-layout (NSSplitView already did
+    /// the layout) and does NOT fire the delegate (would cause a redundant
+    /// stage rebuild and break the user's drag).
+    @discardableResult
+    public func updateProportions(groupId: UUID, proportions: [CGFloat]) -> Bool {
+        var updated = panel
+        if rewriteProportions(groupId: groupId, proportions: proportions, in: &updated) {
+            panel = updated
+            return true
+        }
+        return false
+    }
+
+    private func rewriteProportions(groupId: UUID, proportions: [CGFloat], in node: inout Panel) -> Bool {
+        if node.id == groupId, case .group(var g) = node.content, g.children.count == proportions.count {
+            g.proportions = proportions
+            node.content = .group(g)
+            return true
+        }
+        guard case .group(var g) = node.content else { return false }
+        for i in g.children.indices {
+            if rewriteProportions(groupId: groupId, proportions: proportions, in: &g.children[i]) {
+                node.content = .group(g)
+                return true
+            }
+        }
+        return false
+    }
+
     /// Mark stage switch complete (called after animation finishes)
     public func completeStageSwitch(to index: Int) {
         guard var group = panel.group else { return }

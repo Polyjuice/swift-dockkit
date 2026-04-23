@@ -595,7 +595,8 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
         stageDelegate?.stageHostWindow(self, canMovePanel: panelId, toGroup: tabGroup.panel.id, at: zone) ?? true
     }
 
-    public func stageContainerDidUpdateProportions(_ container: DockStageContainerView) {
+    public func stageContainer(_ container: DockStageContainerView, didUpdateProportions proportions: [CGFloat], forGroup groupId: UUID) {
+        controller.updateProportions(groupId: groupId, proportions: proportions)
         stageDelegate?.stageHostWindowDidUpdateProportions(self)
     }
 

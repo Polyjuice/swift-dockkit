@@ -56,8 +56,11 @@ public protocol DockStageContainerViewDelegate: AnyObject {
     /// During drag: can this panel be dropped in this group/zone?
     func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool
 
-    /// Splitter proportions changed (user dragged a divider)
-    func stageContainerDidUpdateProportions(_ container: DockStageContainerView)
+    /// Splitter proportions changed (user dragged a divider).
+    /// `groupId` identifies the PanelGroup whose `proportions` just changed;
+    /// pass these to `StageHostController.updateProportions` so the canonical
+    /// panel tree reflects the live NSSplitView state before any sync.
+    func stageContainer(_ container: DockStageContainerView, didUpdateProportions proportions: [CGFloat], forGroup groupId: UUID)
 
     /// Tab was reordered within its group
     func stageContainerDidReorderTab(_ container: DockStageContainerView)
@@ -74,7 +77,7 @@ public extension DockStageContainerViewDelegate {
     func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID) {}
     func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID) {}
     func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool { true }
-    func stageContainerDidUpdateProportions(_ container: DockStageContainerView) {}
+    func stageContainer(_ container: DockStageContainerView, didUpdateProportions proportions: [CGFloat], forGroup groupId: UUID) {}
     func stageContainerDidReorderTab(_ container: DockStageContainerView) {}
 }
 
@@ -1003,7 +1006,7 @@ public class DockStageContainerView: NSView {
 
 extension DockStageContainerView: DockSplitViewControllerDelegate {
     public func splitViewController(_ controller: DockSplitViewController, didUpdateProportions proportions: [CGFloat]) {
-        delegate?.stageContainerDidUpdateProportions(self)
+        delegate?.stageContainer(self, didUpdateProportions: proportions, forGroup: controller.panel.id)
     }
 
     public func splitViewController(_ controller: DockSplitViewController, childDidBecomeEmpty index: Int) {

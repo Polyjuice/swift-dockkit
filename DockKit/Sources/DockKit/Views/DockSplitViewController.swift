@@ -143,108 +143,30 @@ public class DockSplitViewController: NSSplitViewController {
         splitView.delegate = self
     }
 
-    /// Build child view controllers from the panel group
+    /// Build child view controllers from the panel group.
+    ///
+    /// Proportions flow one way, from the panel model to NSSplitView, via
+    /// `preferredThicknessFraction`. NSSplitView handles initial layout and
+    /// window resizes natively — no `setPosition` calls, no layout-pass
+    /// iteration, no async rescheduling. User drags flow back via
+    /// `splitViewDidResizeSubviews` → `updateProportionsFromSplitView`.
     public func buildChildren() {
-        // Remove existing children
         for item in splitViewItems.reversed() {
             removeSplitViewItem(item)
         }
         childNodeMap.removeAll()
 
-        // Create new children
         for (index, childPanel) in group.children.enumerated() {
             let childVC = createViewController(for: childPanel)
             let item = NSSplitViewItem(viewController: childVC)
-
-            // Configure item
             item.canCollapse = false
             item.holdingPriority = .defaultLow
-            item.minimumThickness = 100  // Minimum 100pt per pane
-
-            addSplitViewItem(item)
-            childNodeMap[childPanel.id] = childVC
-
-            // Hint NSSplitView at the desired thickness fraction *after*
-            // addSplitViewItem — it's a live property the split view consults
-            // on subsequent layouts, so the ordering here matters for it to
-            // stick across window resizes / stage activations. Without this,
-            // a WKWebView (adapts) and Ghostty terminal end up with skewed
-            // widths on first render, and setPosition in applyProportions
-            // can't always wrestle space back once autolayout has settled.
+            item.minimumThickness = 100
             if index < group.proportions.count {
                 item.preferredThicknessFraction = group.proportions[index]
             }
-        }
-    }
-
-    /// True while we're programmatically setting divider positions.
-    /// Gates `updateProportionsFromSplitView` so `splitViewDidResizeSubviews`
-    /// doesn't echo NSSplitView's adjusted positions back into the model and
-    /// cause the intended proportions (e.g. [0.5, 0.5]) to drift when
-    /// NSSplitView clamps against minimumThickness / intrinsic content sizes.
-    private var isApplyingProportions = false
-
-    /// Coalesces scheduleApplyProportions() calls made in the same runloop
-    /// tick into a single deferred apply. Reset inside the async block.
-    private var proportionsPending = false
-
-    public override func viewDidAppear() {
-        super.viewDidAppear()
-        scheduleApplyProportions()
-    }
-
-    public override func viewDidLayout() {
-        super.viewDidLayout()
-        // Re-apply on every layout pass. NSSplitView maintains absolute
-        // divider *offsets* rather than fractions after the initial layout,
-        // so resizing the window (or the stage becoming active at different
-        // bounds) would skew the split. `isApplyingProportions` keeps
-        // updateProportionsFromSplitView from echoing these programmatic
-        // positions back into the model, preserving user drags.
-        scheduleApplyProportions()
-    }
-
-    /// Defer applyProportions() to the next runloop tick.
-    ///
-    /// Calling setPosition(_:ofDividerAt:) synchronously from viewDidAppear
-    /// or viewDidLayout re-enters AppKit's constraint-update machinery while
-    /// _postWindowNeedsUpdateConstraints is still running (AppKit invokes
-    /// viewDidAppear from inside CATransaction::commit during the display
-    /// cycle), which raises NSInternalInconsistencyException. Dispatching
-    /// async lets the current display-cycle observers finish first; the
-    /// setPosition calls then land in a clean main-loop iteration.
-    private func scheduleApplyProportions() {
-        guard !proportionsPending else { return }
-        proportionsPending = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.proportionsPending = false
-            self.applyProportions()
-        }
-    }
-
-    /// Apply stored proportions to split view
-    private func applyProportions() {
-        // The async schedule could outlive the view if the panel was removed
-        // between schedule and fire. Skip cleanly rather than touch a
-        // detached splitView.
-        guard view.window != nil else { return }
-
-        guard splitViewItems.count == group.proportions.count,
-              splitViewItems.count > 1 else { return }
-
-        let totalSize = group.axis == .horizontal ?
-            splitView.bounds.width : splitView.bounds.height
-
-        guard totalSize > 0 else { return }
-
-        isApplyingProportions = true
-        defer { isApplyingProportions = false }
-
-        var position: CGFloat = 0
-        for (index, proportion) in group.proportions.dropLast().enumerated() {
-            position += totalSize * proportion
-            splitView.setPosition(position, ofDividerAt: index)
+            addSplitViewItem(item)
+            childNodeMap[childPanel.id] = childVC
         }
     }
 
@@ -308,10 +230,17 @@ public class DockSplitViewController: NSSplitViewController {
         let childVC = createViewController(for: childPanel)
         let item = NSSplitViewItem(viewController: childVC)
         item.canCollapse = false
+        item.holdingPriority = .defaultLow
         item.minimumThickness = 100
+        item.preferredThicknessFraction = 1.0 / CGFloat(count)
 
         insertSplitViewItem(item, at: insertIndex)
         childNodeMap[childPanel.id] = childVC
+
+        // Siblings share the new even distribution.
+        for (i, sibling) in splitViewItems.enumerated() where i != insertIndex && i < g.proportions.count {
+            sibling.preferredThicknessFraction = g.proportions[i]
+        }
     }
 
     /// Remove a child at the specified index (dock-specific, different from NSViewController)
@@ -343,26 +272,25 @@ public class DockSplitViewController: NSSplitViewController {
     public func replaceChild(at index: Int, with newPanel: Panel) {
         guard index >= 0 && index < group.children.count else { return }
 
-        // Remove old
         let oldPanelId = group.children[index].id
         childNodeMap.removeValue(forKey: oldPanelId)
 
-        // Update model
         var g = group
         g.children[index] = newPanel
         self.group = g
 
-        // Create new view controller
         let newVC = createViewController(for: newPanel)
-
-        // Replace in split view
         if index < splitViewItems.count {
             removeSplitViewItem(splitViewItems[index])
         }
 
         let item = NSSplitViewItem(viewController: newVC)
         item.canCollapse = false
+        item.holdingPriority = .defaultLow
         item.minimumThickness = 100
+        if index < group.proportions.count {
+            item.preferredThicknessFraction = group.proportions[index]
+        }
         insertSplitViewItem(item, at: index)
 
         childNodeMap[newPanel.id] = newVC
@@ -403,33 +331,16 @@ public class DockSplitViewController: NSSplitViewController {
         splitView.isVertical = axis == .horizontal
     }
 
-    /// Set the proportions for children (for reconciliation)
+    /// Set the proportions for children (for reconciliation).
+    /// Just updates the model and each item's preferredThicknessFraction;
+    /// NSSplitView re-lays out on its own.
     public func setProportions(_ proportions: [CGFloat]) {
         guard proportions.count == group.proportions.count else { return }
         var g = group
         g.proportions = proportions
         self.group = g
-
-        // Keep NSSplitViewItem.preferredThicknessFraction in sync — this is
-        // what NSSplitView consults for initial / bounds-change layouts, so
-        // we want it current even if our divider positions get clamped.
         for (index, proportion) in proportions.enumerated() where index < splitViewItems.count {
             splitViewItems[index].preferredThicknessFraction = proportion
-        }
-
-        // Apply to split view
-        let totalSize = group.axis == .horizontal ?
-            splitView.bounds.width : splitView.bounds.height
-
-        guard totalSize > 0, proportions.count > 1 else { return }
-
-        isApplyingProportions = true
-        defer { isApplyingProportions = false }
-
-        var position: CGFloat = 0
-        for (index, proportion) in proportions.dropLast().enumerated() {
-            position += totalSize * proportion
-            splitView.setPosition(position, ofDividerAt: index)
         }
     }
 }
@@ -442,14 +353,12 @@ extension DockSplitViewController {
         updateProportionsFromSplitView()
     }
 
+    /// Read current divider positions back into the model. Fires for every
+    /// subview resize — user drag, window resize, layout pass. We just write
+    /// what NSSplitView decided; no feedback, no corrections. If it's not
+    /// what the user wanted, the governor re-sends via setProportions.
     private func updateProportionsFromSplitView() {
         guard splitViewItems.count > 1 else { return }
-        // Skip echoes from our own setPosition calls — only user-initiated
-        // drags should mutate the model. Otherwise NSSplitView's minimumThickness
-        // / intrinsic-size clamping drifts the model away from the intent
-        // (e.g. [0.5, 0.5] becomes [0.48, 0.52] on the first layout pass,
-        // then compounds on subsequent passes).
-        if isApplyingProportions { return }
 
         let totalSize = group.axis == .horizontal ?
             splitView.bounds.width : splitView.bounds.height
@@ -463,20 +372,13 @@ extension DockSplitViewController {
                 item.viewController.view.bounds.height
             proportions.append(itemSize / totalSize)
         }
-
-        // Normalize to ensure they sum to 1.0
         let sum = proportions.reduce(0, +)
         if sum > 0 {
             proportions = proportions.map { $0 / sum }
         }
 
-        // GUARD: Don't update if any proportion is 0 or very small - this indicates
-        // the split view hasn't fully laid out yet and we'd be storing garbage values
-        // that cause invisible panes
-        let minProportion: CGFloat = 0.01  // 1% minimum
-        if proportions.contains(where: { $0 < minProportion }) {
-            return
-        }
+        // Skip degenerate pre-layout reads that would flatten a pane to near-zero.
+        if proportions.contains(where: { $0 < 0.01 }) { return }
 
         var g = group
         g.proportions = proportions
