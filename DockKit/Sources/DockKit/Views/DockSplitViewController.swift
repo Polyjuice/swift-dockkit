@@ -12,12 +12,16 @@ public class DockSplitView: NSSplitView {
     }
 
     public override func drawDivider(in rect: NSRect) {
-        // Fill divider background with dark/black color
-        NSColor.black.setFill()
+        // Use windowBackgroundColor so the divider blends with the host
+        // chrome in both light and dark mode (was hardcoded NSColor.black,
+        // which left a black bar across the window in light mode).
+        NSColor.windowBackgroundColor.setFill()
         rect.fill()
 
-        // Draw a centered white line/handle
-        NSColor.white.withAlphaComponent(0.6).setFill()
+        // Centered handle line — use a translucent label tint so the same
+        // colour reads as a soft dark line on light backgrounds and a soft
+        // light line on dark backgrounds.
+        NSColor.labelColor.withAlphaComponent(0.4).setFill()
 
         if isVertical {
             // Vertical divider (horizontal split) - draw vertical line
