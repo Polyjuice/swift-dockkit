@@ -60,7 +60,7 @@ public protocol DockSplitViewControllerDelegate: AnyObject {
 
 /// A split view controller that manages panel group children with split style
 /// Handles the recursive structure of splits within splits
-public class DockSplitViewController: NSSplitViewController {
+public class DockSplitViewController: NSSplitViewController, DockStageReconcilable {
     public weak var dockDelegate: DockSplitViewControllerDelegate?
 
     /// Delegate for child tab groups - passed down from container
@@ -345,6 +345,44 @@ public class DockSplitViewController: NSSplitViewController {
         self.group = g
         for (index, proportion) in proportions.enumerated() where index < splitViewItems.count {
             splitViewItems[index].preferredThicknessFraction = proportion
+        }
+    }
+
+    /// Apply a new Panel in place. When child ids match old ids in the same
+    /// order, recurses into existing child VCs via `DockStageReconcilable` and
+    /// updates axis + proportions only. Structural changes fall back to
+    /// `buildChildren` (which rebuilds split items; rare in the governor emit
+    /// path). No-op for identical panels.
+    public func reconcile(newPanel: Panel) {
+        guard case .group(let newGroup) = newPanel.content, newGroup.style == .split else {
+            return
+        }
+        let oldGroup = self.group
+        let oldChildIds = oldGroup.children.map { $0.id }
+        let newChildIds = newGroup.children.map { $0.id }
+
+        if newGroup.axis != oldGroup.axis {
+            updateAxis(newGroup.axis)
+        }
+
+        if oldChildIds == newChildIds {
+            var g = self.group
+            g.children = newGroup.children
+            self.group = g
+
+            for childPanel in newGroup.children {
+                if let childVC = childNodeMap[childPanel.id] as? DockStageReconcilable {
+                    childVC.reconcile(newPanel: childPanel)
+                }
+            }
+
+            if newGroup.proportions.count == newGroup.children.count,
+               newGroup.proportions != oldGroup.proportions {
+                setProportions(newGroup.proportions)
+            }
+        } else {
+            self.panel = newPanel
+            buildChildren()
         }
     }
 }

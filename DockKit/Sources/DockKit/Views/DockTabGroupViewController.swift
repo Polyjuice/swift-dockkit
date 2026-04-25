@@ -187,7 +187,7 @@ public extension DockTabGroupViewControllerDelegate {
 /// two-finger horizontal swipes produce the same interactive carousel animation
 /// as the stage container. At the edge, the swipe bubbles up to
 /// `swipeGestureDelegate` (typically a parent stage container).
-public class DockTabGroupViewController: NSViewController {
+public class DockTabGroupViewController: NSViewController, DockStageReconcilable {
     public weak var delegate: DockTabGroupViewControllerDelegate?
 
     /// The panel group this controller represents (a Panel with .group content)
@@ -641,6 +641,26 @@ public class DockTabGroupViewController: NSViewController {
     }
 
     // MARK: - Reconciliation Support
+
+    /// Apply a new Panel in place. Keeps wrapper views + content VCs; only
+    /// diffs the tab children, style, and active index. No-op for identical
+    /// panels. See `DockStageReconcilable`.
+    public func reconcile(newPanel: Panel) {
+        guard case .group(let newGroup) = newPanel.content else { return }
+
+        reconcileTabs(with: newGroup.children, panelProvider: { [weak self] id in
+            self?.panelProvider?(id)
+        })
+
+        if newGroup.style != self.groupStyle {
+            setGroupStyle(newGroup.style)
+        }
+
+        let targetIndex = newGroup.activeIndex
+        if targetIndex >= 0, targetIndex < childPanels.count, targetIndex != activeIndex {
+            selectTab(at: targetIndex)
+        }
+    }
 
     public func reconcileTabs(with targetChildren: [Panel], panelProvider: ((UUID) -> (any DockablePanel)?)?) {
         guard case .group(var g) = panel.content else { return }

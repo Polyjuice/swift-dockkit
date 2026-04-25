@@ -351,13 +351,120 @@ public class DockStageContainerView: NSView {
 
     // MARK: - Public API
 
-    /// Set the stages to display (stage panels are children of the stages-style group)
+    /// Set the stages to display (stage panels are children of the stages-style group).
+    ///
+    /// React-style id-keyed reconciliation: stages whose id matches an
+    /// existing stage keep their `stageView` and `NSViewController` — the new
+    /// Panel is applied in place via `DockStageReconcilable.reconcile(newPanel:)`.
+    /// New ids get a fresh VC; disappeared ids are removed. Identical stage
+    /// trees degenerate to a walk + no-op child updates, so hosted WKWebViews
+    /// and terminal views stay attached to their superviews across view-model
+    /// emits.
     public func setStages(_ newStages: [Panel], activeIndex: Int) {
+        // Snapshot old state keyed by id so we can match by identity.
+        var oldStagesById: [UUID: (view: NSView, vc: NSViewController?)] = [:]
+        for (index, stage) in stages.enumerated() where index < stageViews.count {
+            oldStagesById[stage.id] = (view: stageViews[index], vc: stageViewControllers[stage.id])
+        }
+        let newIds = Set(newStages.map { $0.id })
+
+        // Remove stageViews for ids that disappeared.
+        var removeCount = 0
+        for (id, entry) in oldStagesById where !newIds.contains(id) {
+            entry.view.removeFromSuperview()
+            removeCount += 1
+        }
+
+        // Build new arrays in the order dictated by newStages.
+        var nextStageViews: [NSView] = []
+        var nextStageVCs: [UUID: NSViewController] = [:]
+        var reuseCount = 0
+        var createCount = 0
+
+        for stage in newStages {
+            if let existing = oldStagesById[stage.id],
+               let existingVC = existing.vc,
+               stageVCIsCompatible(existingVC, with: stage) {
+                if let reconcilable = existingVC as? DockStageReconcilable {
+                    reconcilable.reconcile(newPanel: stage)
+                }
+                nextStageViews.append(existing.view)
+                nextStageVCs[stage.id] = existingVC
+                reuseCount += 1
+            } else {
+                // Either no prior entry, or the VC type changed — discard the
+                // old wrapper view (if any) and create a fresh stage.
+                oldStagesById[stage.id]?.view.removeFromSuperview()
+
+                let stageView = NSView()
+                stageView.wantsLayer = true
+                stageView.translatesAutoresizingMaskIntoConstraints = true
+                contentView.addSubview(stageView)
+
+                let vc = createViewController(for: stage)
+                vc.view.translatesAutoresizingMaskIntoConstraints = false
+                stageView.addSubview(vc.view)
+                NSLayoutConstraint.activate([
+                    vc.view.leadingAnchor.constraint(equalTo: stageView.leadingAnchor),
+                    vc.view.trailingAnchor.constraint(equalTo: stageView.trailingAnchor),
+                    vc.view.topAnchor.constraint(equalTo: stageView.topAnchor),
+                    vc.view.bottomAnchor.constraint(equalTo: stageView.bottomAnchor)
+                ])
+
+                nextStageViews.append(stageView)
+                nextStageVCs[stage.id] = vc
+                createCount += 1
+            }
+        }
+
+        // Commit.
         stages = newStages
+        stageViews = nextStageViews
+        stageViewControllers = nextStageVCs
         activeStageIndex = max(0, min(activeIndex, stages.count - 1))
 
-        rebuildStageViews()
+        // Width constraint tracks stage count.
+        contentViewWidthConstraint?.isActive = false
+        contentViewWidthConstraint = nil
+        if !stages.isEmpty {
+            contentViewWidthConstraint = contentView.widthAnchor.constraint(
+                equalTo: clipView.widthAnchor,
+                multiplier: CGFloat(stages.count)
+            )
+            contentViewWidthConstraint?.isActive = true
+        }
+
+        // Leading offset for active stage.
+        contentViewLeadingConstraint?.constant = -CGFloat(activeStageIndex) * clipView.bounds.width
+
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+
+        Console.log(
+            "setStages: reuse=\(reuseCount) create=\(createCount) remove=\(removeCount) total=\(stages.count)",
+            source: "DockStageContainer"
+        )
+
         updateContentPosition(animated: false)
+    }
+
+    /// Whether `vc` can host the new `stage` in place. Matches the VC type
+    /// produced by `createViewController(for:)` against the stage's content
+    /// shape. If the shape changed (e.g. `.split` → `.tabs`) we must rebuild.
+    private func stageVCIsCompatible(_ vc: NSViewController, with stage: Panel) -> Bool {
+        switch stage.content {
+        case .content:
+            return vc is DockTabGroupViewController
+        case .group(let g):
+            switch g.style {
+            case .split:
+                return vc is DockSplitViewController
+            case .tabs, .thumbnails:
+                return vc is DockTabGroupViewController
+            case .stages:
+                return vc is DockStageHostViewController
+            }
+        }
     }
 
     /// Switch to a specific stage with animation

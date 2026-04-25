@@ -5,7 +5,7 @@ import AppKit
 /// enabling recursive nesting of virtual workspaces (Version 3 feature).
 ///
 /// Accepts a `Panel` with `.group(PanelGroup)` content where `style == .stages`.
-public class DockStageHostViewController: NSViewController, DockStageHostViewDelegate {
+public class DockStageHostViewController: NSViewController, DockStageHostViewDelegate, DockStageReconcilable {
 
     // MARK: - Properties
 
@@ -64,6 +64,15 @@ public class DockStageHostViewController: NSViewController, DockStageHostViewDel
         ])
 
         self.view = container
+    }
+
+    // MARK: - Reconciliation
+
+    /// Apply a new Panel to the nested stage host. Forwards to
+    /// `DockStageHostView.updateStageHostPanel`, which drives the reconciling
+    /// `DockStageContainerView.setStages` downstream.
+    public func reconcile(newPanel: Panel) {
+        hostView.updateStageHostPanel(newPanel)
     }
 
     // MARK: - DockStageHostViewDelegate
