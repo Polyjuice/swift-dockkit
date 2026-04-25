@@ -95,7 +95,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        applyBarBackground()
 
         // Stack view for tab buttons (no scroll view - simpler)
         stackView = NSStackView()
@@ -136,6 +136,21 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     private func setupDragAndDrop() {
         registerForDraggedTypes([.dockTab])
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyBarBackground()
+    }
+
+    /// CGColor freezes the dynamic windowBackgroundColor at the moment of
+    /// assignment, so we re-resolve whenever the host's appearance changes.
+    private func applyBarBackground() {
+        var cg: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            cg = NSColor.windowBackgroundColor.cgColor
+        }
+        layer?.backgroundColor = cg
     }
 
     // MARK: - Public API
@@ -699,13 +714,12 @@ public class DockTabButton: NSView, DockTabView {
     }
 
     private func updateAppearance() {
-        if isSelected {
-            layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-            titleLabel.textColor = .labelColor
-        } else {
-            layer?.backgroundColor = NSColor.clear.cgColor
-            titleLabel.textColor = .secondaryLabelColor
+        var cg: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            cg = (isSelected ? NSColor.controlBackgroundColor : .clear).cgColor
         }
+        layer?.backgroundColor = cg
+        titleLabel.textColor = isSelected ? .labelColor : .secondaryLabelColor
 
         // Show focus indicator only when this tab is both selected AND the panel has focus
         focusIndicator.isHidden = !(isSelected && isFocused)
@@ -714,6 +728,11 @@ public class DockTabButton: NSView, DockTabView {
             context.duration = 0.15
             closeButton.animator().alphaValue = (isHovering || isSelected) ? 1.0 : 0.0
         }
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
     }
 
     public override func mouseEntered(with event: NSEvent) {
@@ -935,17 +954,18 @@ public class DockThumbnailButton: NSView, DockTabView {
         // Selection border
         selectionBorder.isHidden = !isSelected
 
-        // Background
-        if isSelected {
-            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
-            titleLabel.textColor = .labelColor
-        } else if isHovering {
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
-            titleLabel.textColor = .secondaryLabelColor
-        } else {
-            layer?.backgroundColor = NSColor.clear.cgColor
-            titleLabel.textColor = .secondaryLabelColor
+        var bg: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if isSelected {
+                bg = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
+            } else if isHovering {
+                bg = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+            } else {
+                bg = NSColor.clear.cgColor
+            }
         }
+        layer?.backgroundColor = bg
+        titleLabel.textColor = isSelected ? .labelColor : .secondaryLabelColor
 
         // Focus indicator
         focusIndicator.isHidden = !(isSelected && isFocused)
@@ -955,6 +975,11 @@ public class DockThumbnailButton: NSView, DockTabView {
             context.duration = 0.15
             closeButton.animator().alphaValue = (isHovering || isSelected) ? 1.0 : 0.0
         }
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
     }
 
     public override func mouseEntered(with event: NSEvent) {

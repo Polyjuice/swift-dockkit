@@ -63,6 +63,10 @@ public class DockStageHeaderView: NSView {
     /// Stack view height constraint (changes in thumbnail mode)
     private var stackHeightConstraint: NSLayoutConstraint!
 
+    /// Bottom-edge separator layer; needs re-resolving on appearance change
+    /// because CGColor is a frozen snapshot of the dynamic separatorColor.
+    private var borderLayer: CALayer!
+
     /// Current group style (tabs or thumbnails for display mode)
     public var groupStyle: PanelGroupStyle = .tabs {
         didSet {
@@ -119,14 +123,14 @@ public class DockStageHeaderView: NSView {
 
     private func setupUI() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95).cgColor
 
         // Add subtle bottom border
-        let borderLayer = CALayer()
-        borderLayer.backgroundColor = NSColor.separatorColor.cgColor
+        borderLayer = CALayer()
         layer?.addSublayer(borderLayer)
         borderLayer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         borderLayer.autoresizingMask = [.layerWidthSizable]
+
+        applyDynamicChrome()
 
         // Create centered stack view for stage indicators
         stackView = NSStackView()
@@ -223,6 +227,26 @@ public class DockStageHeaderView: NSView {
             // Ensure trailing items don't overlap the center stage stack
             trailingItemsStack.leadingAnchor.constraint(greaterThanOrEqualTo: stackView.trailingAnchor, constant: 16)
         ])
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyDynamicChrome()
+    }
+
+    /// Re-resolve the dynamic NSColors on the bar background and separator.
+    /// CGColor is frozen at assignment, so we must reapply when the host's
+    /// appearance changes (light↔dark) — otherwise the chrome stays in
+    /// whatever appearance the view was first painted under.
+    private func applyDynamicChrome() {
+        var bg: CGColor?
+        var border: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            bg = NSColor.windowBackgroundColor.withAlphaComponent(0.95).cgColor
+            border = NSColor.separatorColor.cgColor
+        }
+        layer?.backgroundColor = bg
+        borderLayer?.backgroundColor = border
     }
 
     @objc private func slowMotionToggled(_ sender: NSSwitch) {
@@ -818,35 +842,38 @@ public class DockStageButton: NSView, DockStageView {
     private func updateAppearance() {
         let shouldHighlight = isSwipeTarget || isActive
 
+        var bg: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            if isThumbnailMode {
+                if shouldHighlight {
+                    bg = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
+                } else if isHovering {
+                    bg = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+                } else {
+                    bg = NSColor.clear.cgColor
+                }
+            } else {
+                if shouldHighlight {
+                    bg = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+                } else if isHovering {
+                    bg = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+                } else {
+                    bg = NSColor.clear.cgColor
+                }
+            }
+        }
+
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
 
             if isThumbnailMode {
-                // Thumbnail mode appearance
                 selectionBorder.isHidden = !shouldHighlight
-                if shouldHighlight {
-                    layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor
-                    thumbnailTitleLabel?.animator().textColor = .labelColor
-                } else if isHovering {
-                    layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
-                    thumbnailTitleLabel?.animator().textColor = .secondaryLabelColor
-                } else {
-                    layer?.backgroundColor = NSColor.clear.cgColor
-                    thumbnailTitleLabel?.animator().textColor = .secondaryLabelColor
-                }
+                layer?.backgroundColor = bg
+                thumbnailTitleLabel?.animator().textColor = shouldHighlight ? .labelColor : .secondaryLabelColor
             } else {
-                // Normal mode appearance
                 selectionBorder.isHidden = true
-                if shouldHighlight {
-                    layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
-                    titleLabel?.animator().textColor = .labelColor
-                } else if isHovering {
-                    layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
-                    titleLabel?.animator().textColor = .secondaryLabelColor
-                } else {
-                    layer?.backgroundColor = NSColor.clear.cgColor
-                    titleLabel?.animator().textColor = .secondaryLabelColor
-                }
+                layer?.backgroundColor = bg
+                titleLabel?.animator().textColor = shouldHighlight ? .labelColor : .secondaryLabelColor
             }
 
             let showIndicator: Bool
@@ -862,6 +889,11 @@ public class DockStageButton: NSView, DockStageView {
         }
     }
 
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+    }
+
     public override func mouseEntered(with event: NSEvent) {
         isHovering = true
         updateAppearance()
@@ -873,7 +905,11 @@ public class DockStageButton: NSView, DockStageView {
     }
 
     public override func mouseDown(with event: NSEvent) {
-        layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
+        var cg: CGColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            cg = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
+        }
+        layer?.backgroundColor = cg
     }
 
     public override func mouseUp(with event: NSEvent) {
@@ -926,9 +962,15 @@ public class DockStageButton: NSView, DockStageView {
 
     private func updateDragAppearance() {
         if isDragTarget {
-            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
+            var bg: CGColor?
+            var border: CGColor?
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                bg = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
+                border = NSColor.controlAccentColor.cgColor
+            }
+            layer?.backgroundColor = bg
             selectionBorder.isHidden = false
-            selectionBorder.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            selectionBorder.layer?.borderColor = border
         } else {
             updateAppearance()
         }
