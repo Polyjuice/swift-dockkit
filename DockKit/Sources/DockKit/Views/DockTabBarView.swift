@@ -59,6 +59,9 @@ public class DockTabBarView: NSView, NSDraggingSource {
     private var tabButtons: [DockTabButton] = []
     private var thumbnailButtons: [DockThumbnailButton] = []
     private var customTabViews: [DockTabView] = []
+    /// Panel IDs in the same order as `customTabViews`. The DockTabView protocol
+    /// doesn't expose the panel, so we track identity ourselves to enable reuse.
+    private var customTabPanelIds: [UUID] = []
     private var stackView: NSStackView!
     private var addButton: NSButton!
     private var customAddButton: NSView?
@@ -155,15 +158,44 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // MARK: - Public API
 
-    public func setTabs(_ newPanels: [Panel], selectedIndex: Int, groupStyle: PanelGroupStyle = .tabs) {
+    public func setTabs(_ newPanels: [Panel], selectedIndex: Int, groupStyle newStyle: PanelGroupStyle = .tabs) {
+        let previousPanels = self.panels
         self.panels = newPanels
         self.selectedIndex = max(0, min(selectedIndex, newPanels.count - 1))
-        self.groupStyle = groupStyle
-        rebuildForGroupStyle()
+
+        // Style change crosses view-collection families (tab buttons / thumbnails / custom),
+        // which can't reuse each other. Fall through to full rebuild via groupStyle's didSet.
+        if newStyle != self.groupStyle {
+            self.groupStyle = newStyle
+            return
+        }
+
+        // Same style — reconcile so existing views survive structural changes
+        // (close one tab → only that view goes; siblings stay put, no flicker).
+        reconcileForGroupStyle(previousPanels: previousPanels)
+    }
+
+    /// Incremental update path: reuse existing views by panel ID, only add/remove
+    /// what actually changed, then reorder the stack arrangement to match.
+    private func reconcileForGroupStyle(previousPanels: [Panel]) {
+        DockDiagnostics.counters.bump("tabReconcile")
+
+        switch groupStyle {
+        case .tabs, .split, .stages:
+            if DockKit.customTabRenderer != nil {
+                reconcileCustomTabViews(previousPanels: previousPanels)
+            } else {
+                reconcileStandardTabButtons(previousPanels: previousPanels)
+            }
+        case .thumbnails:
+            reconcileThumbnailButtons(previousPanels: previousPanels)
+        }
     }
 
     /// Rebuild the view based on current group style
     private func rebuildForGroupStyle() {
+        DockDiagnostics.counters.bump("tabRebuild")
+
         // Determine effective style - fall back to tabs if custom renderer not registered
         let effectiveStyle: PanelGroupStyle
         if DockKit.customTabRenderer != nil {
@@ -229,8 +261,190 @@ public class DockTabBarView: NSView, NSDraggingSource {
         thumbnailButtons.removeAll()
         customTabViews.forEach { $0.removeFromSuperview() }
         customTabViews.removeAll()
+        customTabPanelIds.removeAll()
         customAddButton?.removeFromSuperview()
         customAddButton = nil
+    }
+
+    // MARK: - Incremental reconciliation
+
+    private func reconcileStandardTabButtons(previousPanels: [Panel]) {
+        // If the other style families have leftover views, drop them.
+        thumbnailButtons.forEach { $0.removeFromSuperview() }
+        thumbnailButtons.removeAll()
+        customTabViews.forEach { $0.removeFromSuperview() }
+        customTabViews.removeAll()
+        customTabPanelIds.removeAll()
+        customAddButton?.removeFromSuperview()
+        customAddButton = nil
+
+        let newIds = panels.map { $0.id }
+        let newIdSet = Set(newIds)
+
+        // Index existing buttons by panel ID
+        var byId: [UUID: DockTabButton] = [:]
+        for btn in tabButtons { byId[btn.panelId] = btn }
+
+        // Drop buttons whose IDs are gone
+        for btn in tabButtons where !newIdSet.contains(btn.panelId) {
+            btn.removeFromSuperview()
+        }
+
+        // Build the new ordered list, reusing where possible
+        var nextButtons: [DockTabButton] = []
+        nextButtons.reserveCapacity(panels.count)
+        for (index, panel) in panels.enumerated() {
+            if let reused = byId[panel.id] {
+                reused.update(with: panel, isSelected: index == selectedIndex)
+                nextButtons.append(reused)
+            } else {
+                let button = DockTabButton(panel: panel, isSelected: index == selectedIndex)
+                bindClosures(for: button, panelId: panel.id)
+                button.widthAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
+                button.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
+                nextButtons.append(button)
+            }
+        }
+
+        // Reorder stack arrangement without destroying reused views
+        for btn in nextButtons where btn.superview === stackView {
+            stackView.removeArrangedSubview(btn)
+        }
+        for btn in nextButtons {
+            stackView.addArrangedSubview(btn)
+        }
+
+        tabButtons = nextButtons
+        addButton.isHidden = !showAddButton
+    }
+
+    private func reconcileThumbnailButtons(previousPanels: [Panel]) {
+        tabButtons.forEach { $0.removeFromSuperview() }
+        tabButtons.removeAll()
+        customTabViews.forEach { $0.removeFromSuperview() }
+        customTabViews.removeAll()
+        customTabPanelIds.removeAll()
+        customAddButton?.removeFromSuperview()
+        customAddButton = nil
+
+        let newIds = panels.map { $0.id }
+        let newIdSet = Set(newIds)
+
+        var byId: [UUID: DockThumbnailButton] = [:]
+        for btn in thumbnailButtons { byId[btn.panelId] = btn }
+
+        for btn in thumbnailButtons where !newIdSet.contains(btn.panelId) {
+            btn.removeFromSuperview()
+        }
+
+        var nextButtons: [DockThumbnailButton] = []
+        nextButtons.reserveCapacity(panels.count)
+        for (index, panel) in panels.enumerated() {
+            if let reused = byId[panel.id] {
+                reused.update(with: panel, isSelected: index == selectedIndex)
+                nextButtons.append(reused)
+            } else {
+                let button = DockThumbnailButton(panel: panel, isSelected: index == selectedIndex, panelProvider: panelProvider)
+                bindClosures(for: button, panelId: panel.id)
+                button.widthAnchor.constraint(equalToConstant: 120).isActive = true
+                nextButtons.append(button)
+            }
+        }
+
+        for btn in nextButtons where btn.superview === stackView {
+            stackView.removeArrangedSubview(btn)
+        }
+        for btn in nextButtons {
+            stackView.addArrangedSubview(btn)
+        }
+
+        thumbnailButtons = nextButtons
+        addButton.isHidden = !showAddButton
+    }
+
+    private func reconcileCustomTabViews(previousPanels: [Panel]) {
+        guard let renderer = DockKit.customTabRenderer else {
+            // Renderer cleared between calls; fall back to standard path.
+            reconcileStandardTabButtons(previousPanels: previousPanels)
+            return
+        }
+
+        tabButtons.forEach { $0.removeFromSuperview() }
+        tabButtons.removeAll()
+        thumbnailButtons.forEach { $0.removeFromSuperview() }
+        thumbnailButtons.removeAll()
+
+        let newIds = panels.map { $0.id }
+        let newIdSet = Set(newIds)
+
+        var byId: [UUID: DockTabView] = [:]
+        for (i, id) in customTabPanelIds.enumerated() where i < customTabViews.count {
+            byId[id] = customTabViews[i]
+        }
+
+        for (i, id) in customTabPanelIds.enumerated() where !newIdSet.contains(id) && i < customTabViews.count {
+            customTabViews[i].removeFromSuperview()
+        }
+
+        var nextViews: [DockTabView] = []
+        var nextIds: [UUID] = []
+        nextViews.reserveCapacity(panels.count)
+        nextIds.reserveCapacity(panels.count)
+        for (index, panel) in panels.enumerated() {
+            if let reused = byId[panel.id] {
+                renderer.updateTabView(reused, for: panel, isSelected: index == selectedIndex)
+                nextViews.append(reused)
+                nextIds.append(panel.id)
+            } else {
+                let view = renderer.createTabView(for: panel, isSelected: index == selectedIndex)
+                bindClosures(for: view, panelId: panel.id)
+                nextViews.append(view)
+                nextIds.append(panel.id)
+            }
+        }
+
+        for view in nextViews where view.superview === stackView {
+            stackView.removeArrangedSubview(view)
+        }
+        for view in nextViews {
+            stackView.addArrangedSubview(view)
+        }
+
+        customTabViews = nextViews
+        customTabPanelIds = nextIds
+
+        // Custom add button mirrors the rebuild path.
+        addButton.isHidden = true
+        if customAddButton == nil, showAddButton, let customAdd = renderer.createAddButton() {
+            customAddButton = customAdd
+            addSubview(customAdd)
+            customAdd.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                customAdd.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+                customAdd.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+        }
+    }
+
+    /// Bind tab event closures by panel ID, not index. A button stays bound to
+    /// its panel even when siblings are inserted/removed/reordered around it.
+    private func bindClosures(for view: DockTabView, panelId: UUID) {
+        view.onSelect = { [weak self] in
+            guard let self, let idx = self.indexOfPanel(panelId) else { return }
+            self.handleTabSelected(at: idx)
+        }
+        view.onClose = { [weak self] in
+            guard let self, let idx = self.indexOfPanel(panelId) else { return }
+            self.handleTabClosed(at: idx)
+        }
+        view.onDragBegan = { [weak self] event in
+            guard let self, let idx = self.indexOfPanel(panelId) else { return }
+            self.handleDragBegan(at: idx, event: event)
+        }
+    }
+
+    private func indexOfPanel(_ id: UUID) -> Int? {
+        return panels.firstIndex(where: { $0.id == id })
     }
 
     private func rebuildTabButtons() {
@@ -239,15 +453,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
         // Create new buttons
         for (index, panel) in panels.enumerated() {
             let button = DockTabButton(panel: panel, isSelected: index == selectedIndex)
-            button.onSelect = { [weak self] in
-                self?.handleTabSelected(at: index)
-            }
-            button.onClose = { [weak self] in
-                self?.handleTabClosed(at: index)
-            }
-            button.onDragBegan = { [weak self] event in
-                self?.handleDragBegan(at: index, event: event)
-            }
+            bindClosures(for: button, panelId: panel.id)
 
             tabButtons.append(button)
             stackView.addArrangedSubview(button)
@@ -266,15 +472,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
         // Create thumbnail buttons
         for (index, panel) in panels.enumerated() {
             let button = DockThumbnailButton(panel: panel, isSelected: index == selectedIndex, panelProvider: panelProvider)
-            button.onSelect = { [weak self] in
-                self?.handleTabSelected(at: index)
-            }
-            button.onClose = { [weak self] in
-                self?.handleTabClosed(at: index)
-            }
-            button.onDragBegan = { [weak self] event in
-                self?.handleDragBegan(at: index, event: event)
-            }
+            bindClosures(for: button, panelId: panel.id)
 
             thumbnailButtons.append(button)
             stackView.addArrangedSubview(button)
@@ -299,17 +497,10 @@ public class DockTabBarView: NSView, NSDraggingSource {
         // Create custom tab views
         for (index, panel) in panels.enumerated() {
             let view = renderer.createTabView(for: panel, isSelected: index == selectedIndex)
-            view.onSelect = { [weak self] in
-                self?.handleTabSelected(at: index)
-            }
-            view.onClose = { [weak self] in
-                self?.handleTabClosed(at: index)
-            }
-            view.onDragBegan = { [weak self] event in
-                self?.handleDragBegan(at: index, event: event)
-            }
+            bindClosures(for: view, panelId: panel.id)
 
             customTabViews.append(view)
+            customTabPanelIds.append(panel.id)
             stackView.addArrangedSubview(view)
         }
 
@@ -605,6 +796,10 @@ public class DockTabButton: NSView, DockTabView {
     public var onClose: (() -> Void)?
     public var onDragBegan: ((NSEvent) -> Void)?
 
+    /// Identity of the panel this button represents. Used by DockTabBarView's
+    /// incremental reconciliation to match existing views to new panel data.
+    public var panelId: UUID { panel.id }
+
     private var iconView: NSImageView!
     private var titleLabel: NSTextField!
     private var closeButton: NSButton!
@@ -766,6 +961,10 @@ public class DockThumbnailButton: NSView, DockTabView {
     public var onSelect: (() -> Void)?
     public var onClose: (() -> Void)?
     public var onDragBegan: ((NSEvent) -> Void)?
+
+    /// Identity of the panel this thumbnail represents. Used by DockTabBarView's
+    /// incremental reconciliation to match existing views to new panel data.
+    public var panelId: UUID { panel.id }
 
     private var thumbnailView: NSImageView!
     private var titleLabel: NSTextField!

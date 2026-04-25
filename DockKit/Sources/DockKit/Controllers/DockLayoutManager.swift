@@ -92,6 +92,8 @@ public class DockLayoutManager: DockWindowDelegate {
             return
         }
 
+        DockDiagnostics.counters.bump("diff")
+
         if verboseLogging {
             print("[LAYOUT_MANAGER] Applying layout update:")
             print(diff.debugDescription)
