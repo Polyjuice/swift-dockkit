@@ -149,9 +149,11 @@ public protocol DockTabGroupViewControllerDelegate: AnyObject {
     /// decides whether to actually close. Default: calls removeTab on the tab group.
     func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestClosePanel panelId: UUID, at index: Int)
 
-    /// User clicked the "+" button. This is a **proposal** — the delegate decides
-    /// whether to create a new panel. Default: no-op.
-    func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID)
+    /// User clicked a "+" button. This is a **proposal** — the delegate decides
+    /// whether to create a new panel. `actionId` identifies which `PanelAddAction`
+    /// was tapped, or is nil for the default single-button case (no addActions).
+    /// Default: no-op.
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID, actionId: String?)
 
     /// During drag: can this panel be dropped in this group/zone?
     /// Must be fast (called on every mouse move). Return false to hide the drop zone.
@@ -168,7 +170,7 @@ public extension DockTabGroupViewControllerDelegate {
     func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestClosePanel panelId: UUID, at index: Int) {
         tabGroup.removeTab(at: index)
     }
-    func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID) {}
+    func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID, actionId: String?) {}
     func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool { true }
     func tabGroupDidReorderTab(_ tabGroup: DockTabGroupViewController) {}
 }
@@ -824,7 +826,8 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
         let tabPanels = childPanels
         let currentActiveIndex = activeIndex
         let style = groupStyle
-        tabBar.setTabs(tabPanels, selectedIndex: currentActiveIndex, groupStyle: style)
+        let addActions = panel.group?.addActions ?? []
+        tabBar.setTabs(tabPanels, selectedIndex: currentActiveIndex, groupStyle: style, addActions: addActions)
 
         let newHeight = heightForGroupStyle(style)
         if tabBarHeightConstraint.constant != newHeight {
@@ -901,8 +904,8 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
         delegate?.tabGroup(self, didReceiveTab: tabInfo, at: index)
     }
 
-    public func tabBarDidRequestNewTab(_ tabBar: DockTabBarView) {
-        delegate?.tabGroup(self, didRequestNewPanelIn: panel.id)
+    public func tabBar(_ tabBar: DockTabBarView, didRequestNewTabWith actionId: String?) {
+        delegate?.tabGroup(self, didRequestNewPanelIn: panel.id, actionId: actionId)
     }
 }
 

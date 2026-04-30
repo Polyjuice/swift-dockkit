@@ -66,6 +66,29 @@ public enum PanelContent: Codable {
     }
 }
 
+// MARK: - Panel Add Action
+
+/// A "+" button registered on a panel group's tab bar.
+/// Multiple add actions enable choosing different panel types to add — each
+/// button has its own icon and stable identifier, and the host app's
+/// delegate receives the identifier so it knows which one was pressed.
+public struct PanelAddAction: Codable, Equatable {
+    /// Stable identifier the host app uses to dispatch on which button was pressed.
+    public let id: String
+
+    /// SF Symbol name for the button icon. Defaults to "plus" when nil.
+    public var iconName: String?
+
+    /// Optional accessibility / hover tooltip.
+    public var tooltip: String?
+
+    public init(id: String, iconName: String? = nil, tooltip: String? = nil) {
+        self.id = id
+        self.iconName = iconName
+        self.tooltip = tooltip
+    }
+}
+
 // MARK: - Panel Group
 
 /// A group of sub-panels with layout attributes
@@ -89,8 +112,13 @@ public struct PanelGroup: Codable {
     /// Stages default to .tabs, thumbnails default to .thumbnails
     public var headerStyle: PanelHeaderStyle?
 
+    /// Custom "+" buttons to render in the trailing edge of the tab bar.
+    /// Empty (default) renders a single default "+" button — same as before.
+    /// Non-empty renders one button per action in order, each with its own icon.
+    public var addActions: [PanelAddAction]
+
     private enum CodingKeys: String, CodingKey {
-        case children, activeIndex, axis, proportions, style, headerStyle
+        case children, activeIndex, axis, proportions, style, headerStyle, addActions
     }
 
     public init(
@@ -99,13 +127,15 @@ public struct PanelGroup: Codable {
         axis: SplitAxis = .horizontal,
         proportions: [CGFloat]? = nil,
         style: PanelGroupStyle = .tabs,
-        headerStyle: PanelHeaderStyle? = nil
+        headerStyle: PanelHeaderStyle? = nil,
+        addActions: [PanelAddAction] = []
     ) {
         self.children = children
         self.activeIndex = activeIndex
         self.axis = axis
         self.style = style
         self.headerStyle = headerStyle
+        self.addActions = addActions
 
         // If proportions not provided, distribute equally
         if let proportions = proportions, proportions.count == children.count {
@@ -114,6 +144,17 @@ public struct PanelGroup: Codable {
             let count = max(1, children.count)
             self.proportions = Array(repeating: 1.0 / CGFloat(count), count: count)
         }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.children = try c.decode([Panel].self, forKey: .children)
+        self.activeIndex = try c.decode(Int.self, forKey: .activeIndex)
+        self.axis = try c.decode(SplitAxis.self, forKey: .axis)
+        self.proportions = try c.decode([CGFloat].self, forKey: .proportions)
+        self.style = try c.decode(PanelGroupStyle.self, forKey: .style)
+        self.headerStyle = try c.decodeIfPresent(PanelHeaderStyle.self, forKey: .headerStyle)
+        self.addActions = try c.decodeIfPresent([PanelAddAction].self, forKey: .addActions) ?? []
     }
 
     /// Recalculate proportions to distribute equally among current children

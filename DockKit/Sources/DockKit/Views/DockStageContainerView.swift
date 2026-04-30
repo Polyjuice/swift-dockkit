@@ -50,8 +50,10 @@ public protocol DockStageContainerViewDelegate: AnyObject {
     /// Called when a tab is closed via X button
     func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID)
 
-    /// Called when user clicks "+" in a tab bar
-    func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID)
+    /// Called when user clicks a "+" button in a tab bar.
+    /// `actionId` identifies which `PanelAddAction` was tapped, or nil for the
+    /// default single-button case.
+    func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID, actionId: String?)
 
     /// During drag: can this panel be dropped in this group/zone?
     func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool
@@ -75,7 +77,7 @@ public extension DockStageContainerViewDelegate {
     func stageContainer(_ container: DockStageContainerView, wantsToDetachPanel panelId: UUID, from tabGroup: DockTabGroupViewController, at screenPoint: NSPoint) {}
     func stageContainer(_ container: DockStageContainerView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {}
     func stageContainer(_ container: DockStageContainerView, didClosePanel panelId: UUID) {}
-    func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID) {}
+    func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID, actionId: String?) {}
     func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool { true }
     func stageContainer(_ container: DockStageContainerView, didUpdateProportions proportions: [CGFloat], forGroup groupId: UUID) {}
     func stageContainerDidReorderTab(_ container: DockStageContainerView) {}
@@ -1148,8 +1150,8 @@ extension DockStageContainerView: DockTabGroupViewControllerDelegate {
         // Route through delegate
     }
 
-    public func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID) {
-        delegate?.stageContainer(self, didRequestNewPanelIn: groupId)
+    public func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID, actionId: String?) {
+        delegate?.stageContainer(self, didRequestNewPanelIn: groupId, actionId: actionId)
     }
 
     public func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestClosePanel panelId: UUID, at index: Int) {

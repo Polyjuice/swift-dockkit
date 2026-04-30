@@ -33,8 +33,10 @@ public protocol DockStageHostViewDelegate: AnyObject {
     /// User clicked the "+" button on the stage header.
     func stageHostViewDidRequestNewStage(_ view: DockStageHostView)
 
-    /// User clicked the "+" button in a tab bar.
-    func stageHostView(_ view: DockStageHostView, didRequestNewPanelIn groupId: UUID)
+    /// User clicked a "+" button in a tab bar.
+    /// `actionId` identifies which `PanelAddAction` was tapped, or nil for the
+    /// default single-button case.
+    func stageHostView(_ view: DockStageHostView, didRequestNewPanelIn groupId: UUID, actionId: String?)
 
     /// Called during drag to check if a panel can be dropped in a target group/zone.
     func stageHostView(_ view: DockStageHostView, canMovePanel panelId: UUID,
@@ -75,7 +77,7 @@ public extension DockStageHostViewDelegate {
         view.addNewStage()
     }
 
-    func stageHostView(_ view: DockStageHostView, didRequestNewPanelIn groupId: UUID) {}
+    func stageHostView(_ view: DockStageHostView, didRequestNewPanelIn groupId: UUID, actionId: String?) {}
 
     func stageHostView(_ view: DockStageHostView, canMovePanel panelId: UUID, toGroup targetGroupId: UUID, at zone: DockDropZone) -> Bool { true }
 
@@ -457,8 +459,8 @@ extension DockStageHostView: DockStageContainerViewDelegate {
         delegate?.stageHostView(self, didRequestClosePanel: panelId)
     }
 
-    public func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID) {
-        delegate?.stageHostView(self, didRequestNewPanelIn: groupId)
+    public func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID, actionId: String?) {
+        delegate?.stageHostView(self, didRequestNewPanelIn: groupId, actionId: actionId)
     }
 
     public func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool {

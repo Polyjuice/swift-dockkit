@@ -21,8 +21,10 @@ class PolishedTabRenderer: DockTabRenderer {
         (view as? PolishedTabView)?.setFocused(focused)
     }
 
-    func createAddButton() -> NSView? {
-        return PolishedAddButton()
+    func createAddButton(for action: PanelAddAction?) -> NSView? {
+        let button = PolishedAddButton(iconName: action?.iconName ?? "plus")
+        button.toolTip = action?.tooltip
+        return button
     }
 }
 
@@ -311,13 +313,22 @@ class PolishedAddButton: NSView {
 
     private var button: NSButton!
     private var backgroundView: NSVisualEffectView!
+    private let iconName: String
+
+    init(iconName: String = "plus") {
+        self.iconName = iconName
+        super.init(frame: .zero)
+        setupUI()
+    }
 
     override init(frame frameRect: NSRect) {
+        self.iconName = "plus"
         super.init(frame: frameRect)
         setupUI()
     }
 
     required init?(coder: NSCoder) {
+        self.iconName = "plus"
         super.init(coder: coder)
         setupUI()
     }
@@ -336,8 +347,9 @@ class PolishedAddButton: NSView {
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(backgroundView)
 
-        let plusImage = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Tab")
-        button = NSButton(image: plusImage!, target: nil, action: nil)
+        let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Add Tab")
+            ?? NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Tab")!
+        button = NSButton(image: image, target: nil, action: nil)
         button.bezelStyle = .inline
         button.isBordered = false
         button.contentTintColor = .tertiaryLabelColor

@@ -21,8 +21,10 @@ class WireframeTabRenderer: DockTabRenderer {
         (view as? WireframeTabView)?.setFocused(focused)
     }
 
-    func createAddButton() -> NSView? {
-        return WireframeAddButton()
+    func createAddButton(for action: PanelAddAction?) -> NSView? {
+        let button = WireframeAddButton(iconName: action?.iconName ?? "plus")
+        button.toolTip = action?.tooltip
+        return button
     }
 }
 
@@ -186,13 +188,22 @@ class WireframeTabView: NSView, DockTabView {
 class WireframeAddButton: NSView {
 
     private var button: NSButton!
+    private let iconName: String
+
+    init(iconName: String = "plus") {
+        self.iconName = iconName
+        super.init(frame: .zero)
+        setupUI()
+    }
 
     override init(frame frameRect: NSRect) {
+        self.iconName = "plus"
         super.init(frame: frameRect)
         setupUI()
     }
 
     required init?(coder: NSCoder) {
+        self.iconName = "plus"
         super.init(coder: coder)
         setupUI()
     }
@@ -203,10 +214,17 @@ class WireframeAddButton: NSView {
         layer?.borderColor = NSColor.black.cgColor
         layer?.borderWidth = 2
 
-        button = NSButton(title: "+", target: nil, action: nil)
+        if iconName == "plus" {
+            button = NSButton(title: "+", target: nil, action: nil)
+            button.font = NSFont.systemFont(ofSize: 16, weight: .bold)
+        } else if let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Add Tab") {
+            button = NSButton(image: image, target: nil, action: nil)
+        } else {
+            button = NSButton(title: "+", target: nil, action: nil)
+            button.font = NSFont.systemFont(ofSize: 16, weight: .bold)
+        }
         button.bezelStyle = .inline
         button.isBordered = false
-        button.font = NSFont.systemFont(ofSize: 16, weight: .bold)
         button.contentTintColor = .black
         button.translatesAutoresizingMaskIntoConstraints = false
         addSubview(button)

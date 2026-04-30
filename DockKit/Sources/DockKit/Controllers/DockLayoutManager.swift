@@ -401,10 +401,13 @@ public protocol DockLayoutManagerDelegate: AnyObject {
                        didRequestClosePanel panelId: UUID,
                        in groupId: UUID, windowId: UUID)
 
-    /// User clicked the "+" button in a tab group. The delegate should create a panel
+    /// User clicked a "+" button in a tab group. The delegate should create a panel
     /// and add it to the layout model, or ignore to do nothing.
+    /// `actionId` identifies which `PanelAddAction` was tapped (for groups that
+    /// declare `addActions`), or nil for the default single-button case.
     func layoutManager(_ manager: DockLayoutManager,
                        didRequestNewPanelIn groupId: UUID,
+                       actionId: String?,
                        windowId: UUID)
 
     /// User dropped a tab into a group. The delegate should apply the move
@@ -440,7 +443,7 @@ public extension DockLayoutManagerDelegate {
         manager.removePanel(panelId)
     }
 
-    func layoutManager(_ manager: DockLayoutManager, didRequestNewPanelIn groupId: UUID, windowId: UUID) {
+    func layoutManager(_ manager: DockLayoutManager, didRequestNewPanelIn groupId: UUID, actionId: String?, windowId: UUID) {
         // No-op — host app must implement to create panels
     }
 
@@ -519,9 +522,10 @@ extension DockLayoutManager {
         }
     }
 
-    public func dockWindow(_ window: DockWindow, didRequestNewPanelIn tabGroup: DockTabGroupViewController) {
+    public func dockWindow(_ window: DockWindow, didRequestNewPanelIn tabGroup: DockTabGroupViewController, actionId: String?) {
         // Propose new panel — delegate decides (no default action without delegate)
         delegate?.layoutManager(self, didRequestNewPanelIn: tabGroup.panel.id,
+                               actionId: actionId,
                                windowId: window.windowId)
     }
 

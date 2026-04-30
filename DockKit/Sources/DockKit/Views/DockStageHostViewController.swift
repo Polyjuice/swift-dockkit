@@ -97,4 +97,15 @@ public class DockStageHostViewController: NSViewController, DockStageHostViewDel
     public func stageHostView(_ view: DockStageHostView, wantsToSplit direction: DockSplitDirection, withPanelId panelId: UUID, in tabGroup: DockTabGroupViewController) {
         // Could forward to parent if needed
     }
+
+    public func stageHostView(_ view: DockStageHostView, didRequestNewPanelIn groupId: UUID, actionId: String?) {
+        // Bubble the tab strip "+" click up to the enclosing DockStageHostWindow's
+        // stageDelegate. Without this, the protocol-extension no-op default
+        // would silently swallow the click for any tab group living inside a
+        // nested substage host (e.g. a session's tab group inside a project's
+        // agent-session-set).
+        if let window = view.window as? DockStageHostWindow {
+            window.stageDelegate?.stageHostWindow(window, didRequestNewPanelIn: groupId, actionId: actionId)
+        }
+    }
 }

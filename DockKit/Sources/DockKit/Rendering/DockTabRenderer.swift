@@ -25,8 +25,8 @@ import AppKit
 ///         (view as? MyCustomTabView)?.setFocused(focused)
 ///     }
 ///
-///     func createAddButton() -> NSView? {
-///         return MyAddButton()
+///     func createAddButton(for action: PanelAddAction?) -> NSView? {
+///         return MyAddButton(iconName: action?.iconName ?? "plus")
 ///     }
 /// }
 /// ```
@@ -62,13 +62,21 @@ public protocol DockTabRenderer: AnyObject {
     /// The tab bar view will be constrained to this height.
     var tabBarHeight: CGFloat { get }
 
-    /// Create the "add tab" button
+    /// Create the "add tab" button.
     ///
-    /// Return nil to hide the add button. The returned view should handle
-    /// its own click events and call the appropriate delegate methods.
+    /// Called once per `PanelAddAction` declared on the group, in order, when
+    /// rendering the trailing edge of the tab bar. When the group declares no
+    /// add actions (legacy/default case), this is called once with `action == nil`
+    /// and should produce the default single "+" button.
     ///
-    /// - Returns: A view for the add button, or nil to hide it
-    func createAddButton() -> NSView?
+    /// Return nil to fall back to DockKit's built-in `AddActionButton` for that
+    /// action. Returned views should handle their own click events and forward
+    /// the click to the appropriate delegate path.
+    ///
+    /// - Parameter action: The `PanelAddAction` describing the button to render,
+    ///   or `nil` for the default/legacy single-button case.
+    /// - Returns: A view for the add button, or nil to use the built-in button.
+    func createAddButton(for action: PanelAddAction?) -> NSView?
 }
 
 /// Protocol for custom tab views created by DockTabRenderer

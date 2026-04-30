@@ -12,12 +12,21 @@ public protocol DockTabBarViewDelegate: AnyObject {
     func tabBar(_ tabBar: DockTabBarView, didReorderTabFrom fromIndex: Int, to toIndex: Int)
     func tabBar(_ tabBar: DockTabBarView, didInitiateTearOff tabIndex: Int, at screenPoint: NSPoint)
     func tabBar(_ tabBar: DockTabBarView, didReceiveDroppedTab tabInfo: DockTabDragInfo, at index: Int)
-    func tabBarDidRequestNewTab(_ tabBar: DockTabBarView)
+    /// User clicked a "+" button. `actionId` is the id of the tapped `PanelAddAction`,
+    /// or nil for the default single-button case (no addActions configured).
+    func tabBar(_ tabBar: DockTabBarView, didRequestNewTabWith actionId: String?)
 }
 
 /// Optional delegate methods
 public extension DockTabBarViewDelegate {
-    func tabBarDidRequestNewTab(_ tabBar: DockTabBarView) {}
+    func tabBar(_ tabBar: DockTabBarView, didRequestNewTabWith actionId: String?) {}
+}
+
+/// NSButton that carries a `PanelAddAction.id` so the click handler can
+/// identify which "+" button the user pressed. `actionId == nil` means the
+/// default/legacy single-button case.
+public final class AddActionButton: NSButton {
+    public var actionId: String?
 }
 
 /// Information about a tab being dragged
@@ -63,8 +72,13 @@ public class DockTabBarView: NSView, NSDraggingSource {
     /// doesn't expose the panel, so we track identity ourselves to enable reuse.
     private var customTabPanelIds: [UUID] = []
     private var stackView: NSStackView!
-    private var addButton: NSButton!
-    private var customAddButton: NSView?
+    /// Container for one or more "+" buttons pinned to the trailing edge.
+    private var addButtonStack: NSStackView!
+    /// Current "+" button views (in order). Subviews of `addButtonStack`.
+    private var addButtonViews: [NSView] = []
+    /// Last-seen add actions, used to diff in `setTabs` so we only rebuild
+    /// the stack when the configuration actually changes.
+    private var addActions: [PanelAddAction] = []
 
     // Drag state
     private var draggedTabIndex: Int?
@@ -79,7 +93,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // Configuration
     public var showAddButton: Bool = true {
-        didSet { addButton?.isHidden = !showAddButton }
+        didSet { addButtonStack?.isHidden = !showAddButton }
     }
 
     public override init(frame frameRect: NSRect) {
@@ -108,26 +122,29 @@ public class DockTabBarView: NSView, NSDraggingSource {
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
-        // Add button
-        addButton = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")!, target: self, action: #selector(addButtonClicked))
-        addButton.bezelStyle = .accessoryBarAction
-        addButton.isBordered = false
-        addButton.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(addButton)
+        // Container for one or more "+" buttons
+        addButtonStack = NSStackView()
+        addButtonStack.orientation = .horizontal
+        addButtonStack.spacing = 2
+        addButtonStack.distribution = .fill
+        addButtonStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(addButtonStack)
 
         NSLayoutConstraint.activate([
             // Stack view takes left side
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             stackView.topAnchor.constraint(equalTo: topAnchor),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: addButton.leadingAnchor, constant: -4),
+            stackView.trailingAnchor.constraint(lessThanOrEqualTo: addButtonStack.leadingAnchor, constant: -4),
 
-            // Add button on right
-            addButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            addButton.widthAnchor.constraint(equalToConstant: 24),
-            addButton.heightAnchor.constraint(equalToConstant: 24)
+            // Add button stack pinned to trailing edge
+            addButtonStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            addButtonStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            addButtonStack.heightAnchor.constraint(equalToConstant: 24)
         ])
+
+        // Start with the default single "+" button (legacy behavior).
+        rebuildAddButtons(actions: [], renderer: nil)
 
         // Setup drop indicator
         dropIndicatorView = NSView()
@@ -158,21 +175,29 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     // MARK: - Public API
 
-    public func setTabs(_ newPanels: [Panel], selectedIndex: Int, groupStyle newStyle: PanelGroupStyle = .tabs) {
+    public func setTabs(_ newPanels: [Panel], selectedIndex: Int, groupStyle newStyle: PanelGroupStyle = .tabs, addActions newAddActions: [PanelAddAction] = []) {
         let previousPanels = self.panels
         self.panels = newPanels
         self.selectedIndex = max(0, min(selectedIndex, newPanels.count - 1))
+
+        let actionsChanged = newAddActions != self.addActions
+        self.addActions = newAddActions
 
         // Style change crosses view-collection families (tab buttons / thumbnails / custom),
         // which can't reuse each other. Fall through to full rebuild via groupStyle's didSet.
         if newStyle != self.groupStyle {
             self.groupStyle = newStyle
+            // groupStyle's didSet rebuilt everything (including add buttons).
             return
         }
 
         // Same style — reconcile so existing views survive structural changes
         // (close one tab → only that view goes; siblings stay put, no flicker).
         reconcileForGroupStyle(previousPanels: previousPanels)
+
+        if actionsChanged {
+            rebuildAddButtons(actions: addActions, renderer: DockKit.customTabRenderer)
+        }
     }
 
     /// Incremental update path: reuse existing views by panel ID, only add/remove
@@ -262,8 +287,6 @@ public class DockTabBarView: NSView, NSDraggingSource {
         customTabViews.forEach { $0.removeFromSuperview() }
         customTabViews.removeAll()
         customTabPanelIds.removeAll()
-        customAddButton?.removeFromSuperview()
-        customAddButton = nil
     }
 
     // MARK: - Incremental reconciliation
@@ -275,8 +298,6 @@ public class DockTabBarView: NSView, NSDraggingSource {
         customTabViews.forEach { $0.removeFromSuperview() }
         customTabViews.removeAll()
         customTabPanelIds.removeAll()
-        customAddButton?.removeFromSuperview()
-        customAddButton = nil
 
         let newIds = panels.map { $0.id }
         let newIdSet = Set(newIds)
@@ -315,7 +336,9 @@ public class DockTabBarView: NSView, NSDraggingSource {
         }
 
         tabButtons = nextButtons
-        addButton.isHidden = !showAddButton
+        // Standard path: ensure built-in "+" buttons are visible (custom-renderer
+        // remnants, if any, are cleared by `rebuildAddButtons`).
+        rebuildAddButtons(actions: addActions, renderer: nil)
     }
 
     private func reconcileThumbnailButtons(previousPanels: [Panel]) {
@@ -324,8 +347,6 @@ public class DockTabBarView: NSView, NSDraggingSource {
         customTabViews.forEach { $0.removeFromSuperview() }
         customTabViews.removeAll()
         customTabPanelIds.removeAll()
-        customAddButton?.removeFromSuperview()
-        customAddButton = nil
 
         let newIds = panels.map { $0.id }
         let newIdSet = Set(newIds)
@@ -359,7 +380,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
         }
 
         thumbnailButtons = nextButtons
-        addButton.isHidden = !showAddButton
+        rebuildAddButtons(actions: addActions, renderer: nil)
     }
 
     private func reconcileCustomTabViews(previousPanels: [Panel]) {
@@ -413,17 +434,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
         customTabViews = nextViews
         customTabPanelIds = nextIds
 
-        // Custom add button mirrors the rebuild path.
-        addButton.isHidden = true
-        if customAddButton == nil, showAddButton, let customAdd = renderer.createAddButton() {
-            customAddButton = customAdd
-            addSubview(customAdd)
-            customAdd.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                customAdd.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-                customAdd.centerYAnchor.constraint(equalTo: centerYAnchor),
-            ])
-        }
+        rebuildAddButtons(actions: addActions, renderer: renderer)
     }
 
     /// Bind tab event closures by panel ID, not index. A button stays bound to
@@ -462,8 +473,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
             button.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
         }
 
-        // Show standard add button
-        addButton.isHidden = !showAddButton
+        rebuildAddButtons(actions: addActions, renderer: nil)
     }
 
     private func rebuildThumbnailButtons() {
@@ -481,8 +491,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
             button.widthAnchor.constraint(equalToConstant: 120).isActive = true
         }
 
-        // Show standard add button
-        addButton.isHidden = !showAddButton
+        rebuildAddButtons(actions: addActions, renderer: nil)
     }
 
     private func rebuildCustomTabViews() {
@@ -504,17 +513,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
             stackView.addArrangedSubview(view)
         }
 
-        // Handle custom add button
-        addButton.isHidden = true  // Hide standard button
-        if showAddButton, let customAdd = renderer.createAddButton() {
-            customAddButton = customAdd
-            addSubview(customAdd)
-            customAdd.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                customAdd.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-                customAdd.centerYAnchor.constraint(equalTo: centerYAnchor)
-            ])
-        }
+        rebuildAddButtons(actions: addActions, renderer: renderer)
     }
 
     private func updateSelectionState() {
@@ -549,8 +548,52 @@ public class DockTabBarView: NSView, NSDraggingSource {
         delegate?.tabBar(self, didCloseTabAt: index)
     }
 
-    @objc private func addButtonClicked() {
-        delegate?.tabBarDidRequestNewTab(self)
+    @objc private func addButtonClicked(_ sender: NSButton) {
+        let actionId = (sender as? AddActionButton)?.actionId
+        delegate?.tabBar(self, didRequestNewTabWith: actionId)
+    }
+
+    /// Rebuild the trailing-edge "+" buttons. Empty `actions` renders the
+    /// default single "+" button (legacy behavior). When a custom renderer is
+    /// supplied, each button is created via `renderer.createAddButton(for:)`;
+    /// otherwise built-in `AddActionButton` instances are used.
+    private func rebuildAddButtons(actions: [PanelAddAction], renderer: DockTabRenderer?) {
+        for view in addButtonViews {
+            (addButtonStack?.arrangedSubviews.contains(view) ?? false ? addButtonStack : nil)?
+                .removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        addButtonViews.removeAll()
+
+        let effectiveActions: [PanelAddAction?] = actions.isEmpty ? [nil] : actions.map { Optional($0) }
+
+        for action in effectiveActions {
+            let view: NSView
+            if let renderer = renderer {
+                view = renderer.createAddButton(for: action) ?? makeBuiltInAddButton(for: action)
+            } else {
+                view = makeBuiltInAddButton(for: action)
+            }
+            addButtonStack.addArrangedSubview(view)
+            addButtonViews.append(view)
+        }
+
+        addButtonStack.isHidden = !showAddButton
+    }
+
+    private func makeBuiltInAddButton(for action: PanelAddAction?) -> NSView {
+        let symbol = action?.iconName ?? "plus"
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: action?.tooltip ?? "New Tab")
+            ?? NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")!
+        let button = AddActionButton(image: image, target: self, action: #selector(addButtonClicked(_:)))
+        button.bezelStyle = .accessoryBarAction
+        button.isBordered = false
+        button.actionId = action?.id
+        if let tooltip = action?.tooltip { button.toolTip = tooltip }
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        return button
     }
 
     // MARK: - Drag Initiation

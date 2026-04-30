@@ -20,8 +20,9 @@ class ModernTabRenderer: DockTabRenderer {
         (view as? ModernTabView)?.setFocused(focused)
     }
 
-    func createAddButton() -> NSView? {
-        let button = ModernAddButton()
+    func createAddButton(for action: PanelAddAction?) -> NSView? {
+        let button = ModernAddButton(iconName: action?.iconName ?? "plus")
+        button.toolTip = action?.tooltip
         return button
     }
 }
@@ -227,13 +228,22 @@ class ModernTabView: NSView, DockTabView {
 class ModernAddButton: NSView {
 
     private var button: NSButton!
+    private let iconName: String
+
+    init(iconName: String = "plus") {
+        self.iconName = iconName
+        super.init(frame: .zero)
+        setupUI()
+    }
 
     override init(frame frameRect: NSRect) {
+        self.iconName = "plus"
         super.init(frame: frameRect)
         setupUI()
     }
 
     required init?(coder: NSCoder) {
+        self.iconName = "plus"
         super.init(coder: coder)
         setupUI()
     }
@@ -242,7 +252,9 @@ class ModernAddButton: NSView {
         wantsLayer = true
         layer?.cornerRadius = 12
 
-        button = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Tab")!, target: nil, action: nil)
+        let image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Add Tab")
+            ?? NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Tab")!
+        button = NSButton(image: image, target: nil, action: nil)
         button.bezelStyle = .inline
         button.isBordered = false
         button.translatesAutoresizingMaskIntoConstraints = false

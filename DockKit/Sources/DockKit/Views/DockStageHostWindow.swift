@@ -37,8 +37,10 @@ public protocol DockStageHostWindowDelegate: AnyObject {
     /// User clicked the "+" button on the stage header. The delegate should create a new stage.
     func stageHostWindowDidRequestNewStage(_ window: DockStageHostWindow)
 
-    /// User clicked the "+" button in a tab bar. The delegate should create a new panel.
-    func stageHostWindow(_ window: DockStageHostWindow, didRequestNewPanelIn groupId: UUID)
+    /// User clicked a "+" button in a tab bar. The delegate should create a new panel.
+    /// `actionId` identifies which `PanelAddAction` was tapped, or nil for the
+    /// default single-button case.
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestNewPanelIn groupId: UUID, actionId: String?)
 
     /// Called during drag to check if a panel can be dropped in a target group/zone.
     /// Must be fast (called on every mouse move). Return false to hide the drop zone.
@@ -87,7 +89,7 @@ public extension DockStageHostWindowDelegate {
         window.addNewStage()
     }
 
-    func stageHostWindow(_ window: DockStageHostWindow, didRequestNewPanelIn groupId: UUID) {
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestNewPanelIn groupId: UUID, actionId: String?) {
         // No-op — host app must implement to create panels
     }
 
@@ -587,8 +589,8 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
         stageDelegate?.stageHostWindow(self, didRequestClosePanel: panelId)
     }
 
-    public func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID) {
-        stageDelegate?.stageHostWindow(self, didRequestNewPanelIn: groupId)
+    public func stageContainer(_ container: DockStageContainerView, didRequestNewPanelIn groupId: UUID, actionId: String?) {
+        stageDelegate?.stageHostWindow(self, didRequestNewPanelIn: groupId, actionId: actionId)
     }
 
     public func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool {

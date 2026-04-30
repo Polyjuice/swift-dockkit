@@ -62,6 +62,8 @@ class MainWindowController: NSWindowController {
             ))
         )
 
+        // The editor group demonstrates multiple "+" buttons, each creating a
+        // different panel type. Other groups keep the default single "+".
         let editorGroup = Panel(
             content: .group(PanelGroup(
                 children: [
@@ -69,7 +71,12 @@ class MainWindowController: NSWindowController {
                     Panel.contentPanel(id: editor2.panelId, title: editor2.panelTitle)
                 ],
                 activeIndex: 0,
-                style: .tabs
+                style: .tabs,
+                addActions: [
+                    PanelAddAction(id: "editor",   iconName: "doc.text", tooltip: "New Editor"),
+                    PanelAddAction(id: "terminal", iconName: "terminal", tooltip: "New Terminal"),
+                    PanelAddAction(id: "inspector", iconName: "info.circle", tooltip: "New Inspector"),
+                ]
             ))
         )
 
@@ -174,5 +181,22 @@ extension MainWindowController: DockLayoutManagerDelegate {
 
     func layoutManagerDidChangeLayout(_ manager: DockLayoutManager) {
         // Could auto-save layout here
+    }
+
+    /// Dispatch on `actionId` to create the right panel type. The editor group
+    /// declares three add actions (editor / terminal / inspector); other groups
+    /// fall through with `actionId == nil` and get a default panel.
+    func layoutManager(_ manager: DockLayoutManager, didRequestNewPanelIn groupId: UUID, actionId: String?, windowId: UUID) {
+        let type: PanelType
+        switch actionId {
+        case "editor":    type = .editor
+        case "terminal":  type = .console
+        case "inspector": type = .inspector
+        case "explorer":  type = .explorer
+        default:          type = .editor
+        }
+        let panel = createPanel(type: type)
+        panelRegistry[panel.panelId] = panel
+        manager.addPanel(panel, to: windowId, groupId: groupId, activate: true)
     }
 }
