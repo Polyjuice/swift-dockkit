@@ -108,4 +108,25 @@ public class DockStageHostViewController: NSViewController, DockStageHostViewDel
             window.stageDelegate?.stageHostWindow(window, didRequestNewPanelIn: groupId, actionId: actionId)
         }
     }
+
+    public func stageHostView(_ view: DockStageHostView, didRequestClosePanel panelId: UUID) {
+        // Bubble the tab "X" click up to the enclosing window's stageDelegate so
+        // the host app (governor-controlled) can decide whether to actually
+        // remove the panel. The protocol-extension default would call
+        // `view.controller.handleChildClosed(panelId)` LOCALLY, which mutates
+        // only the substage's in-memory layout — the governor never finds out,
+        // so its next push restores the tab and the user sees it "come back".
+        if let window = view.window as? DockStageHostWindow {
+            window.stageDelegate?.stageHostWindow(window, didRequestClosePanel: panelId)
+        }
+    }
+
+    public func stageHostView(_ view: DockStageHostView, didRequestCloseStageAt index: Int) {
+        // Same rationale as didRequestClosePanel: bubble up so the host app
+        // owns the close. Default would remove the stage locally and lose the
+        // round trip to the governor.
+        if let window = view.window as? DockStageHostWindow {
+            window.stageDelegate?.stageHostWindow(window, didRequestCloseStageAt: index)
+        }
+    }
 }

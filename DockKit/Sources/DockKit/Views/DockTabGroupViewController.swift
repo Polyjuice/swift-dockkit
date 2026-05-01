@@ -161,6 +161,9 @@ public protocol DockTabGroupViewControllerDelegate: AnyObject {
 
     /// Tab was reordered within this group (drag within the same tab bar).
     func tabGroupDidReorderTab(_ tabGroup: DockTabGroupViewController)
+
+    /// Active tab changed (user click or swipe). Group's `activeIndex` is already updated.
+    func tabGroupDidChangeActiveTab(_ tabGroup: DockTabGroupViewController)
 }
 
 /// Optional delegate methods
@@ -173,6 +176,7 @@ public extension DockTabGroupViewControllerDelegate {
     func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID, actionId: String?) {}
     func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool { true }
     func tabGroupDidReorderTab(_ tabGroup: DockTabGroupViewController) {}
+    func tabGroupDidChangeActiveTab(_ tabGroup: DockTabGroupViewController) {}
 }
 
 /// A view controller that manages a tab bar and content area
@@ -640,6 +644,19 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
             resolvePanel(for: newChild.id)?.panelDidBecomeActive()
         }
         focusPanelContent()
+
+        if oldIndex != newIndex {
+            delegate?.tabGroupDidChangeActiveTab(self)
+            // Notification fallback: regular delegate chain doesn't bubble
+            // through nested stage hosts (DockStageHostView). Host apps that
+            // want to persist tab selection can listen to this notification
+            // once and catch every tab-active change, regardless of nesting.
+            NotificationCenter.default.post(
+                name: .dockActiveTabDidChange,
+                object: self,
+                userInfo: ["groupId": panel.id, "activeIndex": newIndex]
+            )
+        }
     }
 
     // MARK: - Reconciliation Support

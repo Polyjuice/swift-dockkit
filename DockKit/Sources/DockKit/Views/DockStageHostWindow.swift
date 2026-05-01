@@ -53,6 +53,9 @@ public protocol DockStageHostWindowDelegate: AnyObject {
     /// Tab was reordered within its group.
     func stageHostWindowDidReorderTab(_ window: DockStageHostWindow)
 
+    /// Active tab changed within a tab group (user click or swipe).
+    func stageHostWindowDidChangeActiveTab(_ window: DockStageHostWindow)
+
     // MARK: - Legacy (kept for backward compatibility)
 
     /// Called when a tab is received via drag. Deprecated — use didRequestMovePanel instead.
@@ -99,6 +102,7 @@ public extension DockStageHostWindowDelegate {
 
     func stageHostWindowDidUpdateProportions(_ window: DockStageHostWindow) {}
     func stageHostWindowDidReorderTab(_ window: DockStageHostWindow) {}
+    func stageHostWindowDidChangeActiveTab(_ window: DockStageHostWindow) {}
 
     // Legacy defaults
     func stageHostWindow(_ window: DockStageHostWindow, didReceiveTab tabInfo: DockTabDragInfo, in tabGroup: DockTabGroupViewController, at index: Int) {}
@@ -604,6 +608,10 @@ extension DockStageHostWindow: DockStageContainerViewDelegate {
 
     public func stageContainerDidReorderTab(_ container: DockStageContainerView) {
         stageDelegate?.stageHostWindowDidReorderTab(self)
+    }
+
+    public func stageContainerDidChangeActiveTab(_ container: DockStageContainerView) {
+        stageDelegate?.stageHostWindowDidChangeActiveTab(self)
     }
 }
 

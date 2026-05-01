@@ -218,6 +218,14 @@ public class StageHostController {
         group.activeIndex = index
         panel.content = .group(group)
         delegate?.controller(self, didSwitchToStage: index)
+        // Same notification as completeStageSwitch — host apps that persist
+        // stage selection need to hear about clicks on the stage header,
+        // not just swipe-completes.
+        NotificationCenter.default.post(
+            name: .dockActiveTabDidChange,
+            object: self,
+            userInfo: ["groupId": panel.id, "activeIndex": index]
+        )
     }
 
     /// Add a new empty stage
@@ -305,11 +313,55 @@ public class StageHostController {
         return false
     }
 
+    /// Recursively walk the panel tree and set `activeIndex` on the group
+    /// whose id matches. Returns true if a matching group was found and
+    /// updated. Mirrors `updateProportions` — used by host apps to keep the
+    /// top-level tree in sync after a nested tab/stage selection (which
+    /// otherwise lives only in the nested controller's tree).
+    @discardableResult
+    public func updateActiveIndex(groupId: UUID, activeIndex: Int) -> Bool {
+        var updated = panel
+        if rewriteActiveIndex(groupId: groupId, activeIndex: activeIndex, in: &updated) {
+            panel = updated
+            return true
+        }
+        return false
+    }
+
+    private func rewriteActiveIndex(groupId: UUID, activeIndex: Int, in node: inout Panel) -> Bool {
+        if node.id == groupId, case .group(var g) = node.content,
+           activeIndex >= 0, activeIndex < g.children.count {
+            g.activeIndex = activeIndex
+            node.content = .group(g)
+            return true
+        }
+        guard case .group(var g) = node.content else { return false }
+        for i in g.children.indices {
+            if rewriteActiveIndex(groupId: groupId, activeIndex: activeIndex, in: &g.children[i]) {
+                node.content = .group(g)
+                return true
+            }
+        }
+        return false
+    }
+
     /// Mark stage switch complete (called after animation finishes)
     public func completeStageSwitch(to index: Int) {
         guard var group = panel.group else { return }
+        let oldIndex = group.activeIndex
         group.activeIndex = index
         panel.content = .group(group)
+        if oldIndex != index {
+            // Mirror the tab-active notification for stage switches. Without
+            // this, switching stages in a nested host (DockStageHostView)
+            // gets overwritten on the next governor emit because the host
+            // app never finds out the user changed stages.
+            NotificationCenter.default.post(
+                name: .dockActiveTabDidChange,
+                object: self,
+                userInfo: ["groupId": panel.id, "activeIndex": index]
+            )
+        }
     }
 
     // MARK: - Queries

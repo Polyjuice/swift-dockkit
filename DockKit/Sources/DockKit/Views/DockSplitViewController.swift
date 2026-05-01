@@ -346,6 +346,17 @@ public class DockSplitViewController: NSSplitViewController, DockStageReconcilab
         for (index, proportion) in proportions.enumerated() where index < splitViewItems.count {
             splitViewItems[index].preferredThicknessFraction = proportion
         }
+        // Force NSSplitView to re-distribute now. `preferredThicknessFraction`
+        // alone is only consulted on the initial layout — on a live split it's
+        // stored but never applied. Move each divider explicitly so the
+        // governor's persisted proportions actually take effect on restore.
+        let totalSize = group.axis == .horizontal ? splitView.bounds.width : splitView.bounds.height
+        guard totalSize > 0, proportions.count > 1 else { return }
+        var cumulative: CGFloat = 0
+        for dividerIndex in 0..<(proportions.count - 1) {
+            cumulative += proportions[dividerIndex]
+            splitView.setPosition(cumulative * totalSize, ofDividerAt: dividerIndex)
+        }
     }
 
     /// Apply a new Panel in place. When child ids match old ids in the same
@@ -426,9 +437,33 @@ extension DockSplitViewController {
         g.proportions = proportions
         self.group = g
         dockDelegate?.splitViewController(self, didUpdateProportions: proportions)
+        // Notification fallback: the regular delegate chain doesn't bubble for
+        // splits that live inside a nested stage host (DockStageHostView's
+        // adapter is a dead-end by design). Host apps that want to persist
+        // layout state can listen to this notification once and catch every
+        // splitter change, no matter where it lives in the tree.
+        NotificationCenter.default.post(
+            name: .dockProportionsDidChange,
+            object: self,
+            userInfo: ["groupId": panel.id, "proportions": proportions]
+        )
     }
-
-    // NOTE: Do NOT implement splitView(_:constrainMinCoordinate:ofSubviewAt:) or
-    // splitView(_:constrainMaxCoordinate:ofSubviewAt:) - they are incompatible with
-    // NSSplitViewController's autolayout. Use NSSplitViewItem.minimumThickness instead.
 }
+
+public extension Notification.Name {
+    /// Posted by `DockSplitViewController` when its proportions change. The
+    /// userInfo carries `"groupId": UUID` and `"proportions": [CGFloat]`.
+    /// This is a process-wide signal — host apps observe it once and don't
+    /// need to walk the delegate chain (nested-stage paths don't bubble).
+    static let dockProportionsDidChange = Notification.Name("DockKit.proportionsDidChange")
+
+    /// Posted by `DockTabGroupViewController` when its active tab changes
+    /// (user click or swipe). userInfo carries `"groupId": UUID` and
+    /// `"activeIndex": Int`. Same rationale as `dockProportionsDidChange` —
+    /// a single signal that doesn't depend on bubbling through nested stages.
+    static let dockActiveTabDidChange = Notification.Name("DockKit.activeTabDidChange")
+}
+
+// NOTE: Do NOT implement splitView(_:constrainMinCoordinate:ofSubviewAt:) or
+// splitView(_:constrainMaxCoordinate:ofSubviewAt:) - they are incompatible with
+// NSSplitViewController's autolayout. Use NSSplitViewItem.minimumThickness instead.

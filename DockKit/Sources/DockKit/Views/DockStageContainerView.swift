@@ -66,6 +66,9 @@ public protocol DockStageContainerViewDelegate: AnyObject {
 
     /// Tab was reordered within its group
     func stageContainerDidReorderTab(_ container: DockStageContainerView)
+
+    /// Active tab changed within a tab group (user click or swipe).
+    func stageContainerDidChangeActiveTab(_ container: DockStageContainerView)
 }
 
 /// Default implementations
@@ -81,6 +84,7 @@ public extension DockStageContainerViewDelegate {
     func stageContainer(_ container: DockStageContainerView, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool { true }
     func stageContainer(_ container: DockStageContainerView, didUpdateProportions proportions: [CGFloat], forGroup groupId: UUID) {}
     func stageContainerDidReorderTab(_ container: DockStageContainerView) {}
+    func stageContainerDidChangeActiveTab(_ container: DockStageContainerView) {}
 }
 
 /// A container view that hosts multiple stages with swipe gesture navigation
@@ -1164,6 +1168,10 @@ extension DockStageContainerView: DockTabGroupViewControllerDelegate {
 
     public func tabGroupDidReorderTab(_ tabGroup: DockTabGroupViewController) {
         delegate?.stageContainerDidReorderTab(self)
+    }
+
+    public func tabGroupDidChangeActiveTab(_ tabGroup: DockTabGroupViewController) {
+        delegate?.stageContainerDidChangeActiveTab(self)
     }
 }
 
