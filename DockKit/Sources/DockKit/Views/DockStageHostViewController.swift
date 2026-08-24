@@ -124,9 +124,20 @@ public class DockStageHostViewController: NSViewController, DockStageHostViewDel
     public func stageHostView(_ view: DockStageHostView, didRequestCloseStageAt index: Int) {
         // Same rationale as didRequestClosePanel: bubble up so the host app
         // owns the close. Default would remove the stage locally and lose the
-        // round trip to the governor.
+        // round trip to the governor. `view.stageHostPanel` is this nested
+        // host's own node (replaced whole on reconcile), so the delegate can
+        // resolve `index` against the right children.
         if let window = view.window as? DockStageHostWindow {
-            window.stageDelegate?.stageHostWindow(window, didRequestCloseStageAt: index)
+            window.stageDelegate?.stageHostWindow(window, didRequestCloseStageAt: index, inHost: view.stageHostPanel)
+        }
+    }
+
+    public func stageHostViewDidRequestNewStage(_ view: DockStageHostView) {
+        // Bubble the nested header's "+" likewise. The DockStageHostViewDelegate
+        // default would `addNewStage()` locally — a phantom stage the host app's
+        // next reconcile erases.
+        if let window = view.window as? DockStageHostWindow {
+            window.stageDelegate?.stageHostWindow(window, didRequestNewStageIn: view.stageHostPanel)
         }
     }
 }

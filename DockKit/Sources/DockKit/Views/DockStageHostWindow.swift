@@ -28,13 +28,25 @@ public protocol DockStageHostWindowDelegate: AnyObject {
     func stageHostWindow(_ window: DockStageHostWindow, didRequestSplit direction: DockSplitDirection,
                          withPanelId panelId: UUID, in groupId: UUID)
 
-    /// User clicked the close button on a stage. The delegate should handle cleanup and update state.
+    /// User clicked the close button on a stage of `hostPanel` — the window's own root
+    /// (`stageHostPanel`) or a nested `DockStageHostView` bubbling up. `index` is within
+    /// `hostPanel.group?.children`. Implement this one; the index-only variant is compat.
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseStageAt index: Int, inHost hostPanel: Panel)
+
+    /// Index-only compat form of `didRequestCloseStageAt:inHost:` — the host is lost, so only
+    /// the window's root stages can be resolved. Reached only when the owning-host form is not
+    /// implemented.
     func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseStageAt index: Int)
 
     /// User clicked the close button on a tab. The delegate should handle cleanup and update state.
     func stageHostWindow(_ window: DockStageHostWindow, didRequestClosePanel panelId: UUID)
 
-    /// User clicked the "+" button on the stage header. The delegate should create a new stage.
+    /// User clicked the "+" button on the stage header of `hostPanel` — the window's own root
+    /// or a nested `DockStageHostView` bubbling up. The delegate should create a new stage there.
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestNewStageIn hostPanel: Panel)
+
+    /// Host-less compat form of `didRequestNewStageIn:`. Reached only when the owning-host form
+    /// is not implemented.
     func stageHostWindowDidRequestNewStage(_ window: DockStageHostWindow)
 
     /// User clicked a "+" button in a tab bar. The delegate should create a new panel.
@@ -80,7 +92,18 @@ public extension DockStageHostWindowDelegate {
         window.controller.handleSplit(groupId: groupId, direction: direction, withPanelId: panelId)
     }
 
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseStageAt index: Int, inHost hostPanel: Panel) {
+        stageHostWindow(window, didRequestCloseStageAt: index)
+    }
+
+    // The index-only defaults warn when reached: a delegate that exists but lands here has
+    // implemented neither form (or a near-miss signature that silently fell through to the
+    // extension). Both act on the window's root host, which is wrong for a nested host.
     func stageHostWindow(_ window: DockStageHostWindow, didRequestCloseStageAt index: Int) {
+        Console.warn(
+            "index-only didRequestCloseStageAt default reached (index \(index)) — delegate should implement didRequestCloseStageAt:inHost:",
+            source: "DockStageHostWindow"
+        )
         window.controller.removeStage(at: index)
     }
 
@@ -88,7 +111,15 @@ public extension DockStageHostWindowDelegate {
         window.controller.handleChildClosed(panelId)
     }
 
+    func stageHostWindow(_ window: DockStageHostWindow, didRequestNewStageIn hostPanel: Panel) {
+        stageHostWindowDidRequestNewStage(window)
+    }
+
     func stageHostWindowDidRequestNewStage(_ window: DockStageHostWindow) {
+        Console.warn(
+            "host-less stageHostWindowDidRequestNewStage default reached — delegate should implement didRequestNewStageIn:",
+            source: "DockStageHostWindow"
+        )
         window.addNewStage()
     }
 
@@ -518,7 +549,7 @@ extension DockStageHostWindow: DockStageHeaderViewDelegate {
     }
 
     public func stageHeaderDidRequestNewStage(_ header: DockStageHeaderView) {
-        stageDelegate?.stageHostWindowDidRequestNewStage(self)
+        stageDelegate?.stageHostWindow(self, didRequestNewStageIn: stageHostPanel)
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didReceiveTab tabInfo: DockTabDragInfo, onStageAt targetIndex: Int) {
@@ -526,7 +557,7 @@ extension DockStageHostWindow: DockStageHeaderViewDelegate {
     }
 
     public func stageHeader(_ header: DockStageHeaderView, didCloseStageAt index: Int) {
-        stageDelegate?.stageHostWindow(self, didRequestCloseStageAt: index)
+        stageDelegate?.stageHostWindow(self, didRequestCloseStageAt: index, inHost: stageHostPanel)
     }
 }
 
