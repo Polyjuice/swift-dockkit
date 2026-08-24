@@ -22,8 +22,18 @@ public protocol DockablePanel: AnyObject {
     /// Default implementation returns true for all positions
     func canDock(at position: DockPosition) -> Bool
 
-    /// Called when the panel is about to be detached (tear-off)
+    /// Called when the panel is about to be detached (tear-off).
+    /// Fires for both terminal removal AND reparenting (drag between windows),
+    /// so panels that own external resources (CEF browsers, processes) must
+    /// NOT dispose them here — use `panelWillBeDestroyed()` instead.
     func panelWillDetach()
+
+    /// Called when the host has decided this panel is gone for good and will
+    /// not be reparented. This is the place to dispose external resources
+    /// (close CEF browsers, kill child processes, cancel in-flight Tasks).
+    /// Called before `panelWillDetach()` during terminal cleanup. Not called
+    /// during reparenting.
+    func panelWillBeDestroyed()
 
     /// Called when the panel is docked into a new location
     func panelDidDock(at position: DockPosition)
@@ -45,6 +55,7 @@ public extension DockablePanel {
     var preferredFirstResponder: NSView? { panelViewController.view }
     func canDock(at position: DockPosition) -> Bool { true }
     func panelWillDetach() {}
+    func panelWillBeDestroyed() {}
     func panelDidDock(at position: DockPosition) {}
     func panelDidBecomeActive() {}
     func panelDidResignActive() {}
