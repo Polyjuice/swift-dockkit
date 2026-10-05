@@ -762,15 +762,20 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
         let children = childPanels
         let presentIds = Set(children.map { $0.id })
 
-        // Remove views/VCs for panels no longer present
+        // Remove VCs/views for panels no longer present. A panel that moved to
+        // another tab group (another window, during a cross-window move or a
+        // tear-off) may already have been adopted there: only take back a view
+        // that is still ours, or we would blank the panel in its new home.
+        for (id, vc) in tabViewControllers where !presentIds.contains(id) {
+            if vc.parent === self {
+                vc.view.removeFromSuperview()
+                vc.removeFromParent()
+            }
+            tabViewControllers.removeValue(forKey: id)
+        }
         for (id, wrapper) in tabContentViews where !presentIds.contains(id) {
             wrapper.removeFromSuperview()
             tabContentViews.removeValue(forKey: id)
-        }
-        for (id, vc) in tabViewControllers where !presentIds.contains(id) {
-            if vc.parent === self { vc.removeFromParent() }
-            if vc.view.superview != nil { vc.view.removeFromSuperview() }
-            tabViewControllers.removeValue(forKey: id)
         }
 
         // Ensure a wrapper + VC exists for each current panel
@@ -894,15 +899,17 @@ extension DockTabGroupViewController: DockTabBarViewDelegate {
               fromIndex >= 0 && fromIndex < g.children.count,
               toIndex >= 0 && toIndex <= g.children.count else { return }
 
+        // `toIndex` is the tab's final index: DockTabBarView already turned
+        // the drop's insertion point into it (insertion - 1 when moving right).
         let child = g.children.remove(at: fromIndex)
-        let insertIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
+        let insertIndex = min(toIndex, g.children.count)
         g.children.insert(child, at: insertIndex)
 
         if g.activeIndex == fromIndex {
             g.activeIndex = insertIndex
-        } else if fromIndex < g.activeIndex && toIndex > g.activeIndex {
+        } else if fromIndex < g.activeIndex && insertIndex >= g.activeIndex {
             g.activeIndex -= 1
-        } else if fromIndex > g.activeIndex && toIndex <= g.activeIndex {
+        } else if fromIndex > g.activeIndex && insertIndex <= g.activeIndex {
             g.activeIndex += 1
         }
 
@@ -932,7 +939,7 @@ extension DockTabGroupViewController: DockDropOverlayViewDelegate {
     public func dropOverlay(_ overlay: DockDropOverlayView, didSelectZone zone: DockDropZone, withTab tabInfo: DockTabDragInfo) {
         switch zone {
         case .center:
-            delegate?.tabGroup(self, didReceiveTab: tabInfo, at: children.count)
+            delegate?.tabGroup(self, didReceiveTab: tabInfo, at: childPanels.count)
 
         case .left:
             let panelId = findChildId(byId: tabInfo.tabId) ?? tabInfo.tabId

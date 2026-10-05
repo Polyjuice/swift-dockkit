@@ -19,6 +19,12 @@ public protocol DockWindowDelegate: AnyObject {
 
     /// During drag: can this panel be dropped in this group/zone?
     func dockWindow(_ window: DockWindow, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool
+
+    /// The window's layout changed in place: tab selection or order, a divider,
+    /// its frame, full screen or screen, or a local close/collapse.
+    /// `window.rootPanel` and `window.layoutFrame` already reflect the change.
+    /// Not called while the reconciler applies a layout.
+    func dockWindowDidChangeLayout(_ window: DockWindow)
 }
 
 /// Default implementations
@@ -30,6 +36,7 @@ public extension DockWindowDelegate {
     func dockWindow(_ window: DockWindow, didRequestClosePanel panelId: UUID, in tabGroup: DockTabGroupViewController) {}
     func dockWindow(_ window: DockWindow, didRequestNewPanelIn tabGroup: DockTabGroupViewController, actionId: String?) {}
     func dockWindow(_ window: DockWindow, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool { true }
+    func dockWindowDidChangeLayout(_ window: DockWindow) {}
 }
 
 /// A dock window that can contain full layout trees (splits + tabs)
@@ -55,21 +62,49 @@ public class DockWindow: NSWindow {
     /// Delegate for window events
     public weak var dockDelegate: DockWindowDelegate?
 
-    /// Panel provider for resolving content panel IDs to DockablePanel instances
-    public var panelProvider: ((UUID) -> (any DockablePanel)?)?
+    /// Panel provider for resolving content panel IDs to DockablePanel instances.
+    /// Pass it to `init` so the first build resolves panels; setting it later
+    /// rebuilds the view hierarchy with it.
+    public var panelProvider: ((UUID) -> (any DockablePanel)?)? {
+        didSet {
+            if rootViewController != nil { rebuildLayout() }
+        }
+    }
 
     /// Flag to suppress auto-close during reconciliation
     /// When true, the window won't auto-close when a tab group becomes empty
     /// This prevents premature closure during layout rebuilds
     internal var suppressAutoClose: Bool = false
 
+    /// The windowed frame to come back to while the window is full screen
+    private var frameBeforeFullScreen: NSRect?
+
+    /// True while `rebuildLayout` swaps the controller tree: the outgoing
+    /// controllers still report (a split's proportions as it is torn down),
+    /// and syncing from them would put the old tree back into `rootPanel`.
+    private var isRebuilding = false
+
+    /// Controller and window events are the reconciler's or the rebuild's own
+    /// doing, not the person's: don't sync the model from them or report them.
+    private var ignoresViewEvents: Bool { suppressAutoClose || isRebuilding }
+
     // MARK: - Initialization
 
-    /// Create a window with a root panel and frame
-    public init(id: UUID = UUID(), rootPanel: Panel, frame: NSRect, layoutManager: DockLayoutManager? = nil) {
+    /// Create a window with a root panel and frame.
+    /// `frame` is the window's frame (not its content rect) — the same rect
+    /// `layoutFrame` and `DockLayoutManager.getLayout()` report — and the
+    /// window gets exactly that frame.
+    public init(
+        id: UUID = UUID(),
+        rootPanel: Panel,
+        frame: NSRect,
+        layoutManager: DockLayoutManager? = nil,
+        panelProvider: ((UUID) -> (any DockablePanel)?)? = nil
+    ) {
         self.windowId = id
         self.rootPanel = rootPanel
         self.layoutManager = layoutManager
+        self.panelProvider = panelProvider
 
         super.init(
             contentRect: frame,
@@ -79,7 +114,11 @@ public class DockWindow: NSWindow {
         )
 
         setupWindow()
+        // super.init took `frame` as the content rect; make it the frame
+        // before building, so the tree first lays out at its real size.
+        setFrame(frame, display: false)
         rebuildLayout()
+        observeWindowChanges()
     }
 
     /// Convenience initializer with a single panel
@@ -103,7 +142,7 @@ public class DockWindow: NSWindow {
             width: size.width,
             height: size.height
         )
-        self.init(id: UUID(), rootPanel: tabGroup, frame: frame, layoutManager: layoutManager)
+        self.init(id: tabGroup.id, rootPanel: tabGroup, frame: frame, layoutManager: layoutManager)
     }
 
     private func setupWindow() {
@@ -127,6 +166,40 @@ public class DockWindow: NSWindow {
         updateTitle()
     }
 
+    /// Report moves, resizes, full screen and screen changes as layout changes.
+    private func observeWindowChanges() {
+        let center = NotificationCenter.default
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
+                     NSWindow.didEnterFullScreenNotification, NSWindow.didChangeScreenNotification] {
+            center.addObserver(self, selector: #selector(windowLayoutDidChange(_:)), name: name, object: self)
+        }
+        center.addObserver(self, selector: #selector(windowWillEnterFullScreen(_:)),
+                           name: NSWindow.willEnterFullScreenNotification, object: self)
+        center.addObserver(self, selector: #selector(windowDidExitFullScreen(_:)),
+                           name: NSWindow.didExitFullScreenNotification, object: self)
+    }
+
+    @objc private func windowLayoutDidChange(_ notification: Notification) {
+        noteLayoutChange()
+    }
+
+    @objc private func windowWillEnterFullScreen(_ notification: Notification) {
+        frameBeforeFullScreen = frame
+    }
+
+    @objc private func windowDidExitFullScreen(_ notification: Notification) {
+        frameBeforeFullScreen = nil
+        noteLayoutChange()
+    }
+
+    /// Tell the delegate the layout changed in place. Skipped while the
+    /// reconciler applies a layout (`updateLayout` reports that once) and
+    /// while a rebuild swaps controllers (its caller reports).
+    private func noteLayoutChange() {
+        guard !ignoresViewEvents else { return }
+        dockDelegate?.dockWindowDidChangeLayout(self)
+    }
+
     // MARK: - Layout Building
 
     /// Rebuild the view hierarchy from rootPanel
@@ -134,10 +207,28 @@ public class DockWindow: NSWindow {
         // Build new root view controller
         let newRootVC = createViewController(for: rootPanel)
 
+        // Installing a content view controller resizes the window to the
+        // controller's view. A rebuild must not move or resize the window, so
+        // give the view the content area's size first. That also lets the new
+        // tree lay out at its real size: a split laid out in a shrunken window
+        // would have its proportions distorted by the panes' minimum sizes.
+        let keptFrame = frame
+
+        isRebuilding = true
+        defer { isRebuilding = false }
+
+        if let contentSize = contentView?.bounds.size, contentSize.width > 0, contentSize.height > 0 {
+            newRootVC.view.setFrameSize(contentSize)
+        }
+
         // Let AppKit handle removing the old content view controller
         // DO NOT manually remove - that causes double-release crashes
-        contentViewController = newRootVC
         rootViewController = newRootVC
+        contentViewController = newRootVC
+
+        if frame != keptFrame && !styleMask.contains(.fullScreen) {
+            setFrame(keptFrame, display: true)
+        }
 
         updateTitle()
     }
@@ -179,6 +270,7 @@ public class DockWindow: NSWindow {
             )
             let tabGroupVC = DockTabGroupViewController(panel: wrapper)
             tabGroupVC.delegate = self
+            tabGroupVC.panelProvider = panelProvider
             return tabGroupVC
         }
     }
@@ -195,15 +287,40 @@ public class DockWindow: NSWindow {
         return rootPanel.isEmpty
     }
 
+    /// The frame a layout records for this window: its frame, or while it is
+    /// full screen, the windowed frame it returns to.
+    public var layoutFrame: NSRect {
+        if styleMask.contains(.fullScreen), let windowed = frameBeforeFullScreen {
+            return windowed
+        }
+        return frame
+    }
+
+    /// A persistent identifier for the display the window is on: the
+    /// display's UUID, which survives reboots and reconnects (unlike its
+    /// `CGDirectDisplayID` alone). Nil when the window is on no screen.
+    public var screenIdentifier: String? {
+        guard let number = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        let displayId = CGDirectDisplayID(number.uint32Value)
+        guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayId)?.takeRetainedValue() else {
+            return String(displayId)
+        }
+        return CFUUIDCreateString(nil, uuid) as String
+    }
+
     /// Add a panel to a specific tab group (or first available)
     public func addPanel(_ panel: any DockablePanel, to groupId: UUID? = nil, activate: Bool = true) {
         if let groupId = groupId,
            let tabGroup = findTabGroupController(withId: groupId, in: rootViewController) {
             tabGroup.addTab(from: panel, activate: activate)
             updateRootPanelFromController()
+            noteLayoutChange()
         } else if let firstTabGroup = findFirstTabGroupController(in: rootViewController) {
             firstTabGroup.addTab(from: panel, activate: activate)
             updateRootPanelFromController()
+            noteLayoutChange()
         }
     }
 
@@ -211,12 +328,14 @@ public class DockWindow: NSWindow {
     @discardableResult
     public func removePanel(_ panelId: UUID) -> Bool {
         var modified = false
-        rootPanel = rootPanel.removingChild(panelId, modified: &modified)
+        var newRoot = rootPanel.removingChild(panelId, modified: &modified)
         if modified {
             if layoutManager?.reclaimEmptySpace ?? true {
-                rootPanel = rootPanel.cleanedUp()
+                newRoot = newRoot.cleanedUp()
             }
+            rootPanel = newRoot.keepingRootIdentity(of: rootPanel)
             rebuildLayout()
+            noteLayoutChange()
             return true
         }
         return false
@@ -311,9 +430,15 @@ public class DockWindow: NSWindow {
     /// Sync rootPanel model from the current view controller hierarchy
     /// Called after reconciliation to ensure getLayout() returns accurate state
     public func syncPanelFromViewController() {
-        if let rootVC = rootViewController {
-            rootPanel = extractPanel(from: rootVC)
+        guard let rootVC = rootViewController else { return }
+        var synced = extractPanel(from: rootVC)
+        // A bare content root is shown in a wrapper tab group of its own;
+        // while the wrapper holds just that panel, the root stays the panel.
+        if rootPanel.isContent, let children = synced.group?.children,
+           children.count == 1, children[0].id == rootPanel.id {
+            synced = children[0]
         }
+        rootPanel = synced.keepingRootIdentity(of: rootPanel)
     }
 
     private func updateRootPanelFromController() {
@@ -332,6 +457,8 @@ public class DockWindow: NSWindow {
                 panel.content = .group(group)
             }
             return panel
+        } else if let stageHostVC = controller as? DockStageHostViewController {
+            return stageHostVC.hostView.stageHostPanel
         }
         // Fallback: empty tab group
         return Panel(content: .group(PanelGroup(style: .tabs)))
@@ -352,19 +479,20 @@ extension DockWindow: DockTabGroupViewControllerDelegate {
     public func tabGroup(_ tabGroup: DockTabGroupViewController, didCloseLastPanel: Bool) {
         // During reconciliation, the reconciler manages window lifecycle
         // Don't auto-close based on stale model state
-        if suppressAutoClose {
+        if ignoresViewEvents {
             return
         }
 
         updateRootPanelFromController()
         if layoutManager?.reclaimEmptySpace ?? true {
-            rootPanel = rootPanel.cleanedUp()
+            rootPanel = rootPanel.cleanedUp().keepingRootIdentity(of: rootPanel)
         }
 
         if isEmpty {
             close()
         } else {
             rebuildLayout()
+            noteLayoutChange()
         }
     }
 
@@ -383,6 +511,21 @@ extension DockWindow: DockTabGroupViewControllerDelegate {
     public func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool {
         dockDelegate?.dockWindow(self, canAcceptPanel: panelId, in: tabGroup, at: zone) ?? true
     }
+
+    public func tabGroupDidReorderTab(_ tabGroup: DockTabGroupViewController) {
+        // The tab group already reordered its own model; mirror it.
+        if ignoresViewEvents { return }
+        updateRootPanelFromController()
+        noteLayoutChange()
+    }
+
+    public func tabGroupDidChangeActiveTab(_ tabGroup: DockTabGroupViewController) {
+        // Click or swipe: the tab group already moved its activeIndex.
+        if ignoresViewEvents { return }
+        updateRootPanelFromController()
+        updateTitle()
+        noteLayoutChange()
+    }
 }
 
 // MARK: - DockSplitViewControllerDelegate
@@ -391,24 +534,26 @@ extension DockWindow: DockSplitViewControllerDelegate {
     public func splitViewController(_ controller: DockSplitViewController, didUpdateProportions proportions: [CGFloat]) {
         // During reconciliation, the reconciler manages the model
         // Don't sync from view hierarchy - it may not match the target layout yet
-        if suppressAutoClose {
+        if ignoresViewEvents {
             return
         }
         updateRootPanelFromController()
+        noteLayoutChange()
     }
 
     public func splitViewController(_ controller: DockSplitViewController, childDidBecomeEmpty index: Int) {
         // During reconciliation, the reconciler manages window lifecycle
         // Don't rebuild based on stale model state
-        if suppressAutoClose {
+        if ignoresViewEvents {
             return
         }
 
         updateRootPanelFromController()
         if layoutManager?.reclaimEmptySpace ?? true {
-            rootPanel = rootPanel.cleanedUp()
+            rootPanel = rootPanel.cleanedUp().keepingRootIdentity(of: rootPanel)
         }
         rebuildLayout()
+        noteLayoutChange()
     }
 }
 
