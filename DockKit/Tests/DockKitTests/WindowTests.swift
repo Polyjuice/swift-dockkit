@@ -69,6 +69,20 @@ final class WindowTests: DockKitTestCase {
         assertConsistent()
     }
 
+    func testSetTitleRenamesTheTabInPlace() {
+        let p = makePanels("A", "B")
+        let window = openWindow([p[0], p[1]], slot: 0)
+        spin()
+        XCTAssertTrue(manager.setTitle("parrot", forPanel: p[1].panelId))
+        spin()
+        let tab = manager.getLayout().panels.lazy.compactMap { $0.findPanel(byId: p[1].panelId) }.first
+        XCTAssertEqual(tab?.title, "parrot")
+        XCTAssertEqual(delegate.layoutChanges > 0, true)
+        XCTAssertTrue(window.containsPanel(p[1].panelId))
+        XCTAssertFalse(manager.setTitle("nobody", forPanel: UUID()))
+        assertConsistent()
+    }
+
     func testPanelsAreShownInWindowsTheManagerCreates() {
         let p = makePanels("A", "B", "C")
         openWindow([p[0]], slot: 0)

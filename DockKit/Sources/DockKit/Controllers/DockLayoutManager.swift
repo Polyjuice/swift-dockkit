@@ -383,6 +383,12 @@ public class DockLayoutManager: DockWindowDelegate {
         window.addPanel(panel, to: groupId, activate: activate)
     }
 
+    /// Rename a panel's tab in place, wherever it is (see DockWindow.setTitle).
+    @discardableResult
+    public func setTitle(_ title: String, forPanel panelId: UUID) -> Bool {
+        findWindow(containingPanel: panelId)?.setTitle(title, forPanel: panelId) ?? false
+    }
+
     /// Remove a panel from wherever it is
     public func removePanel(_ panelId: UUID) {
         for window in windows {

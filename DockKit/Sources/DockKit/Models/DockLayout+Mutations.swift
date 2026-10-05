@@ -640,3 +640,16 @@ public extension Panel {
         )
     }
 }
+
+extension Panel {
+    /// This panel tree with one panel's title changed.
+    func renaming(_ panelId: UUID, to title: String) -> Panel {
+        var copy = self
+        if copy.id == panelId { copy.title = title }
+        if case .group(var group) = copy.content {
+            group.children = group.children.map { $0.renaming(panelId, to: title) }
+            copy.content = .group(group)
+        }
+        return copy
+    }
+}

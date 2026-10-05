@@ -296,6 +296,31 @@ public class DockWindow: NSWindow {
         return rootPanel.findPanel(byId: panelId) != nil
     }
 
+    /// Rename a panel's tab in place — a title the app learns after the tab
+    /// exists. The window's model, its tab and its title follow, and the
+    /// delegate hears of the change.
+    @discardableResult
+    public func setTitle(_ title: String, forPanel panelId: UUID) -> Bool {
+        guard containsPanel(panelId) else { return false }
+        rootPanel = rootPanel.renaming(panelId, to: title)
+        findTabGroupController(containingChild: panelId, in: contentViewController)?.setTitle(title, forChild: panelId)
+        updateTitle()
+        noteLayoutChange()
+        return true
+    }
+
+    private func findTabGroupController(containingChild panelId: UUID, in controller: NSViewController?) -> DockTabGroupViewController? {
+        if let tabGroup = controller as? DockTabGroupViewController {
+            return tabGroup.childPanels.contains { $0.id == panelId } ? tabGroup : nil
+        }
+        if let splitVC = controller as? DockSplitViewController {
+            for item in splitVC.splitViewItems {
+                if let found = findTabGroupController(containingChild: panelId, in: item.viewController) { return found }
+            }
+        }
+        return nil
+    }
+
     /// Check if window is empty (no panels)
     public var isEmpty: Bool {
         return rootPanel.isEmpty

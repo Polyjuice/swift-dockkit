@@ -325,6 +325,17 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
         get { group?.children ?? [] }
     }
 
+    /// Rename a child's tab in place (its panel's title), without a rebuild.
+    @discardableResult
+    public func setTitle(_ title: String, forChild panelId: UUID) -> Bool {
+        guard case .group(var group) = panel.content,
+              let index = group.children.firstIndex(where: { $0.id == panelId }) else { return false }
+        group.children[index].title = title
+        panel.content = .group(group)
+        tabBar?.updateTab(at: index, title: title)
+        return true
+    }
+
     public var activeIndex: Int {
         get { group?.activeIndex ?? 0 }
         set {
