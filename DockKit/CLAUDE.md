@@ -101,13 +101,21 @@ the manager keeps (tested in `Tests/DockKitTests`):
   windows by root panel id. When a mutation replaces a root (a split at the root, a split
   collapsing into its last child), the replacement takes over the root's id and window
   attributes (`Panel.keepingRootIdentity(of:)`), so the window stays where it is.
-- **Frames are exact.** `frame` is the window's frame, not its content rect, and a rebuild
-  never moves or resizes the window. `getLayout()` reports `layoutFrame` (the windowed frame
-  while full screen) and `screenId`.
+- **Frames are kept, not invented.** `frame` is the window's frame, not its content rect;
+  DockKit asks AppKit for exactly that frame and a rebuild never moves or resizes the window.
+  AppKit may still adjust a frame on screen (to clear the menu bar, or onto a display when
+  the saved one is gone); `getLayout()` reports the frame the window actually has
+  (`layoutFrame`: the windowed frame while full screen), plus `screenId`. Restored
+  full-screen windows enter full screen one at a time.
 - **Every change is reported.** Tab selection and order, dividers, moves, resizes, full
   screen, closes, tear-offs and splits land in `getLayout()` at once and reach
   `layoutManagerDidChangeLayout`, coalesced to one call per run-loop turn (`updateLayout`
   reports synchronously).
+- **Closing is the app's call.** The close button asks
+  `layoutManager(_:shouldCloseWindow:containing:)`; a window closed outside `updateLayout`
+  is reported with the panels it took away (`layoutManager(_:didCloseWindow:containing:)`).
+- **Empty windows stay.** A layout mutation removes only the root it emptied, never an
+  empty window elsewhere.
 
 ### DockStageHostWindow
 A window containing multiple "stages" (virtual workspaces), each with its own layout tree. Features:
