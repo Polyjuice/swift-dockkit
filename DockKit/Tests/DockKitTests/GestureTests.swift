@@ -308,6 +308,46 @@ final class GestureTests: DockKitTestCase {
         XCTAssertEqual(delegate.allWindowsClosed, 0)
     }
 
+    func testTheDelegateDecidesWhatTheCloseButtonDoes() {
+        let p = makePanels("A", "B", "C")
+        let window = openWindow([p[0], p[1]], slot: 0)
+        openWindow([p[2]], slot: 1)
+
+        delegate.allowsClose = false
+        window.performClose(nil)
+        XCTAssertEqual(delegate.closeProposals, [[p[0].panelId, p[1].panelId]])
+        XCTAssertTrue(manager.windows.contains { $0 === window })
+        XCTAssertTrue(p[0].window === window)
+        XCTAssertTrue(delegate.closedWindows.isEmpty)
+
+        delegate.allowsClose = true
+        assertNotifiesLayoutChange("close button") {
+            window.performClose(nil)
+        }
+        XCTAssertFalse(manager.windows.contains { $0 === window })
+        XCTAssertEqual(delegate.closedWindows.map(\.windowId), [window.windowId])
+        XCTAssertEqual(delegate.closedWindows.first?.panelIds, [p[0].panelId, p[1].panelId])
+    }
+
+    func testDidCloseWindowNamesNoPanelsWhenTheLastTabClosedIt() {
+        let p = makePanels("A", "B")
+        let window = openWindow([p[0]], slot: 0)
+        openWindow([p[1]], slot: 1)
+        tabGroup(containing: p[0])!.tabBar(tabBar, didCloseTabAt: 0)
+        XCTAssertEqual(delegate.closedWindows.map(\.windowId), [window.windowId])
+        XCTAssertEqual(delegate.closedWindows.first?.panelIds, [])
+        XCTAssertTrue(delegate.closeProposals.isEmpty, "closing a tab is not a window close proposal")
+    }
+
+    func testUpdateLayoutClosingAWindowIsNotReportedAsAClose() {
+        let p = makePanels("A", "B")
+        openWindow([p[0]], slot: 0)
+        let kept = openWindow([p[1]], slot: 1)
+        manager.updateLayout(DockLayout(panels: manager.getLayout().panels.filter { $0.id == kept.windowId }))
+        XCTAssertEqual(manager.windows.count, 1)
+        XCTAssertTrue(delegate.closedWindows.isEmpty)
+    }
+
     func testUpdateLayoutClosingEveryWindowReportsAllClosedOnce() {
         openWindow(makePanels("A"), slot: 0)
         openWindow(makePanels("B"), slot: 1)

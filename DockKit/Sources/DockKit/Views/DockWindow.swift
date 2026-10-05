@@ -25,6 +25,10 @@ public protocol DockWindowDelegate: AnyObject {
     /// `window.rootPanel` and `window.layoutFrame` already reflect the change.
     /// Not called while the reconciler applies a layout.
     func dockWindowDidChangeLayout(_ window: DockWindow)
+
+    /// The person asked to close the window (its close button, Cmd-W —
+    /// `performClose`). Return false to keep it open.
+    func dockWindowShouldClose(_ window: DockWindow) -> Bool
 }
 
 /// Default implementations
@@ -37,6 +41,7 @@ public extension DockWindowDelegate {
     func dockWindow(_ window: DockWindow, didRequestNewPanelIn tabGroup: DockTabGroupViewController, actionId: String?) {}
     func dockWindow(_ window: DockWindow, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool { true }
     func dockWindowDidChangeLayout(_ window: DockWindow) {}
+    func dockWindowShouldClose(_ window: DockWindow) -> Bool { true }
 }
 
 /// A dock window that can contain full layout trees (splits + tabs)
@@ -354,6 +359,15 @@ public class DockWindow: NSWindow {
 
     public override var canBecomeKey: Bool { true }
     public override var canBecomeMain: Bool { true }
+
+    /// The close button and Cmd-W: the dock delegate decides first, then
+    /// AppKit's usual `windowShouldClose` path (an app-set NSWindow delegate).
+    public override func performClose(_ sender: Any?) {
+        if let dockDelegate = dockDelegate, !dockDelegate.dockWindowShouldClose(self) {
+            return
+        }
+        super.performClose(sender)
+    }
 
     public override func close() {
         // Debug: trace where close is being called from

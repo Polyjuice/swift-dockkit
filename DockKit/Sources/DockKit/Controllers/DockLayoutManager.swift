@@ -270,6 +270,8 @@ public class DockLayoutManager: DockWindowDelegate {
             // During updateLayout the reconciler closes windows on its way to
             // the target layout; updateLayout reports the outcome itself.
             guard !isApplyingLayout else { return }
+            delegate?.layoutManager(self, didCloseWindow: window.windowId,
+                                    containing: window.rootPanel.allContentIds())
             setNeedsLayoutNotification()
 
             // Notify delegate if all windows are closed
@@ -459,6 +461,21 @@ public protocol DockLayoutManagerDelegate: AnyObject {
     /// menu-bar app keeps running with no windows).
     func layoutManagerDidCloseAllWindows(_ manager: DockLayoutManager)
 
+    /// The person asked to close a window (its close button, Cmd-W).
+    /// `panelIds` are the content panels in it. Return false to keep it open
+    /// (for instance to close some of its panels instead). Default: true.
+    func layoutManager(_ manager: DockLayoutManager,
+                       shouldCloseWindow window: DockWindow,
+                       containing panelIds: [UUID]) -> Bool
+
+    /// A window closed outside `updateLayout` — by the person (close button,
+    /// Cmd-W), by `closeWindow`, or because its last tab closed — taking the
+    /// content panels `panelIds` (none when its last tab closed) out of the
+    /// layout. Followed by `layoutManagerDidChangeLayout`. Default: nothing.
+    func layoutManager(_ manager: DockLayoutManager,
+                       didCloseWindow windowId: UUID,
+                       containing panelIds: [UUID])
+
     /// The person tore a tab off (dragged it out of every window). The panel
     /// is still docked: call `manager.detachPanel(panel, at:)` to give it a
     /// window of its own (the default), or return to leave it where it is.
@@ -515,6 +532,10 @@ public protocol DockLayoutManagerDelegate: AnyObject {
 /// Proposals apply the change directly — suitable for demos and simple apps.
 public extension DockLayoutManagerDelegate {
     func layoutManagerDidCloseAllWindows(_ manager: DockLayoutManager) {}
+    func layoutManager(_ manager: DockLayoutManager, shouldCloseWindow window: DockWindow, containing panelIds: [UUID]) -> Bool {
+        true
+    }
+    func layoutManager(_ manager: DockLayoutManager, didCloseWindow windowId: UUID, containing panelIds: [UUID]) {}
     func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {
         manager.detachPanel(panel, at: screenPoint)
     }
@@ -622,6 +643,11 @@ extension DockLayoutManager {
 
     public func dockWindowDidChangeLayout(_ window: DockWindow) {
         setNeedsLayoutNotification()
+    }
+
+    public func dockWindowShouldClose(_ window: DockWindow) -> Bool {
+        delegate?.layoutManager(self, shouldCloseWindow: window,
+                                containing: window.rootPanel.allContentIds()) ?? true
     }
 }
 

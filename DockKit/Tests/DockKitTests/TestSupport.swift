@@ -44,8 +44,18 @@ final class TestPanel: DockablePanel {
 final class RecordingDelegate: DockLayoutManagerDelegate {
     var layoutChanges = 0
     var allWindowsClosed = 0
+    var allowsClose = true
+    var closeProposals: [[UUID]] = []
+    var closedWindows: [(windowId: UUID, panelIds: [UUID])] = []
     func layoutManagerDidChangeLayout(_ manager: DockLayoutManager) { layoutChanges += 1 }
     func layoutManagerDidCloseAllWindows(_ manager: DockLayoutManager) { allWindowsClosed += 1 }
+    func layoutManager(_ manager: DockLayoutManager, shouldCloseWindow window: DockWindow, containing panelIds: [UUID]) -> Bool {
+        closeProposals.append(panelIds)
+        return allowsClose
+    }
+    func layoutManager(_ manager: DockLayoutManager, didCloseWindow windowId: UUID, containing panelIds: [UUID]) {
+        closedWindows.append((windowId, panelIds))
+    }
 }
 
 /// Refuses every tear-off.
