@@ -256,17 +256,56 @@ final class GestureTests: DockKitTestCase {
         XCTAssertEqual(manager.getLayout().panels[0].frame?.origin, NSPoint(x: moved.minX + 15, y: moved.minY + 5))
     }
 
-    func testFullScreenTransitionsNotify() {
-        // A real transition needs a Space; the window reports AppKit's notifications
+    func testFullScreenKeepsTheWindowedFrameInTheLayout() {
         let window = openWindow(makePanels("A"), slot: 0)
+        let windowed = window.frame
+
+        // AppKit's transition played by hand (a real one takes over a Space):
+        // the state, the notifications, the screen-sized frame
         assertNotifiesLayoutChange("enter full screen") {
+            window.fullScreenStateForTesting = true
+            NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+            window.setFrame(NSScreen.main!.frame, display: true)
             NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
         }
+        XCTAssertNotEqual(window.frame, windowed)
+        XCTAssertEqual(window.layoutFrame, windowed, "the frame to come back to")
+        var root = manager.getLayout().panels[0]
+        XCTAssertEqual(root.isFullScreen, true)
+        XCTAssertEqual(root.frame, windowed)
+
+        let back = windowed.offsetBy(dx: 12, dy: 0)
         assertNotifiesLayoutChange("exit full screen") {
+            window.fullScreenStateForTesting = false
+            window.setFrame(back, display: true)
             NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: window)
         }
-        XCTAssertEqual(manager.getLayout().panels[0].isFullScreen, false)
-        XCTAssertEqual(manager.getLayout().panels[0].frame, window.frame)
+        root = manager.getLayout().panels[0]
+        XCTAssertEqual(root.isFullScreen, false)
+        XCTAssertEqual(root.frame, back)
+        XCTAssertEqual(window.layoutFrame, window.frame)
+    }
+
+    func testRestoredFullScreenWindowsEnterOneAtATime() throws {
+        var toggled: [UUID] = []
+        manager.toggleFullScreen = { toggled.append($0.windowId) }
+        manager.fullScreenTimeout = 0.05
+        let roots = makePanels("A", "B", "C").enumerated().map { index, panel -> Panel in
+            var root = tabGroupRoot([panel])
+            root.frame = frame(slot: index)
+            root.isFullScreen = true
+            return root
+        }
+        manager.updateLayout(DockLayout(panels: roots))
+        XCTAssertEqual(toggled, [roots[0].id], "the second toggle waits for the first window to arrive")
+
+        let first = try XCTUnwrap(manager.windows.first { $0.windowId == roots[0].id })
+        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: first)
+        XCTAssertEqual(toggled, [roots[0].id, roots[1].id])
+
+        // The second never arrives (a refused toggle): the third goes after a timeout
+        spin(0.3)
+        XCTAssertEqual(toggled, roots.map(\.id))
     }
 
     func testScreenIsRecorded() {

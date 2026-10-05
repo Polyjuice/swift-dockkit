@@ -56,7 +56,7 @@ public class DockLayoutManager: DockWindowDelegate {
             var panel = window.rootPanel
             panel.isTopLevelWindow = true
             panel.frame = window.layoutFrame
-            panel.isFullScreen = window.styleMask.contains(.fullScreen)
+            panel.isFullScreen = window.isFullScreenForLayout
             panel.screenId = window.screenIdentifier
             return panel
         }
@@ -197,10 +197,61 @@ public class DockLayoutManager: DockWindowDelegate {
         window.makeKeyAndOrderFront(nil)
 
         // Full screen after the window is on screen, from its windowed frame
-        if panel.isFullScreen == true && !window.styleMask.contains(.fullScreen) {
-            window.toggleFullScreen(nil)
+        if panel.isFullScreen == true && !window.isFullScreenForLayout {
+            enterFullScreenInTurn(window)
         }
         return window
+    }
+
+    // MARK: - Full Screen at Restore
+
+    /// Restored windows waiting to enter full screen. One at a time: AppKit
+    /// ignores a toggle while another window is mid-transition.
+    private var fullScreenQueue: [DockWindow] = []
+
+    /// The window entering full screen now, and the observer waiting for it.
+    private var fullScreenInFlight: (window: DockWindow, observer: NSObjectProtocol)?
+
+    /// How a window is sent to full screen (tests substitute a recorder).
+    internal var toggleFullScreen: (DockWindow) -> Void = { $0.toggleFullScreen(nil) }
+
+    /// How long to wait for a window's didEnterFullScreen before moving on:
+    /// a toggle AppKit refused, or a failed transition, never reports one.
+    internal var fullScreenTimeout: TimeInterval = 3
+
+    private func enterFullScreenInTurn(_ window: DockWindow) {
+        fullScreenQueue.append(window)
+        startNextFullScreen()
+    }
+
+    private func startNextFullScreen() {
+        guard fullScreenInFlight == nil else { return }
+        while !fullScreenQueue.isEmpty {
+            let window = fullScreenQueue.removeFirst()
+            guard window.isVisible, !window.isFullScreenForLayout else { continue }
+
+            let observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didEnterFullScreenNotification, object: window, queue: nil
+            ) { [weak self, weak window] _ in
+                guard let self = self, let window = window else { return }
+                self.finishFullScreen(window)
+            }
+            fullScreenInFlight = (window, observer)
+            toggleFullScreen(window)
+            DispatchQueue.main.asyncAfter(deadline: .now() + fullScreenTimeout) { [weak self, weak window] in
+                guard let self = self, let window = window else { return }
+                self.finishFullScreen(window)
+            }
+            return
+        }
+    }
+
+    /// `window` arrived in full screen, closed, or ran out of time: next.
+    private func finishFullScreen(_ window: DockWindow) {
+        guard let inFlight = fullScreenInFlight, inFlight.window === window else { return }
+        NotificationCenter.default.removeObserver(inFlight.observer)
+        fullScreenInFlight = nil
+        startNextFullScreen()
     }
 
     /// Every DockWindow the manager owns is made here: its id is its root
@@ -264,6 +315,7 @@ public class DockLayoutManager: DockWindowDelegate {
     /// Called by DockWindow when it closes (to remove itself from our array)
     /// This prevents dangling references to deallocated windows
     internal func windowDidClose(_ window: DockWindow) {
+        finishFullScreen(window)
         if let index = windows.firstIndex(where: { $0.windowId == window.windowId }) {
             windows.remove(at: index)
 
@@ -375,7 +427,7 @@ public class DockLayoutManager: DockWindowDelegate {
 
         // Alone in its window: the window is what was dragged out.
         if let window = sourceWindow, window.rootPanel.allContentIds() == [panelId],
-           !window.styleMask.contains(.fullScreen) {
+           !window.isFullScreenForLayout {
             window.setFrame(frame, display: true)
             return window
         }
@@ -421,13 +473,12 @@ public class DockLayoutManager: DockWindowDelegate {
                 frame: panel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600)
             )
             windows.append(window)
+            window.makeKeyAndOrderFront(nil)
 
             // Handle full-screen state
-            if panel.isFullScreen == true && !window.styleMask.contains(.fullScreen) {
-                window.toggleFullScreen(nil)
+            if panel.isFullScreen == true && !window.isFullScreenForLayout {
+                enterFullScreenInTurn(window)
             }
-
-            window.makeKeyAndOrderFront(nil)
         }
     }
 

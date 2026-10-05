@@ -84,6 +84,15 @@ public class DockWindow: NSWindow {
     /// The windowed frame to come back to while the window is full screen
     private var frameBeforeFullScreen: NSRect?
 
+    /// Stands in for AppKit's full-screen state in tests: AppKit sets
+    /// `.fullScreen` only during a real transition, which takes over a Space.
+    internal var fullScreenStateForTesting: Bool?
+
+    /// Whether the window is full screen, as the layout records it.
+    public var isFullScreenForLayout: Bool {
+        fullScreenStateForTesting ?? styleMask.contains(.fullScreen)
+    }
+
     /// True while `rebuildLayout` swaps the controller tree: the outgoing
     /// controllers still report (a split's proportions as it is torn down),
     /// and syncing from them would put the old tree back into `rootPanel`.
@@ -231,7 +240,7 @@ public class DockWindow: NSWindow {
         rootViewController = newRootVC
         contentViewController = newRootVC
 
-        if frame != keptFrame && !styleMask.contains(.fullScreen) {
+        if frame != keptFrame && !isFullScreenForLayout {
             setFrame(keptFrame, display: true)
         }
 
@@ -295,7 +304,7 @@ public class DockWindow: NSWindow {
     /// The frame a layout records for this window: its frame, or while it is
     /// full screen, the windowed frame it returns to.
     public var layoutFrame: NSRect {
-        if styleMask.contains(.fullScreen), let windowed = frameBeforeFullScreen {
+        if isFullScreenForLayout, let windowed = frameBeforeFullScreen {
             return windowed
         }
         return frame
