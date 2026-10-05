@@ -20,7 +20,13 @@ final class TestPanel: DockablePanel {
         panelTitle = title
     }
 
-    func panelWillDetach() { detachCount += 1 }
+    /// Runs inside panelWillDetach (the reconciler calls it mid-update).
+    var onWillDetach: (() -> Void)?
+
+    func panelWillDetach() {
+        detachCount += 1
+        onWillDetach?()
+    }
     func panelDidDock(at position: DockPosition) {
         if position == .floating { floatingDockCount += 1 }
     }

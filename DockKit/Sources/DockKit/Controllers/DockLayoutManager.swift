@@ -122,6 +122,9 @@ public class DockLayoutManager: DockWindowDelegate {
         // Use reconciler for incremental updates
         reconciler.verboseLogging = verboseLogging
         let hadWindows = !windows.isEmpty
+        // Restored, not cleared, at the end: an updateLayout nested in this
+        // one (from a panel callback) must not end this one's quiet period
+        let wasApplyingLayout = isApplyingLayout
         isApplyingLayout = true
         windows = reconciler.reconcileWindows(
             currentWindows: windows,
@@ -150,7 +153,7 @@ public class DockLayoutManager: DockWindowDelegate {
 
         // Notify delegate that layout changed (this covers any change the
         // windows reported meanwhile)
-        isApplyingLayout = false
+        isApplyingLayout = wasApplyingLayout
         layoutChangePending = false
         delegate?.layoutManagerDidChangeLayout(self)
         if hadWindows && windows.isEmpty {
@@ -229,16 +232,19 @@ public class DockLayoutManager: DockWindowDelegate {
     // MARK: - Window Management
 
     /// Create a new window with the given layout.
-    /// The window's id is `rootPanel.id`, and `frame` is exactly the window's
-    /// frame. Give it a tab-group root (as `addPanel` and `detachPanel` do) so
-    /// it can receive dropped tabs; a bare content root shows its panel but
-    /// has no group to drop into.
+    /// The window's id is its root panel's id, and `frame` is the window's
+    /// frame. A bare content root is put in a tab group of its own first (the
+    /// window's root, and so its id), so tabs dropped into the window land in
+    /// a group the layout knows.
     @discardableResult
     public func createWindow(
         rootPanel: Panel = Panel(content: .group(PanelGroup(style: .tabs))),
         frame: NSRect = NSRect(x: 100, y: 100, width: 800, height: 600)
     ) -> DockWindow {
-        let window = makeWindow(rootPanel: rootPanel, frame: frame)
+        let root = rootPanel.isContent
+            ? Panel(content: .group(PanelGroup(children: [rootPanel], activeIndex: 0, style: .tabs)))
+            : rootPanel
+        let window = makeWindow(rootPanel: root, frame: frame)
         windows.append(window)
         window.makeKeyAndOrderFront(nil)
         setNeedsLayoutNotification()

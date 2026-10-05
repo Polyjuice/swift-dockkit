@@ -357,8 +357,10 @@ public class DockWindow: NSWindow {
 
     public override func close() {
         // Debug: trace where close is being called from
-        print("[WINDOW] close() called on window \(windowId.uuidString.prefix(8))")
-        Thread.callStackSymbols.prefix(10).forEach { print("  \($0)") }
+        if layoutManager?.verboseLogging == true {
+            print("[WINDOW] close() called on window \(windowId.uuidString.prefix(8))")
+            Thread.callStackSymbols.prefix(10).forEach { print("  \($0)") }
+        }
 
         dockDelegate?.dockWindow(self, didClose: ())
         // Notify layout manager to remove us from its windows array
