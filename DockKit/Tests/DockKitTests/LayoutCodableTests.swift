@@ -104,6 +104,32 @@ final class LayoutCodableTests: XCTestCase {
         let groups = newRoot.group?.children ?? []
         XCTAssertEqual(groups.map { $0.allContentIds() }, [[a.id], [b.id]])
         XCTAssertFalse(groups.contains { $0.id == root.id }, "the old root, now a child, needs an id of its own")
+        XCTAssertEqual(groups[0].isTopLevelWindow, false, "the old root is no longer a window")
+        XCTAssertNil(groups[0].frame)
+        XCTAssertNil(groups[0].isFullScreen)
+    }
+
+    func testOnlyTheRootAMutationEmptiesIsRemoved() {
+        let a = Panel.contentPanel(title: "A"), b = Panel.contentPanel(title: "B"), c = Panel.contentPanel(title: "C")
+        let empty = Panel.simpleWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let full = Panel.simpleWindow(children: [a, b])
+        let single = Panel.simpleWindow(children: [c])
+        let layout = DockLayout(panels: [empty, full, single])
+
+        XCTAssertEqual(layout.removingChild(c.id).panels.map(\.id), [empty.id, full.id])
+        XCTAssertEqual(layout.movingChild(c.id, toGroupId: full.id, at: 0).panels.map(\.id), [empty.id, full.id])
+        XCTAssertEqual(layout.splitting(groupId: full.id, direction: .left, withChild: c).panels.map(\.id), [empty.id, full.id])
+        // Into the empty window: it fills, the source empties
+        let filled = layout.movingChild(c.id, toGroupId: empty.id, at: 0)
+        XCTAssertEqual(filled.panels.map(\.id), [empty.id, full.id])
+        XCTAssertEqual(filled.panels[0].allContentIds(), [c.id])
+    }
+
+    func testSplittingOntoAnUnknownGroupKeepsThePanel() {
+        let a = Panel.contentPanel(title: "A"), b = Panel.contentPanel(title: "B")
+        let layout = DockLayout(panels: [Panel.simpleWindow(children: [a, b])])
+        let result = layout.splitting(groupId: UUID(), direction: .right, withChild: b)
+        XCTAssertEqual(result, layout)
     }
 
     func testCollapsingARootKeepsItsIdAndFrame() {

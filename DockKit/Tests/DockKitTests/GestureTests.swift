@@ -75,6 +75,42 @@ final class GestureTests: DockKitTestCase {
         assertConsistent()
     }
 
+    func testAnEmptyWindowSurvivesGesturesElsewhere() {
+        let p = makePanels("A", "B", "C")
+        let empty = manager.createWindow(frame: frame(slot: 5))
+        let source = openWindow(p, slot: 0)
+
+        tabGroup(containing: p[2])!.tabBar(tabBar, didInitiateTearOff: 2, at: NSPoint(x: screen.midX, y: screen.midY))
+        manager.dockWindow(source, wantsToSplit: .right, withPanelId: p[1].panelId, in: tabGroups(in: source)[0])
+        tabGroups(in: source)[0].tabBar(tabBar, didReceiveDroppedTab: dragInfo(p[1]), at: 1)
+        XCTAssertTrue(manager.windows.contains { $0 === empty }, "the empty window was closed by an unrelated gesture")
+        XCTAssertEqual(manager.windows.count, 3)
+        assertConsistent()
+
+        // It can still take a tab
+        let target = tabGroups(in: empty)[0]
+        target.tabBar(tabBar, didReceiveDroppedTab: dragInfo(p[0]), at: 0)
+        XCTAssertEqual(empty.rootPanel.allContentIds(), [p[0].panelId])
+        assertConsistent()
+    }
+
+    func testSplitDropOntoAGroupTheLayoutDoesNotKnowKeepsThePanel() throws {
+        // A bare content root restored by updateLayout is shown in a wrapper
+        // tab group the layout has no record of
+        let p = makePanels("A", "B", "C")
+        openWindow([p[0], p[1]], slot: 0)
+        var bare = p[2].tab
+        bare.isTopLevelWindow = true
+        bare.frame = frame(slot: 2)
+        manager.updateLayout(manager.getLayout().addingPanel(bare))
+        let bareWindow = try XCTUnwrap(window(containing: p[2]))
+        let wrapper = try XCTUnwrap(tabGroups(in: bareWindow).first)
+
+        wrapper.dropOverlay(DockDropOverlayView(), didSelectZone: .left, withTab: dragInfo(p[1]))
+        XCTAssertEqual(manager.getLayout().getAllContentIds(), Set(p.map(\.panelId)), "the dragged panel was deleted")
+        XCTAssertNotNil(p[1].window)
+    }
+
     // MARK: - Cross-window move (item 2)
 
     func testDropIntoAnotherWindowMovesTheTab() throws {

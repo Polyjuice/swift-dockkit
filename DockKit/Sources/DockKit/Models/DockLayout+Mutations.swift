@@ -60,7 +60,7 @@ public extension DockLayout {
     }
 
     /// Create a layout with a panel removed (by ID, anywhere in the tree)
-    /// Also removes any root panels that become empty as a result
+    /// Also removes the root panel it leaves empty (an already empty window stays)
     func removingChild(_ childId: UUID) -> DockLayout {
         var newLayout = self
         for i in newLayout.panels.indices {
@@ -71,10 +71,7 @@ public extension DockLayout {
             )
             if modified { break }
         }
-        newLayout = newLayout.keepingRootIdentities(of: panels)
-        // Clean up empty root panels
-        newLayout.panels.removeAll { $0.isEmpty }
-        return newLayout
+        return newLayout.finishingRootMutation(from: panels)
     }
 
     /// Create a layout with a panel moved between groups
@@ -130,16 +127,13 @@ public extension DockLayout {
         // 2. Add to target
         newLayout = newLayout.addingChild(childInfo.panel, toGroupId: toGroupId, at: index)
 
-        // 3. Clean up empty nodes (a root that collapses keeps its window identity)
+        // 3. Clean up empty nodes
         for i in newLayout.panels.indices {
             newLayout.panels[i] = newLayout.panels[i].cleanedUp()
         }
-        newLayout = newLayout.keepingRootIdentities(of: panels)
 
-        // 4. Remove empty root panels
-        newLayout.panels.removeAll { $0.isEmpty }
-
-        return newLayout
+        // 4. Keep window identities; remove the root this move emptied
+        return newLayout.finishingRootMutation(from: panels)
     }
 
     /// Create a layout with the active child changed in a group
@@ -166,13 +160,16 @@ public extension DockLayout {
         direction: DockSplitDirection,
         withChild child: Panel
     ) -> DockLayout {
+        // GUARD: the target must exist, or step 1 would delete the child
+        guard let groupInfo = findGroupPanel(groupId), let group = groupInfo.panel.group else {
+            print("[LAYOUT] Warning: splitting - target group \(groupId.uuidString.prefix(8)) not found in layout")
+            return self
+        }
+
         // GUARD: Check if this is a no-op
-        if let groupInfo = findGroupPanel(groupId),
-           let group = groupInfo.panel.group {
-            if group.children.count == 1 && group.children.first?.id == child.id {
-                print("[LAYOUT] No-op: Cannot split single-child group with its only child")
-                return self
-            }
+        if group.children.count == 1 && group.children.first?.id == child.id {
+            print("[LAYOUT] No-op: Cannot split single-child group with its only child")
+            return self
         }
 
         var newLayout = self
@@ -198,16 +195,13 @@ public extension DockLayout {
             if modified { break }
         }
 
-        // Step 3: Clean up (a root that was split or collapsed keeps its window identity)
+        // Step 3: Clean up
         for i in newLayout.panels.indices {
             newLayout.panels[i] = newLayout.panels[i].cleanedUp()
         }
-        newLayout = newLayout.keepingRootIdentities(of: panels)
 
-        // Step 4: Remove empty root panels
-        newLayout.panels.removeAll { $0.isEmpty }
-
-        return newLayout
+        // Step 4: Keep window identities; remove the root the split emptied
+        return newLayout.finishingRootMutation(from: panels)
     }
 
     /// Create a layout with split proportions updated
@@ -227,15 +221,22 @@ public extension DockLayout {
 
     // MARK: - Root Identity
 
-    /// Re-establish every root's window identity after a mutation that may
-    /// have replaced roots. `originals` are the roots before the mutation,
-    /// index for index (call this before removing empty roots).
-    /// See `Panel.keepingRootIdentity(of:)`.
-    private func keepingRootIdentities(of originals: [Panel]) -> DockLayout {
+    /// Finish a mutation of the roots' trees. `originals` are the roots
+    /// before it, index for index.
+    /// - Every root keeps its window identity (`Panel.keepingRootIdentity(of:)`).
+    /// - A root this mutation emptied is removed: its window has nothing left.
+    ///   A root that was empty already stays — a window is a root, and an
+    ///   empty window (`createWindow()`) must survive gestures elsewhere.
+    private func finishingRootMutation(from originals: [Panel]) -> DockLayout {
         var newLayout = self
+        var emptied = Set<UUID>()
         for i in newLayout.panels.indices where i < originals.count {
             newLayout.panels[i] = newLayout.panels[i].keepingRootIdentity(of: originals[i])
+            if newLayout.panels[i].isEmpty && !originals[i].isEmpty {
+                emptied.insert(newLayout.panels[i].id)
+            }
         }
+        newLayout.panels.removeAll { emptied.contains($0.id) }
         return newLayout
     }
 
@@ -581,13 +582,18 @@ public extension Panel {
         )
     }
 
-    /// Give a fresh id to the group below this panel that has `groupId`.
+    /// Give a fresh id to the group below this panel that has `groupId`
+    /// (the old root), and drop the window attributes it no longer has.
     private func reidentifyingGroup(_ groupId: UUID) -> Panel {
         guard case .group(var group) = content else { return self }
         group.children = group.children.map { child in
-            child.id == groupId && child.isGroup
-                ? child.withId(UUID())
-                : child.reidentifyingGroup(groupId)
+            guard child.id == groupId && child.isGroup else { return child.reidentifyingGroup(groupId) }
+            var demoted = child.withId(UUID())
+            demoted.isTopLevelWindow = false
+            demoted.frame = nil
+            demoted.isFullScreen = nil
+            demoted.screenId = nil
+            return demoted
         }
         var newPanel = self
         newPanel.content = .group(group)
