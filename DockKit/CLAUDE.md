@@ -61,7 +61,7 @@ func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any D
     manager.detachPanel(panel, at: screenPoint)
 }
 
-// Custom policy - use different window type
+// Custom policy - use different window type (remove the panel from the layout yourself)
 func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {
     let customWindow = createCustomFloatingWindow(for: panel)
     // ... custom handling ...
@@ -69,6 +69,8 @@ func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any D
 ```
 
 The host app is **always in control** of what happens. DockKit proposes, the app disposes.
+The default implementation is `manager.detachPanel(panel, at: screenPoint)`, so an app that
+implements nothing gets a working tear-off.
 
 ### Callback Flow Pattern
 
@@ -77,18 +79,35 @@ All window types should converge to the same delegate callback:
 ```
 User gesture detected
   → Window notifies DockLayoutManager
-    → Manager removes panel from source window
-    → Manager calls delegate.wantsToDetachPanel (policy check)
-      → App decides and typically calls manager.detachPanel()
-        → Manager creates floating DockWindow
+    → Manager calls delegate.wantsToDetachPanel (policy check; the panel is still docked)
+      → App decides and typically calls manager.detachPanel() (the default)
+        → Manager moves the panel out of its window and into a new DockWindow
+          at the drop point, as one layout change (a lone tab moves its window)
 ```
 
 This keeps policy in one place regardless of which window type the panel came from.
+A delegate that returns without detaching leaves the tab where it was.
 
 ## Window Types
 
 ### DockWindow
 A window containing a single dock layout tree (splits + tab groups). Managed by `DockLayoutManager`.
+
+`DockLayoutManager` with DockWindows is the desktop with no main window: every window is
+equal, and the app persists `getLayout()` and restores it with `updateLayout`. Invariants
+the manager keeps (tested in `Tests/DockKitTests`):
+
+- **Window id == root panel id.** The reconciler, the diff and the move/split defaults find
+  windows by root panel id. When a mutation replaces a root (a split at the root, a split
+  collapsing into its last child), the replacement takes over the root's id and window
+  attributes (`Panel.keepingRootIdentity(of:)`), so the window stays where it is.
+- **Frames are exact.** `frame` is the window's frame, not its content rect, and a rebuild
+  never moves or resizes the window. `getLayout()` reports `layoutFrame` (the windowed frame
+  while full screen) and `screenId`.
+- **Every change is reported.** Tab selection and order, dividers, moves, resizes, full
+  screen, closes, tear-offs and splits land in `getLayout()` at once and reach
+  `layoutManagerDidChangeLayout`, coalesced to one call per run-loop turn (`updateLayout`
+  reports synchronously).
 
 ### DockStageHostWindow
 A window containing multiple "stages" (virtual workspaces), each with its own layout tree. Features:
