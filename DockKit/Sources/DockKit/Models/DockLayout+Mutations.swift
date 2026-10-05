@@ -71,6 +71,7 @@ public extension DockLayout {
             )
             if modified { break }
         }
+        newLayout = newLayout.keepingRootIdentities(of: panels)
         // Clean up empty root panels
         newLayout.panels.removeAll { $0.isEmpty }
         return newLayout
@@ -129,10 +130,11 @@ public extension DockLayout {
         // 2. Add to target
         newLayout = newLayout.addingChild(childInfo.panel, toGroupId: toGroupId, at: index)
 
-        // 3. Clean up empty nodes
+        // 3. Clean up empty nodes (a root that collapses keeps its window identity)
         for i in newLayout.panels.indices {
             newLayout.panels[i] = newLayout.panels[i].cleanedUp()
         }
+        newLayout = newLayout.keepingRootIdentities(of: panels)
 
         // 4. Remove empty root panels
         newLayout.panels.removeAll { $0.isEmpty }
@@ -196,10 +198,11 @@ public extension DockLayout {
             if modified { break }
         }
 
-        // Step 3: Clean up
+        // Step 3: Clean up (a root that was split or collapsed keeps its window identity)
         for i in newLayout.panels.indices {
             newLayout.panels[i] = newLayout.panels[i].cleanedUp()
         }
+        newLayout = newLayout.keepingRootIdentities(of: panels)
 
         // Step 4: Remove empty root panels
         newLayout.panels.removeAll { $0.isEmpty }
@@ -218,6 +221,20 @@ public extension DockLayout {
                 modified: &modified
             )
             if modified { break }
+        }
+        return newLayout
+    }
+
+    // MARK: - Root Identity
+
+    /// Re-establish every root's window identity after a mutation that may
+    /// have replaced roots. `originals` are the roots before the mutation,
+    /// index for index (call this before removing empty roots).
+    /// See `Panel.keepingRootIdentity(of:)`.
+    private func keepingRootIdentities(of originals: [Panel]) -> DockLayout {
+        var newLayout = self
+        for i in newLayout.panels.indices where i < originals.count {
+            newLayout.panels[i] = newLayout.panels[i].keepingRootIdentity(of: originals[i])
         }
         return newLayout
     }
@@ -518,6 +535,63 @@ extension Panel {
             if let found = child.findGroupPanel(groupId) { return found }
         }
         return nil
+    }
+}
+
+// MARK: - Root Identity
+
+public extension Panel {
+    /// This panel as the replacement for `original`, a window's root.
+    ///
+    /// A window's id is its root panel's id, and the root carries the window's
+    /// frame, full-screen state and screen. Some mutations replace a root: a
+    /// split at the root wraps it in a new split panel; a split root that
+    /// loses all but one child collapses into that child. The replacement
+    /// takes over the original's id and window attributes, so the reconciler
+    /// keeps the same window, where it is, instead of closing it and opening a
+    /// new one at a default frame. A group inside that still carries the
+    /// original id (the old root, now a child of the split) gets a fresh one.
+    ///
+    /// A content panel's id names the panel itself, so a bare content root,
+    /// or a replacement that contains the original as content, is returned
+    /// unchanged.
+    func keepingRootIdentity(of original: Panel) -> Panel {
+        guard id != original.id, isGroup,
+              !allContentIds().contains(original.id) else { return self }
+        var root = reidentifyingGroup(original.id).withId(original.id)
+        root.isTopLevelWindow = original.isTopLevelWindow
+        root.frame = original.frame
+        root.isFullScreen = original.isFullScreen
+        root.screenId = original.screenId
+        return root
+    }
+
+    /// A copy of this panel under another id (`id` is immutable).
+    internal func withId(_ newId: UUID) -> Panel {
+        Panel(
+            id: newId,
+            title: title,
+            iconName: iconName,
+            cargo: cargo,
+            content: content,
+            isTopLevelWindow: isTopLevelWindow,
+            frame: frame,
+            isFullScreen: isFullScreen,
+            screenId: screenId
+        )
+    }
+
+    /// Give a fresh id to the group below this panel that has `groupId`.
+    private func reidentifyingGroup(_ groupId: UUID) -> Panel {
+        guard case .group(var group) = content else { return self }
+        group.children = group.children.map { child in
+            child.id == groupId && child.isGroup
+                ? child.withId(UUID())
+                : child.reidentifyingGroup(groupId)
+        }
+        var newPanel = self
+        newPanel.content = .group(group)
+        return newPanel
     }
 }
 

@@ -28,7 +28,7 @@ public enum SplitAxis: String, Codable {
 // MARK: - Panel Content
 
 /// What a panel contains — either leaf content or a group of sub-panels
-public enum PanelContent: Codable {
+public enum PanelContent: Codable, Equatable {
     case content                    // Leaf — actual view (resolved via panelProvider at runtime)
     case group(PanelGroup)          // Container — N sub-panels with layout mode and style
 
@@ -93,7 +93,7 @@ public struct PanelAddAction: Codable, Equatable {
 
 /// A group of sub-panels with layout attributes
 /// All attributes are preserved regardless of current style, enabling reversible style switches
-public struct PanelGroup: Codable {
+public struct PanelGroup: Codable, Equatable {
     public var children: [Panel]
 
     /// Which child is selected (used by tabs/thumbnails/stages styles)
@@ -184,7 +184,7 @@ public struct PanelGroup: Codable {
 /// The universal layout unit in DockKit
 /// Everything is a Panel — windows, tabs, stages, split panes, leaf content.
 /// Behavioral differences are controlled by attributes, not types.
-public struct Panel: Codable, Identifiable {
+public struct Panel: Codable, Identifiable, Equatable {
     public let id: UUID
     public var title: String?
     public var iconName: String?
@@ -209,9 +209,16 @@ public struct Panel: Codable, Identifiable {
     /// Window fullscreen state (preserved across window/embedded transitions)
     public var isFullScreen: Bool?
 
+    /// The display the window was on, as a persistent display UUID string
+    /// (see `DockWindow.screenIdentifier`). Recorded by
+    /// `DockLayoutManager.getLayout()` so a host app can tell whether a saved
+    /// frame's display is still attached; DockKit does not act on it, and the
+    /// diff ignores it. Optional: layouts without it decode as before.
+    public var screenId: String?
+
     private enum CodingKeys: String, CodingKey {
         case id, title, iconName, cargo, content
-        case isTopLevelWindow, frame, isFullScreen
+        case isTopLevelWindow, frame, isFullScreen, screenId
     }
 
     public init(
@@ -222,7 +229,8 @@ public struct Panel: Codable, Identifiable {
         content: PanelContent = .content,
         isTopLevelWindow: Bool = false,
         frame: CGRect? = nil,
-        isFullScreen: Bool? = nil
+        isFullScreen: Bool? = nil,
+        screenId: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -232,6 +240,7 @@ public struct Panel: Codable, Identifiable {
         self.isTopLevelWindow = isTopLevelWindow
         self.frame = frame
         self.isFullScreen = isFullScreen
+        self.screenId = screenId
     }
 }
 
@@ -239,7 +248,7 @@ public struct Panel: Codable, Identifiable {
 
 /// The top-level layout state
 /// Contains all root panels (typically those with isTopLevelWindow == true)
-public struct DockLayout: Codable {
+public struct DockLayout: Codable, Equatable {
     public var version: Int = 2
     public var panels: [Panel]
 

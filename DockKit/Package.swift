@@ -16,6 +16,10 @@ let package = Package(
         .target(
             name: "DockKit",
             dependencies: []
+        ),
+        .testTarget(
+            name: "DockKitTests",
+            dependencies: ["DockKit"]
         )
     ]
 )
