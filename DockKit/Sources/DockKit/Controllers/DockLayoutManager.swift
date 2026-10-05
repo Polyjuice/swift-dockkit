@@ -23,6 +23,14 @@ public class DockLayoutManager: DockWindowDelegate {
     /// When false, empty space remains and the user must manually rearrange panels.
     public var reclaimEmptySpace: Bool = true
 
+    /// True while `updateLayout` reconciles: window events and closes during
+    /// that time are part of the update, which reports itself once.
+    private var isApplyingLayout = false
+
+    /// A change made in the windows is waiting for its coalesced
+    /// `layoutManagerDidChangeLayout` (see `setNeedsLayoutNotification`).
+    private var layoutChangePending = false
+
     /// The reconciler for applying layout changes
     private lazy var reconciler: DockLayoutReconciler = {
         let r = DockLayoutReconciler()
@@ -39,13 +47,17 @@ public class DockLayoutManager: DockWindowDelegate {
     // MARK: - Core API (JSON Source of Truth)
 
     /// Get current layout as JSON-serializable struct
-    /// Contains ALL windows and their layout trees
+    /// Contains ALL windows and their layout trees, with each window's frame
+    /// (its windowed frame while full screen), full-screen state and screen.
+    /// Reflects every change the person makes in the windows as soon as it
+    /// happens; `updateLayout(getLayout())` is a no-op.
     public func getLayout() -> DockLayout {
         let rootPanels = windows.map { window -> Panel in
             var panel = window.rootPanel
             panel.isTopLevelWindow = true
-            panel.frame = window.frame
+            panel.frame = window.layoutFrame
             panel.isFullScreen = window.styleMask.contains(.fullScreen)
+            panel.screenId = window.screenIdentifier
             return panel
         }
         return DockLayout(panels: rootPanels)
@@ -109,6 +121,8 @@ public class DockLayoutManager: DockWindowDelegate {
 
         // Use reconciler for incremental updates
         reconciler.verboseLogging = verboseLogging
+        let hadWindows = !windows.isEmpty
+        isApplyingLayout = true
         windows = reconciler.reconcileWindows(
             currentWindows: windows,
             targetLayout: layout,
@@ -134,8 +148,29 @@ public class DockLayoutManager: DockWindowDelegate {
             printLayoutJSON(layout)
         }
 
-        // Notify delegate that layout changed
+        // Notify delegate that layout changed (this covers any change the
+        // windows reported meanwhile)
+        isApplyingLayout = false
+        layoutChangePending = false
         delegate?.layoutManagerDidChangeLayout(self)
+        if hadWindows && windows.isEmpty {
+            delegate?.layoutManagerDidCloseAllWindows(self)
+        }
+    }
+
+    /// Report a change made in the windows (tab selection or order, a divider,
+    /// a move, resize, full screen, close, tear-off) with one
+    /// `layoutManagerDidChangeLayout` at the end of the current run-loop turn,
+    /// however many changes the turn makes. `getLayout()` already reflects
+    /// each change when it happens; only the call is coalesced.
+    private func setNeedsLayoutNotification() {
+        guard !isApplyingLayout, !layoutChangePending else { return }
+        layoutChangePending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.layoutChangePending else { return }
+            self.layoutChangePending = false
+            self.delegate?.layoutManagerDidChangeLayout(self)
+        }
     }
 
     /// Print layout as pretty-printed JSON for debugging
@@ -152,20 +187,32 @@ public class DockLayoutManager: DockWindowDelegate {
 
     /// Create a window from a Panel (used by reconciler)
     private func createWindowFromPanel(_ panel: Panel) -> DockWindow {
-        let window = DockWindow(
-            id: panel.id,
+        let window = makeWindow(
             rootPanel: panel,
-            frame: panel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600),
-            layoutManager: self
+            frame: panel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600)
         )
-        window.dockDelegate = self
-        window.panelProvider = { [weak self] id in self?.panelProvider?(id) }
+        window.makeKeyAndOrderFront(nil)
 
+        // Full screen after the window is on screen, from its windowed frame
         if panel.isFullScreen == true && !window.styleMask.contains(.fullScreen) {
             window.toggleFullScreen(nil)
         }
+        return window
+    }
 
-        window.makeKeyAndOrderFront(nil)
+    /// Every DockWindow the manager owns is made here: its id is its root
+    /// panel's id (the reconciler, the diff and the move/split defaults all
+    /// find windows by root panel id), and its controllers are built with the
+    /// panel provider from the start.
+    private func makeWindow(rootPanel: Panel, frame: NSRect) -> DockWindow {
+        let window = DockWindow(
+            id: rootPanel.id,
+            rootPanel: rootPanel,
+            frame: frame,
+            layoutManager: self,
+            panelProvider: { [weak self] id in self?.panelProvider?(id) }
+        )
+        window.dockDelegate = self
         return window
     }
 
@@ -181,34 +228,30 @@ public class DockLayoutManager: DockWindowDelegate {
 
     // MARK: - Window Management
 
-    /// Create a new window with the given layout
+    /// Create a new window with the given layout.
+    /// The window's id is `rootPanel.id`, and `frame` is exactly the window's
+    /// frame. Give it a tab-group root (as `addPanel` and `detachPanel` do) so
+    /// it can receive dropped tabs; a bare content root shows its panel but
+    /// has no group to drop into.
     @discardableResult
     public func createWindow(
         rootPanel: Panel = Panel(content: .group(PanelGroup(style: .tabs))),
         frame: NSRect = NSRect(x: 100, y: 100, width: 800, height: 600)
     ) -> DockWindow {
-        let window = DockWindow(
-            id: UUID(),
-            rootPanel: rootPanel,
-            frame: frame,
-            layoutManager: self
-        )
-        window.dockDelegate = self
-        window.panelProvider = { [weak self] id in self?.panelProvider?(id) }
+        let window = makeWindow(rootPanel: rootPanel, frame: frame)
         windows.append(window)
         window.makeKeyAndOrderFront(nil)
+        setNeedsLayoutNotification()
         return window
     }
 
     /// Close a window by ID
     public func closeWindow(_ windowId: UUID) {
-        guard let index = windows.firstIndex(where: { $0.windowId == windowId }) else { return }
-        let window = windows.remove(at: index)
+        guard let window = windows.first(where: { $0.windowId == windowId }) else { return }
+        // DockWindow.close() reports back through windowDidClose(_:)
         window.close()
-
-        // Notify delegate if all windows are closed
-        if windows.isEmpty {
-            delegate?.layoutManagerDidCloseAllWindows(self)
+        if windows.contains(where: { $0 === window }) {
+            windowDidClose(window)
         }
     }
 
@@ -217,6 +260,11 @@ public class DockLayoutManager: DockWindowDelegate {
     internal func windowDidClose(_ window: DockWindow) {
         if let index = windows.firstIndex(where: { $0.windowId == window.windowId }) {
             windows.remove(at: index)
+
+            // During updateLayout the reconciler closes windows on its way to
+            // the target layout; updateLayout reports the outcome itself.
+            guard !isApplyingLayout else { return }
+            setNeedsLayoutNotification()
 
             // Notify delegate if all windows are closed
             if windows.isEmpty {
@@ -288,42 +336,63 @@ public class DockLayoutManager: DockWindowDelegate {
         }
     }
 
-    /// Detach a panel into a new floating window
+    /// Detach a panel into a window of its own at `screenPoint` (the tear-off).
+    ///
+    /// The panel leaves wherever it is docked — keeping its title and cargo —
+    /// and opens in a new window with a tab group, the source window's size,
+    /// its tab strip under the pointer. A panel that is alone in its window
+    /// moves that window there instead. A panel docked nowhere gets a new
+    /// window too.
     @discardableResult
     public func detachPanel(_ panel: any DockablePanel, at screenPoint: NSPoint) -> DockWindow {
         panel.panelWillDetach()
+        let window = detach(panelId: panel.panelId, title: panel.panelTitle, at: screenPoint)
+        panel.panelDidDock(at: .floating)
+        return window
+    }
 
-        let contentPanel = Panel.contentPanel(
-            id: panel.panelId,
-            title: panel.panelTitle
+    /// The tear-off as a layout change (see `detachPanel(_:at:)`).
+    @discardableResult
+    private func detach(panelId: UUID, title: String?, at screenPoint: NSPoint) -> DockWindow {
+        let layout = getLayout()
+        let source = layout.findChild(panelId)
+        let sourceWindow = source.flatMap { found in windows.first { $0.windowId == found.rootPanelId } }
+        let size = sourceWindow?.layoutFrame.size ?? NSSize(width: 600, height: 400)
+        let frame = NSRect(
+            x: screenPoint.x - min(size.width / 2, 100),
+            y: screenPoint.y - size.height + 20,
+            width: size.width,
+            height: size.height
         )
-        let rootPanel = Panel(
+
+        // Alone in its window: the window is what was dragged out.
+        if let window = sourceWindow, window.rootPanel.allContentIds() == [panelId],
+           !window.styleMask.contains(.fullScreen) {
+            window.setFrame(frame, display: true)
+            return window
+        }
+
+        let child = source?.panel ?? Panel.contentPanel(id: panelId, title: title ?? "Untitled")
+        let newRoot = Panel(
             content: .group(PanelGroup(
-                children: [contentPanel],
+                children: [child],
                 activeIndex: 0,
                 style: .tabs
-            ))
-        )
-        let frame = NSRect(
-            x: screenPoint.x - 300,
-            y: screenPoint.y - 200,
-            width: 600,
-            height: 400
-        )
-
-        let window = DockWindow(
-            id: UUID(),
-            rootPanel: rootPanel,
+            )),
+            isTopLevelWindow: true,
             frame: frame,
-            layoutManager: self
+            isFullScreen: false
         )
-        window.dockDelegate = self
-        window.panelProvider = { [weak self] id in self?.panelProvider?(id) }
+        updateLayout(layout.removingChild(panelId).addingPanel(newRoot))
+
+        if let window = windows.first(where: { $0.windowId == newRoot.id }) {
+            return window
+        }
+        // The reconciler always creates it; keep the old contract regardless
+        let window = makeWindow(rootPanel: newRoot, frame: frame)
         windows.append(window)
         window.makeKeyAndOrderFront(nil)
-
-        panel.panelDidDock(at: .floating)
-
+        setNeedsLayoutNotification()
         return window
     }
 
@@ -339,14 +408,10 @@ public class DockLayoutManager: DockWindowDelegate {
 
         // Create windows from layout
         for panel in layout.panels {
-            let window = DockWindow(
-                id: panel.id,
+            let window = makeWindow(
                 rootPanel: panel,
-                frame: panel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600),
-                layoutManager: self
+                frame: panel.frame ?? CGRect(x: 100, y: 100, width: 800, height: 600)
             )
-            window.dockDelegate = self
-            window.panelProvider = { [weak self] id in self?.panelProvider?(id) }
             windows.append(window)
 
             // Handle full-screen state
@@ -384,13 +449,21 @@ public class DockLayoutManager: DockWindowDelegate {
 /// is suitable for demos and simple apps. In production, the delegate typically routes
 /// through an external controller (e.g. a governor) that decides and sends back a new layout.
 public protocol DockLayoutManagerDelegate: AnyObject {
-    /// Called when all windows have been closed
+    /// Called when all windows have been closed. Default: nothing (a
+    /// menu-bar app keeps running with no windows).
     func layoutManagerDidCloseAllWindows(_ manager: DockLayoutManager)
 
-    /// Called when a panel requests to be detached
+    /// The person tore a tab off (dragged it out of every window). The panel
+    /// is still docked: call `manager.detachPanel(panel, at:)` to give it a
+    /// window of its own (the default), or return to leave it where it is.
     func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint)
 
-    /// Called when layout changes (for auto-save, etc.)
+    /// Called when the layout changed, for auto-save. Covers `updateLayout`
+    /// (called synchronously, once) and every change the person makes in the
+    /// windows: tab selection and order, moves between windows, tear-offs,
+    /// splits, dividers, window moves and resizes, full screen, closes. Those
+    /// are coalesced into one call per run-loop turn. `getLayout()` holds the
+    /// result, frames included.
     func layoutManagerDidChangeLayout(_ manager: DockLayoutManager)
 
     // MARK: - Proposals (UI-initiated actions)
@@ -436,7 +509,9 @@ public protocol DockLayoutManagerDelegate: AnyObject {
 /// Proposals apply the change directly — suitable for demos and simple apps.
 public extension DockLayoutManagerDelegate {
     func layoutManagerDidCloseAllWindows(_ manager: DockLayoutManager) {}
-    func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {}
+    func layoutManager(_ manager: DockLayoutManager, wantsToDetachPanel panel: any DockablePanel, at screenPoint: NSPoint) {
+        manager.detachPanel(panel, at: screenPoint)
+    }
     func layoutManagerDidChangeLayout(_ manager: DockLayoutManager) {}
 
     func layoutManager(_ manager: DockLayoutManager, didRequestClosePanel panelId: UUID, in groupId: UUID, windowId: UUID) {
@@ -487,12 +562,18 @@ extension DockLayoutManager {
     }
 
     public func dockWindow(_ window: DockWindow, wantsToDetachPanelId panelId: UUID, at screenPoint: NSPoint) {
-        // Remove from current location
-        removePanel(panelId)
-
-        // Look up the dockable panel and notify delegate (host app creates new window)
+        // Propose the tear-off — delegate decides (default: detachPanel), or
+        // apply it directly if there is no delegate. The panel stays docked
+        // until someone detaches it, so a refusal leaves the tab in place.
         if let panel = panelProvider?(panelId) {
-            delegate?.layoutManager(self, wantsToDetachPanel: panel, at: screenPoint)
+            if let delegate = delegate {
+                delegate.layoutManager(self, wantsToDetachPanel: panel, at: screenPoint)
+            } else {
+                detachPanel(panel, at: screenPoint)
+            }
+        } else {
+            // No panel instance to propose: move its layout entry
+            detach(panelId: panelId, title: nil, at: screenPoint)
         }
     }
 
@@ -531,6 +612,10 @@ extension DockLayoutManager {
 
     public func dockWindow(_ window: DockWindow, canAcceptPanel panelId: UUID, in tabGroup: DockTabGroupViewController, at zone: DockDropZone) -> Bool {
         delegate?.layoutManager(self, canMovePanel: panelId, toGroup: tabGroup.panel.id, at: zone) ?? true
+    }
+
+    public func dockWindowDidChangeLayout(_ window: DockWindow) {
+        setNeedsLayoutNotification()
     }
 }
 
