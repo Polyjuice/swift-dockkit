@@ -163,12 +163,17 @@ public class DockTabBarView: NSView, NSDraggingSource {
         applyBarBackground()
     }
 
+    /// The bars' background, the window's by default; `.clear` lets a host's
+    /// own backdrop show through (an app with colors of its own). Read when
+    /// a bar appears or its appearance changes.
+    public static var barBackgroundColor: NSColor = .windowBackgroundColor
+
     /// CGColor freezes the dynamic windowBackgroundColor at the moment of
     /// assignment, so we re-resolve whenever the host's appearance changes.
     private func applyBarBackground() {
         var cg: CGColor?
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            cg = NSColor.windowBackgroundColor.cgColor
+            cg = Self.barBackgroundColor.cgColor
         }
         layer?.backgroundColor = cg
     }

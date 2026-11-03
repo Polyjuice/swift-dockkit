@@ -124,6 +124,19 @@ open class DockContainerViewController: NSViewController {
         }
     }
 
+    // MARK: - Overridable proposals
+
+    /// The person clicked a tab's close button: a proposal. The default
+    /// closes the tab; a subclass that owns the panels' lifetimes decides
+    /// (declared in the class so a subclass can override it — a protocol
+    /// extension's default cannot be).
+    open func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestClosePanel panelId: UUID, at index: Int) {
+        _ = tabGroup.removeTab(at: index)
+    }
+
+    /// Another tab is the active one of a group in this container.
+    open func tabGroupDidChangeActiveTab(_ tabGroup: DockTabGroupViewController) {}
+
     // MARK: - Panel Management
 
     /// Add a panel to the dock
