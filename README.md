@@ -140,6 +140,25 @@ let newLayout = layout.removingTab(tabId)
 
 See [Panel Operations](docs/PANEL_OPERATIONS.md) for complete documentation.
 
+## Tab Bars: Look and Place
+
+A tab bar's look is a `DockTabRenderer` (each tab's view, the "+" button, the bar's height). Set one for the process, or one per container — the container's wins:
+
+```swift
+DockKit.customTabRenderer = MyTabRenderer()      // every bar
+container.tabRenderer = MyOtherTabRenderer()     // this container's bars
+container.showsAddButton = false                 // no "+" in this container
+```
+
+A container's root tab group can keep its bar in a view of the host's instead of over its content — a window's own toolbar strip, say. The bar is the same view: tabs still drag, reorder, tear off and take drops.
+
+```swift
+container.rootTabBarHost = myToolbar.tabsSlot    // the bar fills that view
+container.rootTabBarHost = nil                   // back over the content
+```
+
+The host is applied again after every rebuild of the layout while the root is one tab group; a root that is a split keeps its bars over the content. A bar under a window's title-bar strip never moves the window on mouse down. Two proposals are overridable on `DockContainerViewController` for this: `tabGroup(_:didRequestNewPanelIn:actionId:)` (what "+" means) and `tabGroup(_:canAcceptPanel:at:)` (refuse the zones that would split, to keep an area one group).
+
 ## Stage Hosts
 
 Stage hosts provide multiple virtual workspaces in a single window with swipe gesture navigation:
