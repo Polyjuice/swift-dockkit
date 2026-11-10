@@ -221,6 +221,42 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
     /// Tab bar height constraint (varies based on group style)
     private var tabBarHeightConstraint: NSLayoutConstraint!
 
+    /// The tab bar's place in this controller's view: over the content.
+    /// Deactivated while the bar is hosted elsewhere (`tabBarHost`).
+    private var tabBarInContentConstraints: [NSLayoutConstraint] = []
+    /// The content at the view's top while the bar is hosted elsewhere.
+    private var contentToTopConstraint: NSLayoutConstraint!
+    /// The bar's constraints in its host, while it has one.
+    private var tabBarInHostConstraints: [NSLayoutConstraint] = []
+
+    /// This group's tab renderer, over the process-wide one
+    /// (`DockTabBarView.tabRenderer`); its `tabBarHeight` is the bar's.
+    public var tabRenderer: DockTabRenderer? {
+        didSet {
+            tabBar?.tabRenderer = tabRenderer
+            if tabBar != nil { updateTabBar() }
+        }
+    }
+
+    /// The trailing "+" button(s) shown; a host with an add path of its own
+    /// (or none) turns them off.
+    public var showsAddButton: Bool = true {
+        didSet { tabBar?.showAddButton = showsAddButton }
+    }
+
+    /// A view of the host's where this group's tab bar lives instead of over
+    /// its content (a window's own bar, say). The bar is the same view: its
+    /// tabs still drag, reorder, tear off and take drops. Nil: the bar comes
+    /// back over the content. A container sets it on its root group
+    /// (`DockContainerViewController.rootTabBarHost`), and again after every
+    /// rebuild; this controller takes the bar back out when it goes away.
+    public var tabBarHost: NSView? {
+        didSet {
+            guard tabBarHost !== oldValue, tabBar != nil else { return }
+            placeTabBar()
+        }
+    }
+
     /// Clip view that masks the sliding content.
     private var clipView: NSView!
 
@@ -308,7 +344,36 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
     deinit {
         firstResponderObservation?.invalidate()
         NotificationCenter.default.removeObserver(self)
+        // A bar left in a host's view would outlive its group.
+        if let bar = tabBar, isViewLoaded, bar.superview !== view { bar.removeFromSuperview() }
     }
+
+    /// The tab bar into its host, or back over the content.
+    private func placeTabBar() {
+        NSLayoutConstraint.deactivate(tabBarInHostConstraints)
+        tabBarInHostConstraints = []
+        if let host = tabBarHost {
+            NSLayoutConstraint.deactivate(tabBarInContentConstraints)
+            tabBar.removeFromSuperview()
+            host.addSubview(tabBar)
+            tabBarInHostConstraints = [
+                tabBar.topAnchor.constraint(equalTo: host.topAnchor),
+                tabBar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+                tabBar.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                tabBar.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            ]
+            NSLayoutConstraint.activate(tabBarInHostConstraints)
+            contentToTopConstraint.isActive = true
+        } else {
+            contentToTopConstraint.isActive = false
+            tabBar.removeFromSuperview()
+            view.addSubview(tabBar, positioned: .below, relativeTo: dropOverlay)
+            NSLayoutConstraint.activate(tabBarInContentConstraints)
+        }
+    }
+
+    /// Where the bar is now: the host, or this controller's view.
+    public var tabBarSuperview: NSView? { tabBar?.superview }
 
     // MARK: - Convenience Accessors
 
@@ -385,14 +450,20 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
         contentLeadingConstraint = contentView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor)
 
         tabBarHeightConstraint = tabBar.heightAnchor.constraint(equalToConstant: heightForGroupStyle(groupStyle))
+        tabBar.tabRenderer = tabRenderer
+        tabBar.showAddButton = showsAddButton
 
-        NSLayoutConstraint.activate([
+        tabBarInContentConstraints = [
             tabBar.topAnchor.constraint(equalTo: view.topAnchor),
             tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tabBarHeightConstraint,
-
             clipView.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+        ]
+        contentToTopConstraint = clipView.topAnchor.constraint(equalTo: view.topAnchor)
+        NSLayoutConstraint.activate(tabBarInContentConstraints)
+
+        NSLayoutConstraint.activate([
             clipView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             clipView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             clipView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -869,10 +940,12 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
         }
     }
 
+    /// The bar's height: the renderer's (this group's, else the process-wide
+    /// one) for tabs; 28 without one; thumbnails are 80 regardless.
     private func heightForGroupStyle(_ style: PanelGroupStyle) -> CGFloat {
         switch style {
         case .tabs, .stages, .split:
-            return 28
+            return (tabRenderer ?? DockKit.customTabRenderer)?.tabBarHeight ?? 28
         case .thumbnails:
             return 80
         }

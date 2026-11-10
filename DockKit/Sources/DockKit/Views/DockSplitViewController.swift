@@ -72,6 +72,11 @@ public class DockSplitViewController: NSSplitViewController, DockStageReconcilab
     /// Panel provider for resolving content panel IDs to DockablePanel instances
     public var panelProvider: ((UUID) -> (any DockablePanel)?)?
 
+    /// The container's tab renderer and "+" policy, passed down to the tab
+    /// groups this split makes.
+    public var tabRenderer: DockTabRenderer?
+    public var showsAddButton = true
+
     /// The panel this controller represents (must have content == .group with style == .split)
     public private(set) var panel: Panel
 
@@ -187,6 +192,8 @@ public class DockSplitViewController: NSSplitViewController, DockStageReconcilab
                 splitVC.tabGroupDelegate = tabGroupDelegate
                 splitVC.panelProvider = panelProvider
                 splitVC.swipeGestureDelegate = swipeGestureDelegate
+                splitVC.tabRenderer = tabRenderer
+                splitVC.showsAddButton = showsAddButton
                 return splitVC
 
             case .tabs, .thumbnails:
@@ -194,6 +201,8 @@ public class DockSplitViewController: NSSplitViewController, DockStageReconcilab
                 tabGroupVC.delegate = tabGroupDelegate
                 tabGroupVC.panelProvider = panelProvider
                 tabGroupVC.swipeGestureDelegate = swipeGestureDelegate
+                tabGroupVC.tabRenderer = tabRenderer
+                tabGroupVC.showsAddButton = showsAddButton
                 return tabGroupVC
 
             case .stages:

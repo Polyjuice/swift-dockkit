@@ -96,6 +96,23 @@ public class DockTabBarView: NSView, NSDraggingSource {
         didSet { addButtonStack?.isHidden = !showAddButton }
     }
 
+    /// This bar's renderer, over the process-wide `DockKit.customTabRenderer`:
+    /// a container that wants a look of its own sets it on its groups
+    /// (`DockContainerViewController.tabRenderer`). Nil: the global one.
+    public var tabRenderer: DockTabRenderer? {
+        didSet {
+            if tabRenderer !== oldValue { rebuildForGroupStyle() }
+        }
+    }
+
+    /// The renderer in force: this bar's, else the process-wide one.
+    var activeRenderer: DockTabRenderer? { tabRenderer ?? DockKit.customTabRenderer }
+
+    /// A tab bar hosted in a window's title-bar strip (`fullSizeContentView`)
+    /// would otherwise move the window on mouse down; a press on it begins a
+    /// tab drag, a selection or a close, never a window move.
+    public override var mouseDownCanMoveWindow: Bool { false }
+
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupUI()
@@ -201,7 +218,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
         reconcileForGroupStyle(previousPanels: previousPanels)
 
         if actionsChanged {
-            rebuildAddButtons(actions: addActions, renderer: DockKit.customTabRenderer)
+            rebuildAddButtons(actions: addActions, renderer: activeRenderer)
         }
     }
 
@@ -212,7 +229,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
         switch groupStyle {
         case .tabs, .split, .stages:
-            if DockKit.customTabRenderer != nil {
+            if activeRenderer != nil {
                 reconcileCustomTabViews(previousPanels: previousPanels)
             } else {
                 reconcileStandardTabButtons(previousPanels: previousPanels)
@@ -228,7 +245,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
         // Determine effective style - fall back to tabs if custom renderer not registered
         let effectiveStyle: PanelGroupStyle
-        if DockKit.customTabRenderer != nil {
+        if activeRenderer != nil {
             effectiveStyle = groupStyle
         } else {
             effectiveStyle = groupStyle
@@ -236,7 +253,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
         switch effectiveStyle {
         case .tabs, .split, .stages:
-            if DockKit.customTabRenderer != nil {
+            if activeRenderer != nil {
                 rebuildCustomTabViews()
             } else {
                 rebuildTabButtons()
@@ -265,8 +282,8 @@ public class DockTabBarView: NSView, NSDraggingSource {
         let effectiveStyle = groupStyle
         switch effectiveStyle {
         case .tabs, .split, .stages:
-            if DockKit.customTabRenderer != nil {
-                let renderer = DockKit.customTabRenderer!
+            if activeRenderer != nil {
+                let renderer = activeRenderer!
                 for (index, view) in customTabViews.enumerated() {
                     renderer.setFocused(focused && index == selectedIndex, on: view)
                 }
@@ -389,7 +406,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
     }
 
     private func reconcileCustomTabViews(previousPanels: [Panel]) {
-        guard let renderer = DockKit.customTabRenderer else {
+        guard let renderer = activeRenderer else {
             // Renderer cleared between calls; fall back to standard path.
             reconcileStandardTabButtons(previousPanels: previousPanels)
             return
@@ -500,7 +517,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
     }
 
     private func rebuildCustomTabViews() {
-        guard let renderer = DockKit.customTabRenderer else {
+        guard let renderer = activeRenderer else {
             // Should not happen - rebuildForGroupStyle checks this
             rebuildTabButtons()
             return
@@ -522,10 +539,10 @@ public class DockTabBarView: NSView, NSDraggingSource {
     }
 
     private func updateSelectionState() {
-        let useCustom = DockKit.customTabRenderer != nil && (groupStyle == .tabs || groupStyle == .split || groupStyle == .stages)
+        let useCustom = activeRenderer != nil && (groupStyle == .tabs || groupStyle == .split || groupStyle == .stages)
 
         if useCustom {
-            guard let renderer = DockKit.customTabRenderer else { return }
+            guard let renderer = activeRenderer else { return }
             for (index, view) in customTabViews.enumerated() {
                 guard index < panels.count else { continue }
                 renderer.updateTabView(view, for: panels[index], isSelected: index == selectedIndex)
@@ -792,7 +809,7 @@ public class DockTabBarView: NSView, NSDraggingSource {
 
     /// Get the currently active tab views based on group style
     private var activeTabViews: [NSView] {
-        if DockKit.customTabRenderer != nil && (groupStyle == .tabs || groupStyle == .split || groupStyle == .stages) {
+        if activeRenderer != nil && (groupStyle == .tabs || groupStyle == .split || groupStyle == .stages) {
             return customTabViews
         }
         switch groupStyle {

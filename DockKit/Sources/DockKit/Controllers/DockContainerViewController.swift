@@ -22,6 +22,34 @@ open class DockContainerViewController: NSViewController {
     /// Whether drag is currently in progress
     private var isDragging = false
 
+    /// This container's tab renderer, over the process-wide
+    /// `DockKit.customTabRenderer`: the look of its tab bars (and their
+    /// height). Set before the view loads, or the groups are rebuilt.
+    public var tabRenderer: DockTabRenderer? {
+        didSet { if isViewLoaded { rebuildLayout() } }
+    }
+
+    /// The tab bars' trailing "+" shown. Off for a host whose add path is
+    /// its own (or that has none).
+    public var showsAddButton = true {
+        didSet { if isViewLoaded { rebuildLayout() } }
+    }
+
+    /// A view of the host's where the root group's tab bar lives instead of
+    /// over its content (the host's own bar, say). Applied to the root group
+    /// after every rebuild, as long as the root is one tab group; a root
+    /// that is a split keeps its bars over its content. Nil: the bar comes
+    /// back over the content.
+    public var rootTabBarHost: NSView? {
+        didSet { if isViewLoaded { placeRootTabBar() } }
+    }
+
+    /// The root group's tab bar is where `rootTabBarHost` says, or over the
+    /// content.
+    private func placeRootTabBar() {
+        (rootViewController as? DockTabGroupViewController)?.tabBarHost = rootTabBarHost
+    }
+
     // MARK: - Initialization
 
     public init(rootPanel: Panel? = nil) {
@@ -56,7 +84,8 @@ open class DockContainerViewController: NSViewController {
 
     /// Rebuild the entire layout from the root panel
     public func rebuildLayout() {
-        // Remove existing root
+        // Remove existing root (its bar back from the host first)
+        (rootViewController as? DockTabGroupViewController)?.tabBarHost = nil
         rootViewController?.view.removeFromSuperview()
         rootViewController?.removeFromParent()
         rootViewController = nil
@@ -76,6 +105,7 @@ open class DockContainerViewController: NSViewController {
                 rootVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
             ])
         }
+        placeRootTabBar()
     }
 
     /// Create view controller for a panel
@@ -93,6 +123,8 @@ open class DockContainerViewController: NSViewController {
             let tabGroupVC = DockTabGroupViewController(panel: wrapperPanel)
             tabGroupVC.panelProvider = { [weak self] id in self?.panelRegistry[id] }
             tabGroupVC.delegate = self
+            tabGroupVC.tabRenderer = tabRenderer
+            tabGroupVC.showsAddButton = showsAddButton
             return tabGroupVC
 
         case .group(let group):
@@ -104,12 +136,16 @@ open class DockContainerViewController: NSViewController {
                 splitVC.panelProvider = { [weak self] id in
                     self?.panelRegistry[id]
                 }
+                splitVC.tabRenderer = tabRenderer
+                splitVC.showsAddButton = showsAddButton
                 return splitVC
 
             case .tabs, .thumbnails:
                 let tabGroupVC = DockTabGroupViewController(panel: panel)
                 tabGroupVC.panelProvider = { [weak self] id in self?.panelRegistry[id] }
                 tabGroupVC.delegate = self
+                tabGroupVC.tabRenderer = tabRenderer
+                tabGroupVC.showsAddButton = showsAddButton
                 return tabGroupVC
 
             case .stages:
@@ -136,6 +172,17 @@ open class DockContainerViewController: NSViewController {
 
     /// Another tab is the active one of a group in this container.
     open func tabGroupDidChangeActiveTab(_ tabGroup: DockTabGroupViewController) {}
+
+    /// The person clicked a "+" of a group in this container: a proposal
+    /// (`actionId` names the `PanelAddAction`, nil for the plain button).
+    /// The default does nothing; a subclass opens what its "+" means.
+    open func tabGroup(_ tabGroup: DockTabGroupViewController, didRequestNewPanelIn groupId: UUID, actionId: String?) {}
+
+    /// A drag over a group of this container: may the panel land in this
+    /// zone? Asked on every mouse move; the default says yes everywhere. A
+    /// subclass that keeps an area one tab group refuses every zone but
+    /// `.center`.
+    open func tabGroup(_ tabGroup: DockTabGroupViewController, canAcceptPanel panelId: UUID, at zone: DockDropZone) -> Bool { true }
 
     // MARK: - Panel Management
 
