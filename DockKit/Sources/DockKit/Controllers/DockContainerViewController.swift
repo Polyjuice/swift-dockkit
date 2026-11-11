@@ -195,9 +195,12 @@ open class DockContainerViewController: NSViewController {
         if let targetGroupId = groupId,
            let tabGroup = findTabGroupController(withId: targetGroupId) {
             tabGroup.addTab(from: panel, activate: activate)
+            // The model follows: it is what a rebuild, a rename and a lookup read.
+            updateGroupPanelForController(tabGroup)
         } else if let firstTabGroup = findFirstTabGroupController() {
             // Add to first available tab group
             firstTabGroup.addTab(from: panel, activate: activate)
+            updateGroupPanelForController(firstTabGroup)
         } else {
             // Create a new tab group for this panel
             let contentPanel = Panel.contentPanel(
@@ -215,9 +218,25 @@ open class DockContainerViewController: NSViewController {
         }
     }
 
+    /// Rename a panel's tab in place: a title the app learns after the tab
+    /// exists. The container's model and the tab follow (as
+    /// `DockWindow.setTitle` does for a window). False: no such panel here.
+    @discardableResult
+    open func setTitle(_ title: String, forPanel panelId: UUID) -> Bool {
+        guard let group = rootPanel.findGroup(containingPanelId: panelId) else { return false }
+        rootPanel = rootPanel.renaming(panelId, to: title)
+        findTabGroupController(withId: group.groupId)?.setTitle(title, forChild: panelId)
+        return true
+    }
+
     /// Remove a panel from the dock
     public func removePanel(_ panelId: UUID) {
         panelRegistry.removeValue(forKey: panelId)
+
+        // Its group as it stands now (the tab the person selected), so the rebuild keeps it.
+        if let group = rootPanel.findGroup(containingPanelId: panelId), let controller = findTabGroupController(withId: group.groupId) {
+            updateGroupPanelForController(controller)
+        }
 
         // Find and remove from tree
         removeChild(withId: panelId, from: &rootPanel)
@@ -301,7 +320,11 @@ open class DockContainerViewController: NSViewController {
         case .group(var group):
             switch group.style {
             case .tabs, .thumbnails:
-                group.children.removeAll { $0.id == childId }
+                if let index = group.children.firstIndex(where: { $0.id == childId }) {
+                    group.children.remove(at: index)
+                    // A tab before the active one went: the active one is one place down.
+                    if index < group.activeIndex { group.activeIndex -= 1 }
+                }
                 if group.activeIndex >= group.children.count {
                     group.activeIndex = max(0, group.children.count - 1)
                 }

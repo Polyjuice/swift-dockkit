@@ -8,7 +8,9 @@ private final class TallRenderer: DockTabRenderer {
     init(height: CGFloat) { self.height = height }
     var tabBarHeight: CGFloat { height }
     func createTabView(for panel: Panel, isSelected: Bool) -> DockTabView { BareTab() }
-    func updateTabView(_ view: DockTabView, for panel: Panel, isSelected: Bool) {}
+    /// The titles its tabs were updated to, in order.
+    private(set) var updated: [String] = []
+    func updateTabView(_ view: DockTabView, for panel: Panel, isSelected: Bool) { updated.append(panel.title ?? "") }
     func setFocused(_ focused: Bool, on view: DockTabView) {}
     func createAddButton(for action: PanelAddAction?) -> NSView? { nil }
 }
@@ -115,6 +117,42 @@ final class TabBarHostTests: XCTestCase {
         plain.rebuildLayout()
         window.contentView!.layoutSubtreeIfNeeded()
         XCTAssertEqual(try XCTUnwrap(bar(in: plain.view)).frame.height, 28, accuracy: 0.5, "no renderer: 28")
+    }
+
+    func testARenamedTabIsShownByTheRenderer() throws {
+        let renderer = TallRenderer(height: 32)
+        DockKit.customTabRenderer = renderer
+        let (container, _) = make(["A", "B"])
+        let group = try XCTUnwrap(rootGroup(container))
+        let second = try XCTUnwrap(group.childPanels.last?.id)
+        let before = renderer.updated.count
+        XCTAssertTrue(group.setTitle("parrot", forChild: second))
+        XCTAssertEqual(Array(renderer.updated.dropFirst(before)), ["parrot"], "the renderer's own tab view is told its new title")
+        XCTAssertEqual(group.childPanels.last?.title, "parrot")
+    }
+
+    func testAddedPanelsAreInTheContainersModel() throws {
+        let (container, _) = make(["A", "B", "C"])
+        let ids = try XCTUnwrap(rootGroup(container)).childPanels.map(\.id)
+        XCTAssertEqual(ids.count, 3)
+        for id in ids { XCTAssertNotNil(container.rootPanel.findGroup(containingPanelId: id), "a panel added to the container is in its model") }
+        try XCTUnwrap(rootGroup(container)).selectTab(at: 1)
+        container.removePanel(ids[0])
+        XCTAssertEqual(rootGroup(container)?.childPanels.map(\.id), [ids[1], ids[2]], "removing one panel keeps the others")
+        XCTAssertEqual(rootGroup(container)?.activeTab?.id, ids[1], "and the tab that was selected")
+    }
+
+    func testAContainerRenamesATabInPlaceAndKeepsTheNameOverARebuild() throws {
+        let renderer = TallRenderer(height: 32)
+        let (container, _) = make(["A", "B", "C"])
+        container.tabRenderer = renderer
+        let ids = try XCTUnwrap(rootGroup(container)).childPanels.map(\.id)
+        let before = renderer.updated.count
+        XCTAssertTrue(container.setTitle("parrot", forPanel: ids[1]))
+        XCTAssertEqual(Array(renderer.updated.dropFirst(before)), ["parrot"], "the tab shown is told its new title")
+        XCTAssertFalse(container.setTitle("nobody", forPanel: UUID()))
+        container.removePanel(ids[0])
+        XCTAssertEqual(rootGroup(container)?.childPanels.map(\.title), ["parrot", "C"], "the name is in the model: a rebuild keeps it")
     }
 
     func testTheAddButtonCanBeTurnedOff() throws {

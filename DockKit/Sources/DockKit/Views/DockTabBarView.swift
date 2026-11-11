@@ -274,6 +274,13 @@ public class DockTabBarView: NSView, NSDraggingSource {
         if let title = title {
             panels[index].title = title
         }
+        // A custom renderer's tabs are its own views: it is the one to show the change.
+        if let renderer = activeRenderer, groupStyle != .thumbnails {
+            if let view = customTabViews[safe: index] {
+                renderer.updateTabView(view, for: panels[index], isSelected: index == selectedIndex)
+            }
+            return
+        }
         tabButtons[safe: index]?.update(with: panels[index], isSelected: index == selectedIndex)
     }
 
