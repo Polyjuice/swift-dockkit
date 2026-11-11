@@ -162,6 +162,59 @@ final class TabBarHostTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(bar(in: container.view)).showAddButton)
     }
 
+    /// A two-finger horizontal swipe handed to a tab group's view, as the
+    /// trackpad sends one: began, moved `dx` points in steps, ended.
+    private func swipe(_ container: DockContainerViewController, by dx: Int32) throws {
+        let view = try XCTUnwrap(rootGroup(container)).view
+        func send(_ phase: Int64, _ delta: Int32) throws {
+            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: delta, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+            view.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: cg)))
+        }
+        try send(1, dx / 8)                                 // began
+        for _ in 0..<7 { try send(2, dx / 8) }              // changed
+        try send(4, 0)                                      // ended
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    }
+
+    func testTheTabSwipeCanBeTurnedOff() throws {
+        let (container, _) = make(["A", "B"])
+        XCTAssertEqual(rootGroup(container)?.activeIndex, 0)
+        try swipe(container, by: -480)
+        XCTAssertEqual(rootGroup(container)?.activeIndex, 1, "a swipe over the group goes to the tab beside")
+
+        // Each change of it makes the group again, on its first tab.
+        container.swipesBetweenTabs = false
+        window.contentView!.layoutSubtreeIfNeeded()
+        XCTAssertEqual(rootGroup(container)?.activeIndex, 0)
+        try swipe(container, by: -480)
+        XCTAssertEqual(rootGroup(container)?.activeIndex, 0, "turned off, a swipe changes no tab: it is the content's")
+
+        container.swipesBetweenTabs = true
+        window.contentView!.layoutSubtreeIfNeeded()
+        try swipe(container, by: -480)
+        XCTAssertEqual(rootGroup(container)?.activeIndex, 1, "and on again it does")
+    }
+
+    private func roots(in view: NSView) -> [DockTabGroupRootView] {
+        if let root = view as? DockTabGroupRootView { return [root] }
+        return view.subviews.flatMap { roots(in: $0) }
+    }
+
+    func testAPanelAddedBeforeTheViewLoadsLeavesOneTabGroup() throws {
+        let container = DockContainerViewController()
+        let early = TestPanel("A")
+        panels[early.panelId] = early
+        container.addPanel(early, activate: true)
+        let content = window.contentView!
+        container.view.frame = content.bounds
+        content.addSubview(container.view)
+        content.layoutSubtreeIfNeeded()
+        XCTAssertEqual(roots(in: content).count, 1, "the view's loading builds the layout once: no group's view is left behind under it")
+        XCTAssertEqual(rootGroup(container)?.childPanels.map(\.title), ["A"])
+    }
+
     func testTheBarDoesNotMoveTheWindow() {
         XCTAssertFalse(DockTabBarView().mouseDownCanMoveWindow)
     }

@@ -148,6 +148,7 @@ A tab bar's look is a `DockTabRenderer` (each tab's view, the "+" button, the ba
 DockKit.customTabRenderer = MyTabRenderer()      // every bar
 container.tabRenderer = MyOtherTabRenderer()     // this container's bars
 container.showsAddButton = false                 // no "+" in this container
+container.swipesBetweenTabs = false              // swipes reach the content (a web view's back and forward)
 ```
 
 A container's root tab group can keep its bar in a view of the host's instead of over its content — a window's own toolbar strip, say. The bar is the same view: tabs still drag, reorder, tear off and take drops.

@@ -35,6 +35,14 @@ open class DockContainerViewController: NSViewController {
         didSet { if isViewLoaded { rebuildLayout() } }
     }
 
+    /// A horizontal two-finger swipe over a tab group goes to the tab beside
+    /// it. Off for a host whose content takes such swipes itself (a web
+    /// view's back and forward): they then reach the content under the
+    /// cursor, and a tab is changed in the bar.
+    public var swipesBetweenTabs = true {
+        didSet { if isViewLoaded { rebuildLayout() } }
+    }
+
     /// A view of the host's where the root group's tab bar lives instead of
     /// over its content (the host's own bar, say). Applied to the root group
     /// after every rebuild, as long as the root is one tab group; a root
@@ -84,6 +92,12 @@ open class DockContainerViewController: NSViewController {
 
     /// Rebuild the entire layout from the root panel
     public func rebuildLayout() {
+        // Before the view is loaded (a panel added to a container not yet
+        // shown), loading it is the build: viewDidLoad builds from the model.
+        // Building here as well would load the view halfway through and
+        // leave that first build's root in the view, with no controller.
+        guard isViewLoaded else { _ = view; return }
+
         // Remove existing root (its bar back from the host first)
         (rootViewController as? DockTabGroupViewController)?.tabBarHost = nil
         rootViewController?.view.removeFromSuperview()
@@ -125,6 +139,7 @@ open class DockContainerViewController: NSViewController {
             tabGroupVC.delegate = self
             tabGroupVC.tabRenderer = tabRenderer
             tabGroupVC.showsAddButton = showsAddButton
+            tabGroupVC.swipesBetweenTabs = swipesBetweenTabs
             return tabGroupVC
 
         case .group(let group):
@@ -138,6 +153,7 @@ open class DockContainerViewController: NSViewController {
                 }
                 splitVC.tabRenderer = tabRenderer
                 splitVC.showsAddButton = showsAddButton
+                splitVC.swipesBetweenTabs = swipesBetweenTabs
                 return splitVC
 
             case .tabs, .thumbnails:
@@ -146,6 +162,7 @@ open class DockContainerViewController: NSViewController {
                 tabGroupVC.delegate = self
                 tabGroupVC.tabRenderer = tabRenderer
                 tabGroupVC.showsAddButton = showsAddButton
+                tabGroupVC.swipesBetweenTabs = swipesBetweenTabs
                 return tabGroupVC
 
             case .stages:

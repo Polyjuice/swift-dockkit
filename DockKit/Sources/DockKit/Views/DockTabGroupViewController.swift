@@ -42,6 +42,9 @@ final class DockTabGroupRootView: NSView {
             // Window-scope guard — never react to events targeted at other windows.
             guard let eventWindow = event.window, eventWindow == self.window else { return event }
 
+            // The host turned the tab swipe off, or the group is gone: the content under the cursor gets its scrolls.
+            guard self.controller?.swipesBetweenTabs ?? false else { return event }
+
             // If we already own an in-progress gesture, route every subsequent event
             // to our controller regardless of where the cursor has moved, what
             // modifiers are held, or whether a nested swipeable now sits under the
@@ -125,7 +128,7 @@ final class DockTabGroupRootView: NSView {
         // Fallback path — most plain swipes are caught by the monitor above.
         // This only fires for events that bypass the monitor (e.g., synthesized
         // events) or land here via responder chain propagation.
-        if event.modifierFlags.contains(.shift) {
+        if event.modifierFlags.contains(.shift) || controller?.swipesBetweenTabs == false {
             super.scrollWheel(with: event)
             return
         }
@@ -243,6 +246,11 @@ public class DockTabGroupViewController: NSViewController, DockStageReconcilable
     public var showsAddButton: Bool = true {
         didSet { tabBar?.showAddButton = showsAddButton }
     }
+
+    /// A horizontal two-finger swipe over the group goes to the tab beside
+    /// it; a host whose content takes such swipes itself turns it off, and
+    /// they reach the content.
+    public var swipesBetweenTabs: Bool = true
 
     /// A view of the host's where this group's tab bar lives instead of over
     /// its content (a window's own bar, say). The bar is the same view: its
